@@ -7,7 +7,8 @@ export const runtime = "nodejs";
 const bodySchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
-  name: z.string().min(1).max(120).optional()
+  firstName: z.string().min(1).max(80).optional(),
+  lastName: z.string().min(1).max(80).optional()
 });
 
 export async function POST(request: Request) {
@@ -23,7 +24,8 @@ export async function POST(request: Request) {
     const result = await requestFlacsoRegistration({
       email: parsed.data.email,
       password: parsed.data.password,
-      name: parsed.data.name,
+      firstName: parsed.data.firstName,
+      lastName: parsed.data.lastName,
       origin
     });
 

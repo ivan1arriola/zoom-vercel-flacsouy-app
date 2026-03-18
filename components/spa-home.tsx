@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 type CurrentUser = {
   id: string;
@@ -52,6 +52,27 @@ export function SpaHome() {
   const [tarifas, setTarifas] = useState<Array<{ id: string; modalidadReunion: string; valorHora: string; moneda: string }>>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isSubmittingSolicitud, setIsSubmittingSolicitud] = useState(false);
+  const [form, setForm] = useState({
+    tema: "",
+    responsable: "",
+    programa: "",
+    asistenciaZoom: "SI",
+    modalidad: "VIRTUAL",
+    grabacion: "NO",
+    unaOVarias: "UNA",
+    controlAsistencia: "NO",
+    descripcionUnica: "",
+    fechaUnica: "",
+    duracionUnica: "60",
+    descripcionRecurrente: "",
+    primeraFecha: "",
+    duracionRecurrente: "60",
+    frecuenciaRecurrente: "SEMANAL",
+    regimenEncuentros: "",
+    fechaFinal: "",
+    correosDocentes: ""
+  });
 
   const canSeeManual = useMemo(() => user?.role === "ADMINISTRADOR", [user]);
   const canSeeAgenda = useMemo(
@@ -62,6 +83,7 @@ export function SpaHome() {
     () => ["CONTADURIA", "ADMINISTRADOR"].includes(user?.role ?? ""),
     [user]
   );
+  const isDocente = useMemo(() => user?.role === "DOCENTE", [user]);
 
   useEffect(() => {
     void bootstrap();
@@ -77,6 +99,9 @@ export function SpaHome() {
         return;
       }
       setUser(meJson.user);
+      if (meJson.user.role === "DOCENTE") {
+        setTab("solicitudes");
+      }
 
       await Promise.all([
         loadSummary(),
@@ -127,29 +152,160 @@ export function SpaHome() {
     setTarifas(json.rates);
   }
 
-  async function createDemoRequest() {
+  function updateForm<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function estimateIntervalDays(regimen: string): number {
+    const normalized = regimen.toLowerCase();
+    if (normalized.includes("quinc")) return 14;
+    if (normalized.includes("mens")) return 30;
+    return 7;
+  }
+
+  function getIntervalDaysFromFrequency(freq: string, regimen: string): number {
+    if (freq === "QUINCENAL") return 14;
+    if (freq === "MENSUAL") return 30;
+    if (freq === "PERSONALIZADA") return estimateIntervalDays(regimen);
+    return 7;
+  }
+
+  function toIso(value: string, fieldName: string): string {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(`${fieldName} inválida.`);
+    }
+    return parsed.toISOString();
+  }
+
+  async function submitDocenteSolicitud(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setMessage("");
-    const response = await fetch("/api/v1/solicitudes-sala", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        titulo: "Clase demostración PWA",
-        modalidadReunion: "VIRTUAL",
-        tipoInstancias: "UNICA",
-        fechaInicioSolicitada: new Date(Date.now() + 48 * 60 * 60000).toISOString(),
-        fechaFinSolicitada: new Date(Date.now() + 49 * 60 * 60000).toISOString(),
-        timezone: "America/Montevideo",
-        requiereAsistencia: true,
-        motivoAsistencia: "Acompañamiento de soporte"
-      })
-    });
-    const data = (await response.json()) as { error?: string; request?: { id: string } };
-    if (!response.ok) {
-      setMessage(data.error ?? "No se pudo crear solicitud demo.");
+
+    if (!form.tema.trim()) {
+      setMessage("Debes completar el tema.");
       return;
     }
-    setMessage(`Solicitud creada: ${data.request?.id}`);
-    await Promise.all([loadSolicitudes(), loadSummary(), loadAgenda(), loadManualPendings()]);
+
+    setIsSubmittingSolicitud(true);
+    try {
+      const metadata = [
+        `Responsable: ${form.responsable || "No especificado"}`,
+        form.grabacion === "DEFINIR" ? "Grabación: A definir en clase" : undefined
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const requiereAsistencia = form.asistenciaZoom === "SI";
+      const requiereGrabacion = form.grabacion === "SI";
+
+      let payload: Record<string, unknown>;
+
+      if (form.unaOVarias === "UNA") {
+        const startIso = toIso(form.fechaUnica, "Fecha única");
+        const minutes = Number(form.duracionUnica);
+        if (!Number.isFinite(minutes) || minutes <= 0) {
+          throw new Error("Duración de la reunión única inválida.");
+        }
+        const endIso = new Date(new Date(startIso).getTime() + minutes * 60_000).toISOString();
+
+        payload = {
+          titulo: form.tema.trim(),
+          responsableNombre: form.responsable.trim(),
+          programaNombre: form.programa.trim(),
+          descripcion: [form.descripcionUnica.trim(), metadata].filter(Boolean).join("\n\n"),
+          finalidadAcademica: form.programa.trim() || undefined,
+          modalidadReunion: form.modalidad,
+          tipoInstancias: "UNICA",
+          fechaInicioSolicitada: startIso,
+          fechaFinSolicitada: endIso,
+          timezone: "America/Montevideo",
+          controlAsistencia: form.controlAsistencia === "SI",
+          docentesCorreos: form.correosDocentes.trim() || undefined,
+          grabacionPreferencia:
+            form.grabacion === "SI" ? "SI" : form.grabacion === "NO" ? "NO" : "A_DEFINIR",
+          requiereGrabacion,
+          requiereAsistencia,
+          motivoAsistencia: requiereAsistencia ? "Asistencia solicitada desde formulario docente." : undefined
+        };
+      } else {
+        const firstIso = toIso(form.primeraFecha, "Primera fecha");
+        const firstDate = new Date(firstIso);
+        const minutes = Number(form.duracionRecurrente);
+        if (!Number.isFinite(minutes) || minutes <= 0) {
+          throw new Error("Duración de reunión periódica inválida.");
+        }
+        if (!form.fechaFinal) {
+          throw new Error("Debes completar la fecha final.");
+        }
+
+        const firstTime = form.primeraFecha.split("T")[1] || "00:00";
+        const finalStart = new Date(`${form.fechaFinal}T${firstTime}`);
+        if (Number.isNaN(finalStart.getTime())) {
+          throw new Error("Fecha final inválida.");
+        }
+        if (finalStart <= firstDate) {
+          throw new Error("La fecha final debe ser posterior a la primera fecha.");
+        }
+
+        const endIso = new Date(finalStart.getTime() + minutes * 60_000).toISOString();
+        const intervalDays = getIntervalDaysFromFrequency(
+          form.frecuenciaRecurrente,
+          form.regimenEncuentros
+        );
+        const totalInstancias = Math.max(
+          2,
+          Math.floor((finalStart.getTime() - firstDate.getTime()) / (intervalDays * 24 * 60 * 60 * 1000)) + 1
+        );
+
+        payload = {
+          titulo: form.tema.trim(),
+          responsableNombre: form.responsable.trim(),
+          programaNombre: form.programa.trim(),
+          descripcion: [form.descripcionRecurrente.trim(), metadata].filter(Boolean).join("\n\n"),
+          finalidadAcademica: form.programa.trim() || undefined,
+          modalidadReunion: form.modalidad,
+          tipoInstancias: "MULTIPLE_COMPATIBLE_ZOOM",
+          fechaInicioSolicitada: firstIso,
+          fechaFinSolicitada: endIso,
+          fechaFinRecurrencia: finalStart.toISOString(),
+          timezone: "America/Montevideo",
+          controlAsistencia: form.controlAsistencia === "SI",
+          docentesCorreos: form.correosDocentes.trim() || undefined,
+          grabacionPreferencia:
+            form.grabacion === "SI" ? "SI" : form.grabacion === "NO" ? "NO" : "A_DEFINIR",
+          requiereGrabacion,
+          requiereAsistencia,
+          motivoAsistencia: requiereAsistencia ? "Asistencia solicitada desde formulario docente." : undefined,
+          regimenEncuentros: form.regimenEncuentros,
+          patronRecurrencia: {
+            totalInstancias,
+            intervaloDias: intervalDays,
+            frecuencia: form.frecuenciaRecurrente,
+            regimenEncuentros: form.regimenEncuentros,
+            fechaFinal: form.fechaFinal
+          }
+        };
+      }
+
+      const response = await fetch("/api/v1/solicitudes-sala", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = (await response.json()) as { error?: string; request?: { id: string } };
+      if (!response.ok) {
+        setMessage(data.error ?? "No se pudo crear la solicitud.");
+        return;
+      }
+
+      setMessage(`Solicitud creada correctamente: ${data.request?.id}`);
+      await Promise.all([loadSolicitudes(), loadSummary(), loadAgenda(), loadManualPendings()]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo crear la solicitud.");
+    } finally {
+      setIsSubmittingSolicitud(false);
+    }
   }
 
   async function setInterest(eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA") {
@@ -175,11 +331,16 @@ export function SpaHome() {
       </p>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        {isDocente && (
+          <button className="btn primary" onClick={() => setTab("solicitudes")} type="button">
+            Pedir sala Zoom
+          </button>
+        )}
         <button className="btn ghost" onClick={() => setTab("dashboard")} type="button">
           Dashboard
         </button>
         <button className="btn ghost" onClick={() => setTab("solicitudes")} type="button">
-          Solicitudes
+          {isDocente ? "Solicitudes hechas" : "Solicitudes"}
         </button>
         {canSeeAgenda && (
           <button className="btn ghost" onClick={() => setTab("agenda")} type="button">
@@ -223,12 +384,206 @@ export function SpaHome() {
 
       {tab === "solicitudes" && (
         <article className="card">
-          <h3 style={{ marginTop: 0 }}>Solicitudes de sala</h3>
+          <h3 style={{ marginTop: 0 }}>{isDocente ? "Pedir sala Zoom" : "Solicitudes de sala"}</h3>
           <p className="muted">Usuario actual: {user?.email} ({user?.role})</p>
-          <button className="btn primary" type="button" onClick={createDemoRequest}>
-            Crear solicitud demo
-          </button>
+
+          {isDocente ? (
+            <form onSubmit={submitDocenteSolicitud}>
+              <h4 style={{ marginBottom: 8 }}>Sección 1 de 3 - Datos generales</h4>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Correo
+                <input type="email" value={user?.email ?? ""} disabled />
+              </label>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Tema
+                <input
+                  type="text"
+                  required
+                  value={form.tema}
+                  onChange={(e) => updateForm("tema", e.target.value)}
+                  placeholder="Nombre del Seminario / Clase / Reunión"
+                />
+              </label>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Nombre de la persona responsable
+                <input
+                  type="text"
+                  required
+                  value={form.responsable}
+                  onChange={(e) => updateForm("responsable", e.target.value)}
+                />
+              </label>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Programa
+                <input
+                  type="text"
+                  required
+                  value={form.programa}
+                  onChange={(e) => updateForm("programa", e.target.value)}
+                  placeholder="Programa a cargo de la propuesta"
+                />
+              </label>
+
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Asistencia Zoom
+                <select
+                  value={form.asistenciaZoom}
+                  onChange={(e) => updateForm("asistenciaZoom", e.target.value)}
+                >
+                  <option value="SI">Sí</option>
+                  <option value="NO">No</option>
+                </select>
+              </label>
+
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Modalidad
+                <select value={form.modalidad} onChange={(e) => updateForm("modalidad", e.target.value)}>
+                  <option value="VIRTUAL">Virtual</option>
+                  <option value="HIBRIDA">Híbrida</option>
+                </select>
+              </label>
+
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Grabación
+                <select value={form.grabacion} onChange={(e) => updateForm("grabacion", e.target.value)}>
+                  <option value="SI">Sí</option>
+                  <option value="NO">No</option>
+                  <option value="DEFINIR">A definir en clase</option>
+                </select>
+              </label>
+
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Una o varias reuniones
+                <select value={form.unaOVarias} onChange={(e) => updateForm("unaOVarias", e.target.value)}>
+                  <option value="UNA">Una sola</option>
+                  <option value="VARIAS">Varias</option>
+                </select>
+              </label>
+
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Control de asistencia
+                <select
+                  value={form.controlAsistencia}
+                  onChange={(e) => updateForm("controlAsistencia", e.target.value)}
+                >
+                  <option value="SI">Sí</option>
+                  <option value="NO">No</option>
+                </select>
+              </label>
+
+              {form.unaOVarias === "UNA" ? (
+                <>
+                  <h4 style={{ marginBottom: 8 }}>Sección 2 de 3 - Reunión única</h4>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Descripción (opcional)
+                    <textarea
+                      value={form.descripcionUnica}
+                      onChange={(e) => updateForm("descripcionUnica", e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Fecha (única)
+                    <input
+                      type="datetime-local"
+                      required
+                      value={form.fechaUnica}
+                      onChange={(e) => updateForm("fechaUnica", e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Duración de la reunión (minutos)
+                    <input
+                      type="number"
+                      min={15}
+                      step={15}
+                      required
+                      value={form.duracionUnica}
+                      onChange={(e) => updateForm("duracionUnica", e.target.value)}
+                    />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <h4 style={{ marginBottom: 8 }}>Sección 3 de 3 - Reuniones periódicas</h4>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Descripción (opcional)
+                    <textarea
+                      value={form.descripcionRecurrente}
+                      onChange={(e) => updateForm("descripcionRecurrente", e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Primera fecha
+                    <input
+                      type="datetime-local"
+                      required
+                      value={form.primeraFecha}
+                      onChange={(e) => updateForm("primeraFecha", e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Duración de la reunión recurrente (minutos)
+                    <input
+                      type="number"
+                      min={15}
+                      step={15}
+                      required
+                      value={form.duracionRecurrente}
+                      onChange={(e) => updateForm("duracionRecurrente", e.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Régimen de encuentros
+                    <textarea
+                      required
+                      value={form.regimenEncuentros}
+                      onChange={(e) => updateForm("regimenEncuentros", e.target.value)}
+                      placeholder="Ej: Todos los sábados"
+                    />
+                  </label>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Frecuencia de recurrencia
+                    <select
+                      value={form.frecuenciaRecurrente}
+                      onChange={(e) => updateForm("frecuenciaRecurrente", e.target.value)}
+                    >
+                      <option value="SEMANAL">Semanal</option>
+                      <option value="QUINCENAL">Quincenal</option>
+                      <option value="MENSUAL">Mensual</option>
+                      <option value="PERSONALIZADA">Personalizada (según régimen)</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    Fecha final
+                    <input
+                      type="date"
+                      required
+                      value={form.fechaFinal}
+                      onChange={(e) => updateForm("fechaFinal", e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
+
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Correos de docentes
+                <textarea
+                  value={form.correosDocentes}
+                  onChange={(e) => updateForm("correosDocentes", e.target.value)}
+                  placeholder="web@flacso.edu.uy; noreply@flacso.edu.uy"
+                />
+              </label>
+
+              <button className="btn primary" type="submit" disabled={isSubmittingSolicitud}>
+                {isSubmittingSolicitud ? "Enviando solicitud..." : "Enviar solicitud"}
+              </button>
+            </form>
+          ) : (
+            <p className="muted">Selecciona una solicitud para revisar su detalle.</p>
+          )}
+
           <div style={{ marginTop: 12 }}>
+            {isDocente && <h4 style={{ marginTop: 0 }}>Solicitudes ya hechas</h4>}
             {solicitudes.length === 0 && <p className="muted">No hay solicitudes registradas.</p>}
             {solicitudes.length > 0 && (
               <table>

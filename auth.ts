@@ -10,6 +10,8 @@ import { z } from "zod";
 import { db } from "@/src/lib/db";
 import { asBoolean, authSecret, env } from "@/src/lib/env";
 
+const ADMIN_EMAIL = "web@flacso.edu.uy";
+
 const signInSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
@@ -74,12 +76,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const validPassword = await bcrypt.compare(password, user.passwordHash);
         if (!validPassword) return null;
 
+        if (email === ADMIN_EMAIL && user.role !== UserRole.ADMINISTRADOR) {
+          await db.user.update({
+            where: { email },
+            data: { role: UserRole.ADMINISTRADOR }
+          });
+        }
+
+        const effectiveRole = email === ADMIN_EMAIL ? UserRole.ADMINISTRADOR : user.role;
+
         return {
           id: user.id,
           email: user.email,
           name: user.name,
           image: user.image,
-          role: user.role
+          role: effectiveRole
         };
       }
     }),
@@ -115,13 +126,50 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return true;
     },
     async signIn({ user, account, profile }) {
+      const email = user.email?.trim().toLowerCase();
+      if (!email) return false;
+
+      if (email === ADMIN_EMAIL) {
+        await db.user.upsert({
+          where: { email },
+          create: {
+            email,
+            name: user.name ?? "Administrador",
+            image: user.image,
+            role: UserRole.ADMINISTRADOR,
+            emailVerified: new Date()
+          },
+          update: { role: UserRole.ADMINISTRADOR }
+        });
+      }
+
       if (account?.provider !== "google") return true;
 
-      const email = user.email?.trim().toLowerCase();
-      if (!email || !email.endsWith("@flacso.edu.uy")) return false;
+      if (!email.endsWith("@flacso.edu.uy")) return false;
 
-      const googleProfile = profile as { email_verified?: boolean } | undefined;
+      const googleProfile = profile as {
+        email_verified?: boolean;
+        name?: string;
+        picture?: string;
+      } | undefined;
       if (!googleProfile?.email_verified) return false;
+
+      const role = email === ADMIN_EMAIL ? UserRole.ADMINISTRADOR : UserRole.DOCENTE;
+      await db.user.upsert({
+        where: { email },
+        create: {
+          email,
+          name: googleProfile.name ?? user.name,
+          image: googleProfile.picture ?? user.image,
+          role,
+          emailVerified: new Date()
+        },
+        update: {
+          role,
+          name: googleProfile.name ?? user.name ?? undefined,
+          image: googleProfile.picture ?? user.image ?? undefined
+        }
+      });
 
       return true;
     },
@@ -130,6 +178,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.userId = user.id;
         token.role = (user as { role?: UserRole }).role ?? UserRole.DOCENTE;
       }
+
+      if (String(token.email ?? "").trim().toLowerCase() === ADMIN_EMAIL) {
+        token.role = UserRole.ADMINISTRADOR;
+      }
+
       return token;
     },
     async session({ session, token }) {

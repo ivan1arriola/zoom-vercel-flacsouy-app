@@ -16,6 +16,8 @@ model AppSetting {
 
 model User {
   id            String    @id @default(cuid())
+  firstName     String?
+  lastName      String?
   name          String?
   email         String    @unique
   emailVerified DateTime?
@@ -99,6 +101,8 @@ model SolicitudSala {
   cuentaZoomPreferidaId String?
   cuentaZoomAsignadaId  String?
   titulo                String
+  responsableNombre     String?
+  programaNombre        String?
   descripcion           String?
   finalidadAcademica    String?
   modalidadReunion      ModalidadReunion
@@ -110,9 +114,14 @@ model SolicitudSala {
   fechaFinSolicitada    DateTime
   timezone              String
   capacidadEstimada     Int?
+  controlAsistencia     Boolean                  @default(false)
+  docentesCorreos       String?
+  grabacionPreferencia  GrabacionPreferencia     @default(NO)
   requiereGrabacion     Boolean                   @default(false)
   requiereAsistencia    Boolean                   @default(false)
   motivoAsistencia      String?
+  regimenEncuentros     String?
+  fechaFinRecurrencia   DateTime?
   patronRecurrencia     Json?
   fechasInstancias      Json?
   cantidadInstancias    Int                       @default(1)
@@ -456,6 +465,12 @@ enum UserRole {
 enum ModalidadReunion {
   HIBRIDA
   VIRTUAL
+}
+
+enum GrabacionPreferencia {
+  SI
+  NO
+  A_DEFINIR
 }
 
 enum TipoInstancias {

@@ -7,6 +7,7 @@ import { env } from "@/src/lib/env";
 import { EmailClient } from "@/src/lib/email.client";
 
 const FLACSO_DOMAIN = "@flacso.edu.uy";
+const ADMIN_EMAIL = "web@flacso.edu.uy";
 const PENDING_KEY_PREFIX = "auth:registration:pending:";
 const TOKEN_TTL_MINUTES = 30;
 const PASSWORD_RECOVERY_TTL_MINUTES = 30;
@@ -14,14 +15,16 @@ const PASSWORD_RECOVERY_TTL_MINUTES = 30;
 const pendingRegistrationSchema = z.object({
   token: z.string().min(1),
   passwordHash: z.string().min(1),
-  name: z.string().optional(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
   expiresAt: z.string().datetime()
 });
 
 export type RequestRegistrationInput = {
   email: string;
   password: string;
-  name?: string;
+  firstName?: string;
+  lastName?: string;
   origin?: string;
 };
 
@@ -48,7 +51,9 @@ function getPublicBaseUrl(origin?: string): string {
 export async function requestFlacsoRegistration(input: RequestRegistrationInput): Promise<{ verificationUrl?: string }> {
   const email = normalizeEmail(input.email);
   const password = input.password;
-  const name = input.name?.trim() || undefined;
+  const firstName = input.firstName?.trim() || undefined;
+  const lastName = input.lastName?.trim() || undefined;
+  const fullName = [firstName, lastName].filter(Boolean).join(" ") || undefined;
 
   if (password.length < 8) {
     throw new Error("La contraseña debe tener al menos 8 caracteres.");
@@ -69,10 +74,10 @@ export async function requestFlacsoRegistration(input: RequestRegistrationInput)
     where: { key: getPendingKey(email) },
     create: {
       key: getPendingKey(email),
-      value: { token, passwordHash, name, expiresAt }
+      value: { token, passwordHash, firstName, lastName, expiresAt }
     },
     update: {
-      value: { token, passwordHash, name, expiresAt }
+      value: { token, passwordHash, firstName, lastName, expiresAt }
     }
   });
 
@@ -84,7 +89,7 @@ export async function requestFlacsoRegistration(input: RequestRegistrationInput)
     to: email,
     subject: "Confirma tu registro en Plataforma Zoom FLACSO",
     html: `
-      <p>Hola${name ? ` ${name}` : ""},</p>
+      <p>Hola${fullName ? ` ${fullName}` : ""},</p>
       <p>Recibimos una solicitud de registro para la Plataforma Zoom de FLACSO Uruguay.</p>
       <p>Para demostrar que eres dueño de esta cuenta y activar tu acceso, haz clic en este enlace:</p>
       <p><a href="${verificationUrl}">Confirmar correo y activar cuenta</a></p>
@@ -125,20 +130,27 @@ export async function verifyFlacsoRegistration(emailRaw: string, token: string):
 
   await db.$transaction(async (tx) => {
     const existing = await tx.user.findUnique({ where: { email } });
+    const combinedName = [parsed.data.firstName, parsed.data.lastName].filter(Boolean).join(" ") || undefined;
+    const role = email === ADMIN_EMAIL ? UserRole.ADMINISTRADOR : UserRole.DOCENTE;
 
     await tx.user.upsert({
       where: { email },
       create: {
         email,
-        name: parsed.data.name,
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+        name: combinedName,
         passwordHash: parsed.data.passwordHash,
         emailVerified: new Date(),
-        role: UserRole.DOCENTE
+        role
       },
       update: {
         passwordHash: parsed.data.passwordHash,
         emailVerified: new Date(),
-        name: parsed.data.name ?? existing?.name
+        role,
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+        name: combinedName ?? existing?.name
       }
     });
 

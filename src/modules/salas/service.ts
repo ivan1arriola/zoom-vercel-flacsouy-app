@@ -17,6 +17,8 @@ import type { SessionUser } from "@/src/lib/api-auth";
 
 export type CreateSolicitudInput = {
   titulo: string;
+  responsableNombre?: string;
+  programaNombre?: string;
   descripcion?: string;
   finalidadAcademica?: string;
   modalidadReunion: ModalidadReunion;
@@ -26,9 +28,14 @@ export type CreateSolicitudInput = {
   fechaFinSolicitada: string;
   timezone?: string;
   capacidadEstimada?: number;
+  controlAsistencia?: boolean;
+  docentesCorreos?: string;
+  grabacionPreferencia?: "SI" | "NO" | "A_DEFINIR";
   requiereGrabacion?: boolean;
   requiereAsistencia?: boolean;
   motivoAsistencia?: string;
+  regimenEncuentros?: string;
+  fechaFinRecurrencia?: string;
   patronRecurrencia?: Record<string, unknown>;
   fechasInstancias?: string[];
 };
@@ -207,6 +214,12 @@ export class SalasService {
     const docente = await getOrCreateDocente(user);
     const start = toDate(input.fechaInicioSolicitada, "fechaInicioSolicitada");
     const end = toDate(input.fechaFinSolicitada, "fechaFinSolicitada");
+    const recurrenceEnd = input.fechaFinRecurrencia
+      ? toDate(input.fechaFinRecurrencia, "fechaFinRecurrencia")
+      : null;
+    const grabacionPreferencia = input.grabacionPreferencia ?? "NO";
+    const requiereGrabacion =
+      input.requiereGrabacion ?? grabacionPreferencia === "SI";
 
     if (end <= start) {
       throw new Error("fechaFinSolicitada debe ser mayor a fechaInicioSolicitada.");
@@ -221,6 +234,8 @@ export class SalasService {
           docenteId: docente.id,
           createdByUserId: user.id,
           titulo: input.titulo,
+          responsableNombre: input.responsableNombre,
+          programaNombre: input.programaNombre,
           descripcion: input.descripcion,
           finalidadAcademica: input.finalidadAcademica,
           modalidadReunion: input.modalidadReunion,
@@ -230,9 +245,14 @@ export class SalasService {
           fechaFinSolicitada: end,
           timezone: input.timezone ?? "America/Montevideo",
           capacidadEstimada: input.capacidadEstimada,
-          requiereGrabacion: input.requiereGrabacion ?? false,
+          controlAsistencia: input.controlAsistencia ?? false,
+          docentesCorreos: input.docentesCorreos,
+          grabacionPreferencia,
+          requiereGrabacion,
           requiereAsistencia: input.requiereAsistencia ?? false,
           motivoAsistencia: input.motivoAsistencia,
+          regimenEncuentros: input.regimenEncuentros,
+          fechaFinRecurrencia: recurrenceEnd,
           patronRecurrencia: input.patronRecurrencia as Prisma.InputJsonValue | undefined,
           fechasInstancias: input.fechasInstancias,
           cantidadInstancias: instances.length,
@@ -263,6 +283,8 @@ export class SalasService {
           createdByUserId: user.id,
           cuentaZoomAsignadaId: assignedAccount.id,
           titulo: input.titulo,
+          responsableNombre: input.responsableNombre,
+          programaNombre: input.programaNombre,
           descripcion: input.descripcion,
           finalidadAcademica: input.finalidadAcademica,
           modalidadReunion: input.modalidadReunion,
@@ -275,9 +297,14 @@ export class SalasService {
           fechaFinSolicitada: end,
           timezone: input.timezone ?? "America/Montevideo",
           capacidadEstimada: input.capacidadEstimada,
-          requiereGrabacion: input.requiereGrabacion ?? false,
+          controlAsistencia: input.controlAsistencia ?? false,
+          docentesCorreos: input.docentesCorreos,
+          grabacionPreferencia,
+          requiereGrabacion,
           requiereAsistencia: input.requiereAsistencia ?? false,
           motivoAsistencia: input.motivoAsistencia,
+          regimenEncuentros: input.regimenEncuentros,
+          fechaFinRecurrencia: recurrenceEnd,
           patronRecurrencia: input.patronRecurrencia as Prisma.InputJsonValue | undefined,
           fechasInstancias: input.fechasInstancias,
           cantidadInstancias: instances.length,
