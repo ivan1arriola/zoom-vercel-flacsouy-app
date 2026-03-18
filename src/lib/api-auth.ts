@@ -1,5 +1,6 @@
 import { UserRole } from "@prisma/client";
 import { auth } from "@/auth";
+import { db } from "@/src/lib/db";
 import { env } from "./env";
 
 const rolePriority: Record<UserRole, number> = {
@@ -14,16 +15,40 @@ export type SessionUser = {
   id: string;
   email: string;
   role: UserRole;
+  firstName?: string | null;
+  lastName?: string | null;
+  name?: string | null;
+  image?: string | null;
 };
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   const session = await auth();
   const user = session?.user;
   if (!user?.id || !user?.email || !user?.role) return null;
+
+  const dbUser = await db.user.findUnique({
+    where: { id: user.id },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      name: true,
+      image: true
+    }
+  });
+
+  if (!dbUser) return null;
+
   return {
-    id: user.id,
-    email: user.email,
-    role: user.role
+    id: dbUser.id,
+    email: dbUser.email,
+    role: dbUser.role,
+    firstName: dbUser.firstName,
+    lastName: dbUser.lastName,
+    name: dbUser.name,
+    image: dbUser.image
   };
 }
 

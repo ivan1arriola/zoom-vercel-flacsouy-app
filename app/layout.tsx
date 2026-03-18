@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { auth, signOut } from "@/auth";
+import { UserAvatar } from "@/components/user-avatar";
+import { AdminViewSwitcher } from "@/components/admin-view-switcher";
 import { PwaRegister } from "@/components/pwa-register";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 export const metadata: Metadata = {
   title: "FLACSO Uruguay | Plataforma Zoom",
@@ -10,8 +16,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/icon.svg", type: "image/svg+xml" },
-      { url: "/icon", type: "image/png" }
+      { url: "/icon.svg", type: "image/svg+xml" }
     ],
     shortcut: "/favicon.svg",
     apple: "/icon.svg"
@@ -41,19 +46,35 @@ export default async function RootLayout({
               <h1>Plataforma de Gestion Zoom</h1>
               <p>Facultad Latinoamericana de Ciencias Sociales - Uruguay</p>
             </div>
-            <div style={{ marginLeft: "auto", textAlign: "right" }}>
+            <div style={{ marginLeft: "auto", textAlign: "right", display: "grid", gap: 8, justifyItems: "end" }}>
               {session?.user ? (
                 <>
-                  <p className="muted" style={{ margin: 0 }}>
-                    {session.user.email} ({session.user.role})
-                  </p>
+                  {session.user.role === "ADMINISTRADOR" ? <AdminViewSwitcher /> : null}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <UserAvatar
+                      firstName={session.user.firstName}
+                      lastName={session.user.lastName}
+                      image={session.user.image}
+                      size={36}
+                    />
+                    <div>
+                      <p className="muted" style={{ margin: 0, fontSize: "0.9em" }}>
+                        {session.user.firstName && session.user.lastName
+                          ? `${session.user.firstName} ${session.user.lastName}`
+                          : session.user.email}
+                      </p>
+                      <p className="muted" style={{ margin: 0, fontSize: "0.8em" }}>
+                        {session.user.role}
+                      </p>
+                    </div>
+                  </div>
                   <form
                     action={async () => {
                       "use server";
                       await signOut({ redirectTo: "/" });
                     }}
                   >
-                    <button className="btn ghost" type="submit" style={{ marginTop: 8 }}>
+                    <button className="btn ghost" type="submit">
                       Cerrar sesión
                     </button>
                   </form>

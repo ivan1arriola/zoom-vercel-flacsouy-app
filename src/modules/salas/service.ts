@@ -15,6 +15,15 @@ import { db } from "@/src/lib/db";
 import { env } from "@/src/lib/env";
 import type { SessionUser } from "@/src/lib/api-auth";
 
+type InstanceDetailInput = {
+  inicioProgramadoAt: string;
+};
+
+type InstancePlan = {
+  inicio: Date;
+  fin: Date;
+};
+
 export type CreateSolicitudInput = {
   titulo: string;
   responsableNombre?: string;
@@ -38,6 +47,7 @@ export type CreateSolicitudInput = {
   fechaFinRecurrencia?: string;
   patronRecurrencia?: Record<string, unknown>;
   fechasInstancias?: string[];
+  instanciasDetalle?: InstanceDetailInput[];
 };
 
 function toDate(value: string, field: string): Date {
@@ -138,6 +148,41 @@ function buildInstanceDates(input: CreateSolicitudInput): Date[] {
   return dates;
 }
 
+function buildInstancePlans(input: CreateSolicitudInput, durationMinutes: number): InstancePlan[] {
+  const details = input.instanciasDetalle ?? [];
+
+  if (details.length > 0) {
+    const parsed = details.map((item, index) => {
+      const inicio = toDate(item.inicioProgramadoAt, `instanciasDetalle[${index}].inicioProgramadoAt`);
+      return {
+        inicio,
+        fin: new Date(inicio.getTime() + durationMinutes * 60000)
+      };
+    });
+
+    if (input.tipoInstancias !== TipoInstancias.UNICA && parsed.length < 2) {
+      throw new Error("Para reuniones múltiples se requieren al menos 2 instancias en el detalle.");
+    }
+
+    const sorted = parsed.sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
+    const unique = new Set<number>();
+    for (const plan of sorted) {
+      const key = plan.inicio.getTime();
+      if (unique.has(key)) {
+        throw new Error("No puede haber instancias repetidas en fecha y hora.");
+      }
+      unique.add(key);
+    }
+
+    return sorted;
+  }
+
+  return buildInstanceDates(input).map((inicio) => ({
+    inicio,
+    fin: new Date(inicio.getTime() + durationMinutes * 60000)
+  }));
+}
+
 export class SalasService {
   async getDashboardSummary(user: SessionUser) {
     const canSeeAll = user.role === UserRole.ADMINISTRADOR || user.role === UserRole.CONTADURIA;
@@ -225,7 +270,10 @@ export class SalasService {
       throw new Error("fechaFinSolicitada debe ser mayor a fechaInicioSolicitada.");
     }
 
-    const instances = buildInstanceDates(input);
+    const durationMinutes = Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
+    const instancePlans = buildInstancePlans(input, durationMinutes);
+    const resolvedFechasInstancias =
+      input.fechasInstancias ?? input.instanciasDetalle?.map((item) => item.inicioProgramadoAt);
     const assignedAccount = await getOrCreateCuentaZoomDefault();
 
     if (!assignedAccount) {
@@ -254,8 +302,8 @@ export class SalasService {
           regimenEncuentros: input.regimenEncuentros,
           fechaFinRecurrencia: recurrenceEnd,
           patronRecurrencia: input.patronRecurrencia as Prisma.InputJsonValue | undefined,
-          fechasInstancias: input.fechasInstancias,
-          cantidadInstancias: instances.length,
+          fechasInstancias: resolvedFechasInstancias,
+          cantidadInstancias: instancePlans.length,
           estadoSolicitud: EstadoSolicitudSala.SIN_CAPACIDAD_ZOOM,
           observacionesAdmin: "No se encontró cuenta Zoom activa para provisionar."
         }
@@ -306,27 +354,27 @@ export class SalasService {
           regimenEncuentros: input.regimenEncuentros,
           fechaFinRecurrencia: recurrenceEnd,
           patronRecurrencia: input.patronRecurrencia as Prisma.InputJsonValue | undefined,
-          fechasInstancias: input.fechasInstancias,
-          cantidadInstancias: instances.length,
+          fechasInstancias: resolvedFechasInstancias,
+          cantidadInstancias: instancePlans.length,
           estadoSolicitud: status
         }
       });
 
       const tarifa = await getActiveRate(input.modalidadReunion);
-      const minutes = Math.floor((end.getTime() - start.getTime()) / 60000);
       const rate = tarifa ? Number(tarifa.valorHora) : 0;
-      const estimatedCost = calculateEstimatedCost(minutes, rate);
+      const estimatedCost = calculateEstimatedCost(durationMinutes, rate);
 
       if (!requireManualResolution) {
         await tx.eventoZoom.createMany({
-          data: instances.map((date) => ({
+          data: instancePlans.map((plan) => ({
             solicitudSalaId: solicitud.id,
             cuentaZoomId: assignedAccount.id,
-            tipoEvento: instances.length > 1 ? TipoEventoZoom.RECURRENCE_INSTANCE : TipoEventoZoom.SINGLE,
-            grupoRecurrenciaId: instances.length > 1 ? solicitud.id : null,
+            tipoEvento:
+              instancePlans.length > 1 ? TipoEventoZoom.RECURRENCE_INSTANCE : TipoEventoZoom.SINGLE,
+            grupoRecurrenciaId: instancePlans.length > 1 ? solicitud.id : null,
             modalidadReunion: input.modalidadReunion,
-            inicioProgramadoAt: date,
-            finProgramadoAt: new Date(date.getTime() + minutes * 60000),
+            inicioProgramadoAt: plan.inicio,
+            finProgramadoAt: plan.fin,
             timezone: input.timezone ?? "America/Montevideo",
             requiereAsistencia: input.requiereAsistencia ?? false,
             estadoCobertura: input.requiereAsistencia
@@ -334,7 +382,7 @@ export class SalasService {
               : EstadoCoberturaSoporte.NO_REQUIERE,
             agendaAbiertaAt: input.requiereAsistencia ? new Date() : null,
             agendaCierraAt: input.requiereAsistencia
-              ? new Date(date.getTime() - 24 * 60 * 60000)
+              ? new Date(plan.inicio.getTime() - 24 * 60 * 60000)
               : null,
             estadoEvento: "PROGRAMADO",
             zoomMeetingId: meetingPrincipalId,
@@ -505,14 +553,39 @@ export class SalasService {
         agendaCierraAt: { gt: new Date() }
       },
       include: {
+        cuentaZoom: {
+          select: {
+            nombreCuenta: true,
+            ownerEmail: true
+          }
+        },
         solicitud: {
           select: {
             titulo: true,
             modalidadReunion: true,
+            programaNombre: true,
+            responsableNombre: true,
+            patronRecurrencia: true,
             docente: {
               include: {
                 usuario: {
-                  select: { email: true, name: true }
+                  select: { email: true, name: true, firstName: true, lastName: true }
+                }
+              }
+            }
+          }
+        },
+        asignaciones: {
+          where: {
+            tipoAsignacion: "PRINCIPAL",
+            estadoAsignacion: { in: ["ASIGNADO", "ACEPTADO"] }
+          },
+          take: 1,
+          select: {
+            asistente: {
+              select: {
+                usuario: {
+                  select: { name: true, firstName: true, lastName: true, email: true }
                 }
               }
             }

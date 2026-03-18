@@ -66,7 +66,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             email: bootstrapUser.email,
             name: bootstrapUser.name,
             image: bootstrapUser.image,
-            role: bootstrapUser.role
+            role: bootstrapUser.role,
+            firstName: bootstrapUser.firstName,
+            lastName: bootstrapUser.lastName
           };
         }
 
@@ -90,7 +92,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           email: user.email,
           name: user.name,
           image: user.image,
-          role: effectiveRole
+          role: effectiveRole,
+          firstName: user.firstName,
+          lastName: user.lastName
         };
       }
     }),
@@ -150,24 +154,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const googleProfile = profile as {
         email_verified?: boolean;
         name?: string;
+        given_name?: string;
+        family_name?: string;
         picture?: string;
       } | undefined;
       if (!googleProfile?.email_verified) return false;
 
       const role = email === ADMIN_EMAIL ? UserRole.ADMINISTRADOR : UserRole.DOCENTE;
+      const firstName = googleProfile.given_name;
+      const lastName = googleProfile.family_name;
+      const fullName = googleProfile.name ?? user.name;
+      const image = googleProfile.picture ?? user.image;
+      
       await db.user.upsert({
         where: { email },
         create: {
           email,
-          name: googleProfile.name ?? user.name,
-          image: googleProfile.picture ?? user.image,
+          firstName: firstName ?? undefined,
+          lastName: lastName ?? undefined,
+          name: fullName,
+          image,
           role,
           emailVerified: new Date()
         },
         update: {
           role,
-          name: googleProfile.name ?? user.name ?? undefined,
-          image: googleProfile.picture ?? user.image ?? undefined
+          firstName: firstName ?? undefined,
+          lastName: lastName ?? undefined,
+          name: fullName ?? undefined,
+          image: image ?? undefined
         }
       });
 
@@ -177,6 +192,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user) {
         token.userId = user.id;
         token.role = (user as { role?: UserRole }).role ?? UserRole.DOCENTE;
+        token.firstName = (user as { firstName?: string | null }).firstName;
+        token.lastName = (user as { lastName?: string | null }).lastName;
       }
 
       if (String(token.email ?? "").trim().toLowerCase() === ADMIN_EMAIL) {
@@ -187,8 +204,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = String(token.userId ?? "");
-        session.user.role = (token.role as UserRole | undefined) ?? UserRole.DOCENTE;
+        session.user.id = String((token.userId as unknown) ?? "");
+        session.user.role = ((token.role as unknown) as UserRole | undefined) ?? UserRole.DOCENTE;
+        session.user.firstName = (token as any).firstName;
+        session.user.lastName = (token as any).lastName;
       }
       return session;
     }

@@ -1,11 +1,17 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { UserAvatar } from "@/components/user-avatar";
+import { ToggleButtons } from "@/components/toggle-buttons";
 
 type CurrentUser = {
   id: string;
   email: string;
   role: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  image?: string | null;
 };
 
 type DashboardSummary = {
@@ -29,20 +35,48 @@ type Solicitud = {
 type AgendaEvent = {
   id: string;
   inicioProgramadoAt: string;
+  finProgramadoAt: string;
+  zoomJoinUrl?: string | null;
+  cuentaZoom?: {
+    nombreCuenta?: string | null;
+    ownerEmail?: string | null;
+  } | null;
   solicitud: {
     titulo: string;
     modalidadReunion: string;
+    programaNombre?: string | null;
+    responsableNombre?: string | null;
+    patronRecurrencia?: Record<string, unknown> | null;
+    docente?: {
+      usuario?: {
+        email?: string | null;
+        name?: string | null;
+        firstName?: string | null;
+        lastName?: string | null;
+      } | null;
+    } | null;
   };
+  asignaciones?: Array<{
+    asistente?: {
+      usuario?: {
+        name?: string | null;
+        firstName?: string | null;
+        lastName?: string | null;
+        email?: string | null;
+      } | null;
+    } | null;
+  }>;
   intereses: Array<{
     id: string;
     estadoInteres: string;
   }>;
 };
 
-const tabs = ["dashboard", "solicitudes", "agenda", "manual", "tarifas"] as const;
+const tabs = ["dashboard", "solicitudes", "agenda", "manual", "tarifas", "perfil"] as const;
 type Tab = (typeof tabs)[number];
 
 export function SpaHome() {
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -52,7 +86,15 @@ export function SpaHome() {
   const [tarifas, setTarifas] = useState<Array<{ id: string; modalidadReunion: string; valorHora: string; moneda: string }>>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [updatingInterestId, setUpdatingInterestId] = useState<string | null>(null);
   const [isSubmittingSolicitud, setIsSubmittingSolicitud] = useState(false);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    firstName: "",
+    lastName: "",
+    image: ""
+  });
+  const [showProfileForm, setShowProfileForm] = useState(false);
   const [form, setForm] = useState({
     tema: "",
     responsable: "",
@@ -74,16 +116,30 @@ export function SpaHome() {
     correosDocentes: ""
   });
 
-  const canSeeManual = useMemo(() => user?.role === "ADMINISTRADOR", [user]);
+  const isAdminUser = useMemo(() => user?.role === "ADMINISTRADOR", [user]);
+  const adminViewRole = useMemo(() => {
+    const rawRole = (searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase();
+    const allowedRoles = ["ADMINISTRADOR", "DOCENTE", "ASISTENTE_ZOOM", "SOPORTE_ZOOM", "CONTADURIA"];
+    return allowedRoles.includes(rawRole) ? rawRole : "ADMINISTRADOR";
+  }, [searchParams]);
+
+  const effectiveRole = useMemo(() => {
+    if (!user?.role) return "";
+    if (user.role !== "ADMINISTRADOR") return user.role;
+    return adminViewRole;
+  }, [user, adminViewRole]);
+
+  const canSeeManual = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
   const canSeeAgenda = useMemo(
-    () => ["ASISTENTE_ZOOM", "SOPORTE_ZOOM", "ADMINISTRADOR"].includes(user?.role ?? ""),
-    [user]
+    () => ["ASISTENTE_ZOOM", "SOPORTE_ZOOM", "ADMINISTRADOR"].includes(effectiveRole),
+    [effectiveRole]
   );
   const canSeeTarifas = useMemo(
-    () => ["CONTADURIA", "ADMINISTRADOR"].includes(user?.role ?? ""),
-    [user]
+    () => ["CONTADURIA", "ADMINISTRADOR"].includes(effectiveRole),
+    [effectiveRole]
   );
-  const isDocente = useMemo(() => user?.role === "DOCENTE", [user]);
+  const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
+  const isAssistantRole = useMemo(() => effectiveRole === "ASISTENTE_ZOOM", [effectiveRole]);
 
   useEffect(() => {
     void bootstrap();
@@ -92,13 +148,18 @@ export function SpaHome() {
   async function bootstrap() {
     setLoading(true);
     try {
-      const meRes = await fetch("/api/v1/auth/me");
+      const meRes = await fetch("/api/v1/auth/me", { cache: "no-store" });
       const meJson = (await meRes.json()) as { user?: CurrentUser; error?: string };
       if (!meRes.ok || !meJson.user) {
         setMessage(meJson.error ?? "No autenticado.");
         return;
       }
       setUser(meJson.user);
+      setProfileForm({
+        firstName: meJson.user.firstName ?? "",
+        lastName: meJson.user.lastName ?? "",
+        image: meJson.user.image ?? ""
+      });
       if (meJson.user.role === "DOCENTE") {
         setTab("solicitudes");
       }
@@ -115,36 +176,55 @@ export function SpaHome() {
     }
   }
 
+  useEffect(() => {
+    if (!effectiveRole) return;
+    if (effectiveRole === "DOCENTE") {
+      setTab("solicitudes");
+      return;
+    }
+    if (tab === "agenda" && !canSeeAgenda) {
+      setTab("dashboard");
+      return;
+    }
+    if (tab === "manual" && !canSeeManual) {
+      setTab("dashboard");
+      return;
+    }
+    if (tab === "tarifas" && !canSeeTarifas) {
+      setTab("dashboard");
+    }
+  }, [effectiveRole, tab, canSeeAgenda, canSeeManual, canSeeTarifas]);
+
   async function loadSummary() {
-    const res = await fetch("/api/v1/dashboard");
+    const res = await fetch("/api/v1/dashboard", { cache: "no-store" });
     if (!res.ok) return;
     const json = (await res.json()) as { summary: DashboardSummary };
     setSummary(json.summary);
   }
 
   async function loadSolicitudes() {
-    const res = await fetch("/api/v1/solicitudes-sala");
+    const res = await fetch("/api/v1/solicitudes-sala", { cache: "no-store" });
     if (!res.ok) return;
     const json = (await res.json()) as { requests: Solicitud[] };
     setSolicitudes(json.requests);
   }
 
   async function loadAgenda() {
-    const res = await fetch("/api/v1/agenda-soporte/abierta");
+    const res = await fetch("/api/v1/agenda-soporte/abierta", { cache: "no-store" });
     if (!res.ok) return;
     const json = (await res.json()) as { agenda: AgendaEvent[] };
     setAgenda(json.agenda);
   }
 
   async function loadManualPendings() {
-    const res = await fetch("/api/v1/provision-manual/pendientes");
+    const res = await fetch("/api/v1/provision-manual/pendientes", { cache: "no-store" });
     if (!res.ok) return;
     const json = (await res.json()) as { pendings: Array<{ id: string; titulo: string }> };
     setManualPendings(json.pendings);
   }
 
   async function loadTarifas() {
-    const res = await fetch("/api/v1/tarifas-asistencia");
+    const res = await fetch("/api/v1/tarifas-asistencia", { cache: "no-store" });
     if (!res.ok) return;
     const json = (await res.json()) as {
       rates: Array<{ id: string; modalidadReunion: string; valorHora: string; moneda: string }>;
@@ -176,6 +256,56 @@ export function SpaHome() {
       throw new Error(`${fieldName} inválida.`);
     }
     return parsed.toISOString();
+  }
+
+  function formatModalidad(value: string): string {
+    return value === "HIBRIDA" ? "Presencial" : "Virtual";
+  }
+
+  function formatDateTime(value: string): string {
+    const date = new Date(value);
+    return new Intl.DateTimeFormat("es-UY", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(date).replace(",", "");
+  }
+
+  function formatDuration(startIso: string, endIso: string): string {
+    const minutes = Math.max(0, Math.floor((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000));
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  }
+
+  function getPreparacionDisplay(item: AgendaEvent): string {
+    if (item.solicitud.modalidadReunion !== "HIBRIDA") return "";
+    const prep = item.solicitud.patronRecurrencia?.["preparacionMinutos"];
+    if (typeof prep !== "number" || prep <= 0) return "";
+    const hours = Math.floor(prep / 60);
+    const rest = prep % 60;
+    return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  }
+
+  function getAssignedPerson(item: AgendaEvent): string {
+    const assigned = item.asignaciones?.[0]?.asistente?.usuario;
+    if (!assigned) return "";
+    return (
+      assigned.name ||
+      [assigned.firstName, assigned.lastName].filter(Boolean).join(" ") ||
+      assigned.email ||
+      ""
+    );
+  }
+
+  function getEncargado(item: AgendaEvent): string {
+    const docente = item.solicitud.docente?.usuario;
+    if (!docente) return "";
+    return docente.name || [docente.firstName, docente.lastName].filter(Boolean).join(" ") || docente.email || "";
   }
 
   async function submitDocenteSolicitud(event: FormEvent<HTMLFormElement>) {
@@ -309,18 +439,23 @@ export function SpaHome() {
   }
 
   async function setInterest(eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA") {
-    const response = await fetch(`/api/v1/eventos-zoom/${eventoId}/intereses`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ estadoInteres })
-    });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setMessage(data.error ?? "No se pudo registrar interés.");
-      return;
+    setUpdatingInterestId(eventoId);
+    try {
+      const response = await fetch(`/api/v1/eventos-zoom/${eventoId}/intereses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estadoInteres })
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setMessage(data.error ?? "No se pudo registrar interés.");
+        return;
+      }
+      setMessage("Interés actualizado.");
+      await loadAgenda();
+    } finally {
+      setUpdatingInterestId(null);
     }
-    setMessage("Interés actualizado.");
-    await loadAgenda();
   }
 
   return (
@@ -357,7 +492,29 @@ export function SpaHome() {
             Tarifas
           </button>
         )}
+        <button className="btn ghost" onClick={() => setTab("perfil")} type="button">
+          Mi perfil
+        </button>
       </div>
+
+      {user && (
+        <div style={{ marginBottom: 24, padding: 16, backgroundColor: "#f5f5f5", borderRadius: 8, display: "flex", gap: 16, alignItems: "center" }}>
+          <UserAvatar
+            firstName={user.firstName}
+            lastName={user.lastName}
+            image={user.image}
+            size={80}
+          />
+          <div>
+            <h2 style={{ margin: 0, marginBottom: 4 }}>
+              {user.firstName && user.lastName
+                ? `${user.firstName} ${user.lastName}`
+                : user.firstName || user.lastName || "Usuario"}
+            </h2>
+            <p style={{ margin: 0, color: "#666" }}>{user.email}</p>
+          </div>
+        </div>
+      )}
 
       {loading && <p className="muted">Cargando...</p>}
 
@@ -385,7 +542,10 @@ export function SpaHome() {
       {tab === "solicitudes" && (
         <article className="card">
           <h3 style={{ marginTop: 0 }}>{isDocente ? "Pedir sala Zoom" : "Solicitudes de sala"}</h3>
-          <p className="muted">Usuario actual: {user?.email} ({user?.role})</p>
+          <p className="muted">
+            Usuario actual: {user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : user?.email} ({user?.role})
+            {isAdminUser ? ` | Vista activa: ${effectiveRole}` : ""}
+          </p>
 
           {isDocente ? (
             <form onSubmit={submitDocenteSolicitud}>
@@ -424,16 +584,11 @@ export function SpaHome() {
                 />
               </label>
 
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Asistencia Zoom
-                <select
-                  value={form.asistenciaZoom}
-                  onChange={(e) => updateForm("asistenciaZoom", e.target.value)}
-                >
-                  <option value="SI">Sí</option>
-                  <option value="NO">No</option>
-                </select>
-              </label>
+              <ToggleButtons
+                label="Asistencia Zoom"
+                value={form.asistenciaZoom}
+                onChange={(val) => updateForm("asistenciaZoom", val)}
+              />
 
               <label style={{ display: "block", marginBottom: 8 }}>
                 Modalidad
@@ -460,16 +615,11 @@ export function SpaHome() {
                 </select>
               </label>
 
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Control de asistencia
-                <select
-                  value={form.controlAsistencia}
-                  onChange={(e) => updateForm("controlAsistencia", e.target.value)}
-                >
-                  <option value="SI">Sí</option>
-                  <option value="NO">No</option>
-                </select>
-              </label>
+              <ToggleButtons
+                label="Control de asistencia"
+                value={form.controlAsistencia}
+                onChange={(val) => updateForm("controlAsistencia", val)}
+              />
 
               {form.unaOVarias === "UNA" ? (
                 <>
@@ -623,36 +773,79 @@ export function SpaHome() {
             <table>
               <thead>
                 <tr>
-                  <th>Evento</th>
-                  <th>Inicio</th>
                   <th>Modalidad</th>
-                  <th>Interés actual</th>
+                  {!isAssistantRole && <th>Persona asignada</th>}
+                  <th>Nombre actividad</th>
+                  <th>Día y hora</th>
+                  <th>Duración</th>
+                  {!isAssistantRole && <th>Preparación</th>}
+                  <th>Cuenta Zoom a manejar</th>
+                  <th>Programa</th>
+                  <th>Encargado</th>
+                  <th>Link</th>
+                  <th>Interés</th>
                   <th>Acción</th>
                 </tr>
               </thead>
               <tbody>
                 {agenda.map((item) => (
                   <tr key={item.id}>
+                    <td>{formatModalidad(item.solicitud.modalidadReunion)}</td>
+                    {!isAssistantRole && <td>{getAssignedPerson(item) || "-"}</td>}
                     <td>{item.solicitud.titulo}</td>
-                    <td className="mono">{new Date(item.inicioProgramadoAt).toISOString()}</td>
-                    <td>{item.solicitud.modalidadReunion}</td>
+                    <td>{formatDateTime(item.inicioProgramadoAt)}</td>
+                    <td className="mono">{formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)}</td>
+                    {!isAssistantRole && <td className="mono">{getPreparacionDisplay(item)}</td>}
+                    <td>{item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || ""}</td>
+                    <td>{item.solicitud.programaNombre || ""}</td>
+                    <td>{getEncargado(item) || item.solicitud.responsableNombre || ""}</td>
+                    <td>
+                      {item.zoomJoinUrl ? (
+                        <a href={item.zoomJoinUrl} target="_blank" rel="noreferrer">
+                          {item.zoomJoinUrl}
+                        </a>
+                      ) : (
+                        ""
+                      )}
+                    </td>
                     <td>{item.intereses[0]?.estadoInteres || "SIN_RESPUESTA"}</td>
                     <td>
-                      <button
-                        className="btn ghost"
-                        onClick={() => setInterest(item.id, "ME_INTERESA")}
-                        type="button"
-                      >
-                        Me interesa
-                      </button>
-                      <button
-                        className="btn ghost"
-                        style={{ marginLeft: 8 }}
-                        onClick={() => setInterest(item.id, "NO_ME_INTERESA")}
-                        type="button"
-                      >
-                        No me interesa
-                      </button>
+                      {item.intereses[0]?.estadoInteres ? (
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                          <span className="muted" style={{ margin: 0 }}>
+                            Toggle interés
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={item.intereses[0].estadoInteres === "ME_INTERESA"}
+                            disabled={updatingInterestId === item.id}
+                            onChange={(e) =>
+                              setInterest(item.id, e.target.checked ? "ME_INTERESA" : "NO_ME_INTERESA")
+                            }
+                          />
+                          <span>{item.intereses[0].estadoInteres === "ME_INTERESA" ? "Me interesa" : "No me interesa"}</span>
+                        </label>
+                      ) : (
+                        <>
+                          <button
+                            className="btn ghost"
+                            onClick={() => setInterest(item.id, "ME_INTERESA")}
+                            type="button"
+                            disabled={updatingInterestId === item.id}
+                          >
+                            Me interesa
+                          </button>
+                          <button
+                            className="btn ghost"
+                            style={{ marginLeft: 8 }}
+                            onClick={() => setInterest(item.id, "NO_ME_INTERESA")}
+                            type="button"
+                            disabled={updatingInterestId === item.id}
+                          >
+                            No me interesa
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -701,6 +894,127 @@ export function SpaHome() {
                 ))}
               </tbody>
             </table>
+          )}
+        </article>
+      )}
+
+      {tab === "perfil" && user && (
+        <article className="card">
+          <h3 style={{ marginTop: 0 }}>Mi perfil</h3>
+          {!showProfileForm ? (
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <p><strong>Nombre:</strong> {user.firstName || "-"}</p>
+                <p><strong>Apellido:</strong> {user.lastName || "-"}</p>
+                <p><strong>Email:</strong> {user.email}</p>
+                <p style={{ marginTop: 12 }}>
+                  <strong>Foto de perfil:</strong>
+                  <div style={{ marginTop: 8 }}>
+                    <UserAvatar
+                      firstName={user.firstName}
+                      lastName={user.lastName}
+                      image={user.image}
+                      size={100}
+                    />
+                  </div>
+                </p>
+              </div>
+              <button className="btn primary" onClick={() => setShowProfileForm(true)} type="button">
+                Editar perfil
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setIsUpdatingProfile(true);
+              setMessage("");
+              try {
+                const response = await fetch("/api/v1/auth/profile", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    firstName: profileForm.firstName,
+                    lastName: profileForm.lastName,
+                    image: profileForm.image
+                  })
+                });
+                const data = (await response.json()) as { error?: string; user?: CurrentUser };
+                if (!response.ok) {
+                  setMessage(data.error ?? "No se pudo actualizar el perfil.");
+                  return;
+                }
+                if (data.user) {
+                  setUser(data.user);
+                  setProfileForm({
+                    firstName: data.user.firstName ?? "",
+                    lastName: data.user.lastName ?? "",
+                    image: data.user.image ?? ""
+                  });
+                }
+                setMessage("Perfil actualizado correctamente.");
+                setShowProfileForm(false);
+              } catch (error) {
+                setMessage(error instanceof Error ? error.message : "Error al actualizar perfil.");
+              } finally {
+                setIsUpdatingProfile(false);
+              }
+            }}>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Nombre
+                <input
+                  type="text"
+                  value={profileForm.firstName}
+                  onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
+                  placeholder="Tu nombre"
+                />
+              </label>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Apellido
+                <input
+                  type="text"
+                  value={profileForm.lastName}
+                  onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                  placeholder="Tu apellido"
+                />
+              </label>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                URL de foto de perfil
+                <input
+                  type="url"
+                  value={profileForm.image}
+                  onChange={(e) => setProfileForm({ ...profileForm, image: e.target.value })}
+                  placeholder="https://ejemplo.com/foto.jpg"
+                />
+              </label>
+              <div style={{ marginBottom: 16 }}>
+                <p style={{ margin: 0, marginBottom: 8 }}>Vista previa:</p>
+                <UserAvatar
+                  firstName={profileForm.firstName}
+                  lastName={profileForm.lastName}
+                  image={profileForm.image}
+                  size={100}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn primary" type="submit" disabled={isUpdatingProfile}>
+                  {isUpdatingProfile ? "Guardando..." : "Guardar cambios"}
+                </button>
+                <button
+                  className="btn ghost"
+                  type="button"
+                  onClick={() => {
+                    setShowProfileForm(false);
+                    setProfileForm({
+                      firstName: user.firstName ?? "",
+                      lastName: user.lastName ?? "",
+                      image: user.image ?? ""
+                    });
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
           )}
         </article>
       )}

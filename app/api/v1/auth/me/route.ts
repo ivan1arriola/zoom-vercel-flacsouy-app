@@ -8,5 +8,6 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return NextResponse.json({ user });
+  const profileComplete = Boolean(user.firstName && user.lastName && user.email);
+  return NextResponse.json({ user, profileComplete });
 }

@@ -10,12 +10,15 @@ type InlineLoginProps = {
   resetToken?: string;
 };
 
+type AuthPanel = "login" | "register" | "recovery";
+
 export function InlineLogin({
   initialError,
   verificationToken,
   verificationEmail,
   resetToken
 }: InlineLoginProps) {
+  const [activePanel, setActivePanel] = useState<AuthPanel>("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [isRegisterSubmitting, setIsRegisterSubmitting] = useState(false);
@@ -64,6 +67,12 @@ export function InlineLogin({
     };
   }, [canAutoVerify, verificationEmail, verificationToken]);
 
+  useEffect(() => {
+    if (resetToken && verificationEmail) {
+      setActivePanel("recovery");
+    }
+  }, [resetToken, verificationEmail]);
+
   async function onSubmit(formData: FormData) {
     const email = String(formData.get("email") ?? "").trim().toLowerCase();
     const password = String(formData.get("password") ?? "");
@@ -100,7 +109,8 @@ export function InlineLogin({
   }
 
   async function onRegister(formData: FormData) {
-    const name = String(formData.get("name") ?? "").trim();
+    const firstName = String(formData.get("firstName") ?? "").trim();
+    const lastName = String(formData.get("lastName") ?? "").trim();
     const email = String(formData.get("regEmail") ?? "").trim().toLowerCase();
     const password = String(formData.get("regPassword") ?? "");
 
@@ -119,7 +129,8 @@ export function InlineLogin({
       body: JSON.stringify({
         email,
         password,
-        name: name || undefined
+        firstName: firstName || undefined,
+        lastName: lastName || undefined
       })
     });
 
@@ -216,135 +227,187 @@ export function InlineLogin({
   }
 
   return (
-    <section style={{ maxWidth: 460, margin: "0 auto" }}>
-      <h1 className="title">Gestión Institucional de Salas Zoom</h1>
-      <p className="muted">Inicia sesión para continuar o regístrate con tu correo institucional.</p>
-      <article className="card" style={{ marginTop: 14 }}>
-        <form action={onSubmit}>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Email
-            <input
-              name="email"
-              type="email"
-              required
-              placeholder="admin@flacso.edu.uy"
-              autoComplete="email"
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Contraseña
-            <input
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-            />
-          </label>
-          <button className="btn primary" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Ingresando..." : "Ingresar"}
-          </button>
-        </form>
+    <section className="auth-shell">
+      <header className="auth-header">
+        <p className="auth-kicker">FLACSO Uruguay</p>
+        <h1 className="title">Gestión Institucional de Salas Zoom</h1>
+        <p className="muted">Inicia sesión para continuar o regístrate con tu correo institucional o Google.</p>
+      </header>
+
+      <nav className="auth-tabs" aria-label="Opciones de autenticación">
         <button
-          className="btn ghost"
           type="button"
-          style={{ marginTop: 10 }}
-          onClick={onGoogleSignIn}
-          disabled={isGoogleSubmitting}
+          className={`auth-tab ${activePanel === "login" ? "is-active" : ""}`}
+          onClick={() => setActivePanel("login")}
         >
-          {isGoogleSubmitting ? "Redirigiendo..." : "Ingresar con Google"}
+          Acceder
         </button>
-        <p className="muted" style={{ marginTop: 8 }}>
-          Google requiere una cuenta verificada de <strong>@flacso.edu.uy</strong>.
-        </p>
-      </article>
+        <button
+          type="button"
+          className={`auth-tab ${activePanel === "register" ? "is-active" : ""}`}
+          onClick={() => setActivePanel("register")}
+        >
+          Registrarse
+        </button>
+        <button
+          type="button"
+          className={`auth-tab ${activePanel === "recovery" ? "is-active" : ""}`}
+          onClick={() => setActivePanel("recovery")}
+        >
+          Recuperar
+        </button>
+      </nav>
 
-      <article className="card" style={{ marginTop: 14 }}>
-        <h2 style={{ marginTop: 0, marginBottom: 8 }}>Autoregistro @flacso.edu.uy</h2>
-        <form action={onRegister}>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Nombre (opcional)
-            <input name="name" type="text" autoComplete="name" />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Correo institucional
-            <input
-              name="regEmail"
-              type="email"
-              required
-              placeholder="nombre@flacso.edu.uy"
-              autoComplete="email"
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Contraseña inicial
-            <input name="regPassword" type="password" required minLength={8} autoComplete="new-password" />
-          </label>
-          <button className="btn success" type="submit" disabled={isRegisterSubmitting}>
-            {isRegisterSubmitting ? "Enviando verificación..." : "Registrarme"}
-          </button>
-        </form>
-        <p className="muted" style={{ marginTop: 8 }}>
-          Te enviaremos un enlace para demostrar que eres dueño de la cuenta.
-        </p>
-      </article>
+      <div className="auth-grid">
+        {activePanel === "login" ? (
+          <article className="card auth-card auth-card-wide">
+            <h2 className="auth-card-title">Acceso</h2>
+            <form action={onSubmit} className="auth-form">
+              <label>
+                Email
+                <input
+                  name="email"
+                  type="email"
+                  required
+                  placeholder="admin@flacso.edu.uy"
+                  autoComplete="email"
+                />
+              </label>
+              <label>
+                Contraseña
+                <input name="password" type="password" required autoComplete="current-password" />
+              </label>
+              <button className="btn primary" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Ingresando..." : "Ingresar"}
+              </button>
+            </form>
 
-      <article className="card" style={{ marginTop: 14 }}>
-        <h2 style={{ marginTop: 0, marginBottom: 8 }}>Recuperar contraseña</h2>
-        <form action={onRequestRecovery}>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Correo de la cuenta
-            <input
-              name="recoveryEmail"
-              type="email"
-              required
-              placeholder="nombre@flacso.edu.uy"
-              autoComplete="email"
-            />
-          </label>
-          <button className="btn ghost" type="submit" disabled={isRecoverySubmitting}>
-            {isRecoverySubmitting ? "Enviando enlace..." : "Enviar enlace de recuperación"}
-          </button>
-        </form>
-      </article>
-
-      {resetToken && verificationEmail ? (
-        <article className="card" style={{ marginTop: 14 }}>
-          <h2 style={{ marginTop: 0, marginBottom: 8 }}>Restablecer contraseña</h2>
-          <p className="muted">Cuenta: {verificationEmail}</p>
-          <form action={onResetPassword}>
-            <input type="hidden" name="resetEmail" value={verificationEmail} />
-            <label style={{ display: "block", marginBottom: 8 }}>
-              Nueva contraseña
-              <input name="resetPassword" type="password" required minLength={8} autoComplete="new-password" />
-            </label>
-            <label style={{ display: "block", marginBottom: 8 }}>
-              Repetir nueva contraseña
-              <input
-                name="resetPasswordConfirm"
-                type="password"
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
-            </label>
-            <button className="btn success" type="submit" disabled={isResetSubmitting}>
-              {isResetSubmitting ? "Guardando..." : "Actualizar contraseña"}
+            <button
+              className="btn auth-google-btn"
+              type="button"
+              onClick={onGoogleSignIn}
+              disabled={isGoogleSubmitting}
+            >
+              <span className="google-mark" aria-hidden="true">
+                <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                  <path d="M17.64 9.2c0-.64-.06-1.26-.16-1.86H9v3.52h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.56 2.68-3.86 2.68-6.64z" fill="#4285F4" />
+                  <path d="M9 18c2.43 0 4.46-.8 5.95-2.16l-2.92-2.26c-.8.54-1.84.86-3.03.86-2.33 0-4.3-1.58-5-3.7H.98V13.1A9 9 0 0 0 9 18z" fill="#34A853" />
+                  <path d="M4 10.74A5.4 5.4 0 0 1 3.72 9c0-.6.1-1.18.28-1.74V4.9H.98A9 9 0 0 0 0 9c0 1.45.35 2.83.98 4.1L4 10.74z" fill="#FBBC05" />
+                  <path d="M9 3.58c1.32 0 2.5.46 3.43 1.34l2.56-2.56C13.45.92 11.42 0 9 0A9 9 0 0 0 .98 4.9L4 7.26c.7-2.12 2.67-3.68 5-3.68z" fill="#EA4335" />
+                </svg>
+              </span>
+              <span>{isGoogleSubmitting ? "Redirigiendo..." : "Ingresar con Google"}</span>
             </button>
-          </form>
-        </article>
-      ) : null}
+          </article>
+        ) : null}
 
-      {isVerifying ? <p className="muted" style={{ marginTop: 12 }}>Verificando correo...</p> : null}
-      {info ? (
-        <p className="muted" style={{ marginTop: 12, color: "#1b6d2b" }}>
-          {info}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="muted" style={{ marginTop: 12, color: "#b00020" }}>
-          {error}
-        </p>
-      ) : null}
+        {activePanel === "register" ? (
+          <article className="card auth-card auth-card-wide">
+            <h2 className="auth-card-title">Autoregistro @flacso.edu.uy</h2>
+            <button
+              className="btn auth-google-btn"
+              type="button"
+              onClick={onGoogleSignIn}
+              disabled={isGoogleSubmitting}
+            >
+              <span className="google-mark" aria-hidden="true">
+                <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                  <path d="M17.64 9.2c0-.64-.06-1.26-.16-1.86H9v3.52h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.56 2.68-3.86 2.68-6.64z" fill="#4285F4" />
+                  <path d="M9 18c2.43 0 4.46-.8 5.95-2.16l-2.92-2.26c-.8.54-1.84.86-3.03.86-2.33 0-4.3-1.58-5-3.7H.98V13.1A9 9 0 0 0 9 18z" fill="#34A853" />
+                  <path d="M4 10.74A5.4 5.4 0 0 1 3.72 9c0-.6.1-1.18.28-1.74V4.9H.98A9 9 0 0 0 0 9c0 1.45.35 2.83.98 4.1L4 10.74z" fill="#FBBC05" />
+                  <path d="M9 3.58c1.32 0 2.5.46 3.43 1.34l2.56-2.56C13.45.92 11.42 0 9 0A9 9 0 0 0 .98 4.9L4 7.26c.7-2.12 2.67-3.68 5-3.68z" fill="#EA4335" />
+                </svg>
+              </span>
+              <span>{isGoogleSubmitting ? "Redirigiendo..." : "Registrarme con Google"}</span>
+            </button>
+            <p className="muted auth-help">Si no existe cuenta, se crea automáticamente al continuar con Google.</p>
+            <form action={onRegister} className="auth-form">
+              <div className="auth-row-2">
+                <label>
+                  Nombre
+                  <input name="firstName" type="text" autoComplete="given-name" placeholder="Nombre" />
+                </label>
+                <label>
+                  Apellido
+                  <input name="lastName" type="text" autoComplete="family-name" placeholder="Apellido" />
+                </label>
+              </div>
+              <label>
+                Correo institucional
+                <input
+                  name="regEmail"
+                  type="email"
+                  required
+                  placeholder="nombre@flacso.edu.uy"
+                  autoComplete="email"
+                />
+              </label>
+              <label>
+                Contraseña inicial
+                <input name="regPassword" type="password" required minLength={8} autoComplete="new-password" />
+              </label>
+              <button className="btn success" type="submit" disabled={isRegisterSubmitting}>
+                {isRegisterSubmitting ? "Enviando verificación..." : "Registrarme"}
+              </button>
+            </form>
+            <p className="muted auth-help">Te enviaremos un enlace para demostrar que eres dueño de la cuenta.</p>
+          </article>
+        ) : null}
+
+        {activePanel === "recovery" ? (
+          <article className="card auth-card auth-card-wide">
+            <h2 className="auth-card-title">Recuperar contraseña</h2>
+            <form action={onRequestRecovery} className="auth-form">
+              <label>
+                Correo de la cuenta
+                <input
+                  name="recoveryEmail"
+                  type="email"
+                  required
+                  placeholder="nombre@flacso.edu.uy"
+                  autoComplete="email"
+                />
+              </label>
+              <button className="btn ghost" type="submit" disabled={isRecoverySubmitting}>
+                {isRecoverySubmitting ? "Enviando enlace..." : "Enviar enlace de recuperación"}
+              </button>
+            </form>
+          </article>
+        ) : null}
+
+        {resetToken && verificationEmail && activePanel === "recovery" ? (
+          <article className="card auth-card auth-card-wide">
+            <h2 className="auth-card-title">Restablecer contraseña</h2>
+            <p className="muted auth-help">Cuenta: {verificationEmail}</p>
+            <form action={onResetPassword} className="auth-form">
+              <input type="hidden" name="resetEmail" value={verificationEmail} />
+              <label>
+                Nueva contraseña
+                <input name="resetPassword" type="password" required minLength={8} autoComplete="new-password" />
+              </label>
+              <label>
+                Repetir nueva contraseña
+                <input
+                  name="resetPasswordConfirm"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                />
+              </label>
+              <button className="btn success" type="submit" disabled={isResetSubmitting}>
+                {isResetSubmitting ? "Guardando..." : "Actualizar contraseña"}
+              </button>
+            </form>
+          </article>
+        ) : null}
+      </div>
+
+      <div className="auth-feedback" aria-live="polite">
+        {isVerifying ? <p className="muted">Verificando correo...</p> : null}
+        {info ? <p className="auth-feedback-ok">{info}</p> : null}
+        {error ? <p className="auth-feedback-error">{error}</p> : null}
+      </div>
     </section>
   );
 }
