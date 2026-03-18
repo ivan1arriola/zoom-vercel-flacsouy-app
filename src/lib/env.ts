@@ -13,6 +13,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   AUTH_SECRET: z.string().min(1).optional(),
   AUTH_TRUST_HOST: z.string().default("true"),
+  AUTH_GOOGLE_ID: z.string().optional(),
+  AUTH_GOOGLE_SECRET: z.string().optional(),
   AUTH_BOOTSTRAP_EMAIL: z.string().email().optional(),
   AUTH_BOOTSTRAP_PASSWORD: z.string().min(8).optional(),
   APP_BASE_URL: z.string().url().optional(),

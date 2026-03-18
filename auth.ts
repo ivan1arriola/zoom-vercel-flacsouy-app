@@ -5,6 +5,7 @@ import NextAuth from "next-auth";
 import type { NextRequest } from "next/server";
 import type { Adapter } from "next-auth/adapters";
 import Credentials from "next-auth/providers/credentials";
+import Google from "next-auth/providers/google";
 import { z } from "zod";
 import { db } from "@/src/lib/db";
 import { asBoolean, authSecret, env } from "@/src/lib/env";
@@ -81,13 +82,28 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           role: user.role
         };
       }
-    })
+    }),
+    ...(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET
+      ? [
+          Google({
+            clientId: env.AUTH_GOOGLE_ID,
+            clientSecret: env.AUTH_GOOGLE_SECRET,
+            allowDangerousEmailAccountLinking: true
+          })
+        ]
+      : [])
   ],
   callbacks: {
     authorized({ auth, request }: { auth: { user?: unknown } | null; request: NextRequest }) {
       const pathname = request.nextUrl.pathname;
       const isAuthApi = pathname.startsWith("/api/auth");
       const isProtectedApi = pathname.startsWith("/api/v1");
+      const isPublicRegisterApi =
+        pathname === "/api/v1/auth/register/initiate" ||
+        pathname === "/api/v1/auth/register/verify";
+      const isPublicRecoveryApi =
+        pathname === "/api/v1/auth/password-recovery/request" ||
+        pathname === "/api/v1/auth/password-recovery/confirm";
       const isPublicAsset =
         pathname.startsWith("/_next") ||
         pathname.startsWith("/favicon") ||
@@ -95,7 +111,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         pathname.startsWith("/icon");
 
       if (isAuthApi || isPublicAsset) return true;
-      if (isProtectedApi) return Boolean(auth?.user);
+      if (isProtectedApi && !isPublicRegisterApi && !isPublicRecoveryApi) return Boolean(auth?.user);
+      return true;
+    },
+    async signIn({ user, account, profile }) {
+      if (account?.provider !== "google") return true;
+
+      const email = user.email?.trim().toLowerCase();
+      if (!email || !email.endsWith("@flacso.edu.uy")) return false;
+
+      const googleProfile = profile as { email_verified?: boolean } | undefined;
+      if (!googleProfile?.email_verified) return false;
+
       return true;
     },
     async jwt({ token, user }) {

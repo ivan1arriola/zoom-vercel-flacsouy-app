@@ -5,6 +5,9 @@ import { SpaHome } from "@/components/spa-home";
 type HomePageProps = {
   searchParams?: Promise<{
     error?: string;
+    verify?: string;
+    email?: string;
+    resetToken?: string;
   }>;
 };
 
@@ -13,7 +16,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const params = searchParams ? await searchParams : undefined;
 
   if (!session?.user) {
-    return <InlineLogin initialError={params?.error} />;
+    return (
+      <InlineLogin
+        initialError={params?.error}
+        verificationToken={params?.verify}
+        verificationEmail={params?.email}
+        resetToken={params?.resetToken}
+      />
+    );
   }
 
   return <SpaHome />;

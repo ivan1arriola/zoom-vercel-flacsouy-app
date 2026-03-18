@@ -6,7 +6,16 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "FLACSO Uruguay | Plataforma Zoom",
-  description: "Aplicacion modular con UI, base de datos e integraciones para FLACSO Uruguay"
+  description: "Aplicacion modular con UI, base de datos e integraciones para FLACSO Uruguay",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon", type: "image/png" }
+    ],
+    shortcut: "/favicon.svg",
+    apple: "/icon.svg"
+  }
 };
 
 export default async function RootLayout({

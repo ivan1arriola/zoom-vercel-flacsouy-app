@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="36" fill="#1d3a72" />
+  <rect x="36" y="52" width="56" height="152" rx="10" fill="#ffffff" />
+  <path d="M87 78c16 8 24 20 24 32 0 10-5 18-12 26 10 5 18 13 18 26 0 15-10 27-30 38" stroke="#1d3a72" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <text x="108" y="114" font-size="34" font-family="Segoe UI, Arial, sans-serif" font-weight="700" fill="#ffffff">F</text>
+  <text x="108" y="148" font-size="34" font-family="Segoe UI, Arial, sans-serif" font-weight="700" fill="#ffffff">U</text>
+</svg>
