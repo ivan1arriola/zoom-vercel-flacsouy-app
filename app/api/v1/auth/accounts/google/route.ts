@@ -4,6 +4,103 @@ import { db } from "@/src/lib/db";
 
 export const runtime = "nodejs";
 
+type GoogleUserInfo = {
+  email?: string;
+  email_verified?: boolean;
+  given_name?: string;
+  family_name?: string;
+  name?: string;
+  picture?: string;
+};
+
+// POST: Volver a sincronizar datos de perfil con Google
+export async function POST() {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const googleAccount = await db.account.findFirst({
+      where: {
+        userId: sessionUser.id,
+        provider: "google"
+      },
+      select: {
+        access_token: true
+      }
+    });
+
+    if (!googleAccount) {
+      return NextResponse.json(
+        { error: "No hay una cuenta de Google vinculada para sincronizar." },
+        { status: 400 }
+      );
+    }
+
+    if (!googleAccount.access_token) {
+      return NextResponse.json(
+        { error: "No hay token de acceso de Google disponible. Vuelve a vincular la cuenta." },
+        { status: 400 }
+      );
+    }
+
+    const profileResponse = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: {
+        Authorization: `Bearer ${googleAccount.access_token}`
+      },
+      cache: "no-store"
+    });
+
+    if (!profileResponse.ok) {
+      return NextResponse.json(
+        { error: "No se pudo leer el perfil desde Google. Vuelve a vincular la cuenta." },
+        { status: 400 }
+      );
+    }
+
+    const googleUser = (await profileResponse.json()) as GoogleUserInfo;
+    const googleEmail = googleUser.email?.trim().toLowerCase();
+    if (!googleEmail || googleEmail !== sessionUser.email.trim().toLowerCase()) {
+      return NextResponse.json(
+        { error: "La cuenta de Google vinculada no coincide con el usuario actual." },
+        { status: 400 }
+      );
+    }
+
+    const updated = await db.user.update({
+      where: { id: sessionUser.id },
+      data: {
+        firstName: googleUser.given_name ?? undefined,
+        lastName: googleUser.family_name ?? undefined,
+        name: googleUser.name ?? undefined,
+        image: googleUser.picture ?? undefined,
+        emailVerified: googleUser.email_verified ? new Date() : undefined
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        image: true
+      }
+    });
+
+    return NextResponse.json({
+      ok: true,
+      message: "Perfil sincronizado desde Google.",
+      user: updated
+    });
+  } catch (error) {
+    console.error("Error syncing Google profile:", error);
+    return NextResponse.json(
+      { error: "No se pudo sincronizar el perfil desde Google." },
+      { status: 500 }
+    );
+  }
+}
+
 // DELETE: Desvincular cuenta de Google
 export async function DELETE() {
   const sessionUser = await getSessionUser();

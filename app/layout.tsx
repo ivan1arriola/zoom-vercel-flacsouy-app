@@ -74,9 +74,14 @@ export default async function RootLayout({
                       await signOut({ redirectTo: "/" });
                     }}
                   >
-                    <button className="btn ghost" type="submit">
-                      Cerrar sesión
-                    </button>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <Link href="/?tab=perfil" className="btn ghost">
+                        Mi perfil
+                      </Link>
+                      <button className="btn ghost" type="submit">
+                        Cerrar sesión
+                      </button>
+                    </div>
                   </form>
                 </>
               ) : null}
@@ -84,12 +89,7 @@ export default async function RootLayout({
           </div>
         </header>
 
-        <main className="shell app-content">
-          <nav className="nav">
-            <Link href="/">Dashboard</Link>
-          </nav>
-          {children}
-        </main>
+        <main className="shell app-content">{children}</main>
       </body>
     </html>
   );

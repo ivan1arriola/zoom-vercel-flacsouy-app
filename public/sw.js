@@ -1,4 +1,4 @@
-const CACHE_NAME = "flacso-zoom-v2";
+const CACHE_NAME = "flacso-zoom-v3";
 const OFFLINE_URLS = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -24,6 +24,11 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   if (request.method !== "GET") {
+    return;
+  }
+
+  // Do not intercept cross-origin assets (e.g. Google profile photos).
+  if (url.origin !== self.location.origin) {
     return;
   }
 

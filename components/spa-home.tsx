@@ -1,7 +1,8 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
+import { signIn } from "next-auth/react";
 import { UserAvatar } from "@/components/user-avatar";
 import { ToggleButtons } from "@/components/toggle-buttons";
 
@@ -72,23 +73,59 @@ type AgendaEvent = {
   }>;
 };
 
-const tabs = ["dashboard", "solicitudes", "agenda", "manual", "tarifas", "perfil"] as const;
+const tabs = ["dashboard", "solicitudes", "agenda", "manual", "cuentas", "tarifas", "perfil"] as const;
 type Tab = (typeof tabs)[number];
+
+type ZoomAccount = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  type: number | null;
+  status: string;
+  pendingEventsCount: number;
+  pendingEvents: Array<{
+    id: string;
+    topic: string;
+    startTime: string;
+    durationMinutes: number;
+    timezone: string;
+    joinUrl: string;
+    status: string;
+  }>;
+};
+
+function normalizeSupportRole(role: string): string {
+  if (role === "ASISTENTE_ZOOM" || role === "SOPORTE_ZOOM") {
+    return "SOPORTE_ZOOM";
+  }
+  return role;
+}
 
 export function SpaHome() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [docenteSolicitudesView, setDocenteSolicitudesView] = useState<"form" | "list">("form");
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
   const [agenda, setAgenda] = useState<AgendaEvent[]>([]);
   const [manualPendings, setManualPendings] = useState<Array<{ id: string; titulo: string }>>([]);
+  const [zoomAccounts, setZoomAccounts] = useState<ZoomAccount[]>([]);
+  const [zoomGroupName, setZoomGroupName] = useState("");
+  const [isLoadingZoomAccounts, setIsLoadingZoomAccounts] = useState(false);
+  const [expandedZoomAccountId, setExpandedZoomAccountId] = useState<string | null>(null);
   const [tarifas, setTarifas] = useState<Array<{ id: string; modalidadReunion: string; valorHora: string; moneda: string }>>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [updatingInterestId, setUpdatingInterestId] = useState<string | null>(null);
   const [isSubmittingSolicitud, setIsSubmittingSolicitud] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [isLoadingGoogleStatus, setIsLoadingGoogleStatus] = useState(false);
+  const [isSyncingGoogleProfile, setIsSyncingGoogleProfile] = useState(false);
+  const [isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount] = useState(false);
+  const [googleLinked, setGoogleLinked] = useState(false);
+  const [hasPassword, setHasPassword] = useState(false);
   const [profileForm, setProfileForm] = useState({
     firstName: "",
     lastName: "",
@@ -116,30 +153,32 @@ export function SpaHome() {
     correosDocentes: ""
   });
 
-  const isAdminUser = useMemo(() => user?.role === "ADMINISTRADOR", [user]);
   const adminViewRole = useMemo(() => {
-    const rawRole = (searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase();
-    const allowedRoles = ["ADMINISTRADOR", "DOCENTE", "ASISTENTE_ZOOM", "SOPORTE_ZOOM", "CONTADURIA"];
+    const rawRole = normalizeSupportRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
+    const allowedRoles = ["ADMINISTRADOR", "DOCENTE", "SOPORTE_ZOOM", "CONTADURIA"];
     return allowedRoles.includes(rawRole) ? rawRole : "ADMINISTRADOR";
   }, [searchParams]);
 
   const effectiveRole = useMemo(() => {
     if (!user?.role) return "";
-    if (user.role !== "ADMINISTRADOR") return user.role;
+    if (user.role !== "ADMINISTRADOR") return normalizeSupportRole(user.role);
     return adminViewRole;
   }, [user, adminViewRole]);
 
   const canSeeManual = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
-  const canSeeAgenda = useMemo(
-    () => ["ASISTENTE_ZOOM", "SOPORTE_ZOOM", "ADMINISTRADOR"].includes(effectiveRole),
-    [effectiveRole]
-  );
+  const canSeeZoomAccounts = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
+  const canSeeAgenda = useMemo(() => ["SOPORTE_ZOOM", "ADMINISTRADOR"].includes(effectiveRole), [effectiveRole]);
   const canSeeTarifas = useMemo(
     () => ["CONTADURIA", "ADMINISTRADOR"].includes(effectiveRole),
     [effectiveRole]
   );
   const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
-  const isAssistantRole = useMemo(() => effectiveRole === "ASISTENTE_ZOOM", [effectiveRole]);
+  const isAssistantRole = useMemo(() => effectiveRole === "SOPORTE_ZOOM", [effectiveRole]);
+  const requestedTab = useMemo(() => {
+    const rawTab = (searchParams.get("tab") ?? "").toLowerCase();
+    if (!rawTab) return null;
+    return tabs.includes(rawTab as Tab) ? (rawTab as Tab) : null;
+  }, [searchParams]);
 
   useEffect(() => {
     void bootstrap();
@@ -178,10 +217,6 @@ export function SpaHome() {
 
   useEffect(() => {
     if (!effectiveRole) return;
-    if (effectiveRole === "DOCENTE") {
-      setTab("solicitudes");
-      return;
-    }
     if (tab === "agenda" && !canSeeAgenda) {
       setTab("dashboard");
       return;
@@ -190,10 +225,29 @@ export function SpaHome() {
       setTab("dashboard");
       return;
     }
+    if (tab === "cuentas" && !canSeeZoomAccounts) {
+      setTab("dashboard");
+      return;
+    }
     if (tab === "tarifas" && !canSeeTarifas) {
       setTab("dashboard");
     }
-  }, [effectiveRole, tab, canSeeAgenda, canSeeManual, canSeeTarifas]);
+  }, [effectiveRole, tab, canSeeAgenda, canSeeManual, canSeeZoomAccounts, canSeeTarifas]);
+
+  useEffect(() => {
+    if (tab !== "perfil" || !user) return;
+    void loadGoogleAccountStatus();
+  }, [tab, user?.id]);
+
+  useEffect(() => {
+    if (tab !== "cuentas" || !canSeeZoomAccounts) return;
+    void loadZoomAccounts();
+  }, [tab, canSeeZoomAccounts]);
+
+  useEffect(() => {
+    if (!requestedTab) return;
+    setTab(requestedTab);
+  }, [requestedTab]);
 
   async function loadSummary() {
     const res = await fetch("/api/v1/dashboard", { cache: "no-store" });
@@ -230,6 +284,63 @@ export function SpaHome() {
       rates: Array<{ id: string; modalidadReunion: string; valorHora: string; moneda: string }>;
     };
     setTarifas(json.rates);
+  }
+
+  async function loadZoomAccounts() {
+    setIsLoadingZoomAccounts(true);
+    try {
+      const res = await fetch("/api/v1/zoom/cuentas-disponibles", { cache: "no-store" });
+      const json = (await res.json()) as {
+        error?: string;
+        groupName?: string;
+        accounts?: ZoomAccount[];
+      };
+      if (!res.ok) {
+        setMessage(json.error ?? "No se pudieron cargar las cuentas Zoom.");
+        return;
+      }
+      setZoomGroupName(json.groupName ?? "");
+      setZoomAccounts(json.accounts ?? []);
+    } finally {
+      setIsLoadingZoomAccounts(false);
+    }
+  }
+
+  function formatZoomType(type: number | null): string {
+    if (type === 1) return "Básica";
+    if (type === 2) return "Licenciada";
+    if (type === 3) return "On-Prem";
+    return "-";
+  }
+
+  function formatZoomAccountStatus(status: string): string {
+    const normalized = (status || "").toLowerCase();
+    if (normalized === "active") return "Activa";
+    if (normalized === "inactive") return "Inactiva";
+    if (normalized === "pending") return "Pendiente";
+    if (normalized === "locked") return "Bloqueada";
+    return status || "-";
+  }
+
+  function formatDurationHoursMinutes(totalMinutes: number): string {
+    const minutes = Math.max(0, Math.floor(totalMinutes));
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return `${hours} h ${String(rest).padStart(2, "0")} min`;
+  }
+
+  function formatZoomDateTime(value: string): string {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat("es-UY", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(date).replace(",", "");
   }
 
   function updateForm<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
@@ -458,23 +569,117 @@ export function SpaHome() {
     }
   }
 
+  async function loadGoogleAccountStatus() {
+    setIsLoadingGoogleStatus(true);
+    try {
+      const response = await fetch("/api/v1/auth/accounts/google", { cache: "no-store" });
+      const data = (await response.json()) as {
+        error?: string;
+        accounts?: Array<{ provider: string }>;
+        hasPassword?: boolean;
+      };
+      if (!response.ok) {
+        setMessage(data.error ?? "No se pudo obtener el estado de Google.");
+        return;
+      }
+
+      const linked = Boolean(data.accounts?.some((account) => account.provider === "google"));
+      setGoogleLinked(linked);
+      setHasPassword(Boolean(data.hasPassword));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo obtener el estado de Google.");
+    } finally {
+      setIsLoadingGoogleStatus(false);
+    }
+  }
+
+  async function linkGoogleAccount() {
+    setMessage("");
+    await signIn("google", { callbackUrl: "/" });
+  }
+
+  async function unlinkGoogleAccount() {
+    setIsUnlinkingGoogleAccount(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/v1/auth/accounts/google", {
+        method: "DELETE"
+      });
+      const data = (await response.json()) as { ok?: boolean; error?: string; message?: string };
+      if (!response.ok) {
+        setMessage(data.error ?? "No se pudo desvincular la cuenta de Google.");
+        return;
+      }
+      setGoogleLinked(false);
+      setMessage(data.message ?? "Cuenta de Google desvinculada.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo desvincular la cuenta de Google.");
+    } finally {
+      setIsUnlinkingGoogleAccount(false);
+    }
+  }
+
+  async function syncProfileFromGoogle() {
+    setIsSyncingGoogleProfile(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/v1/auth/accounts/google", {
+        method: "POST"
+      });
+      const data = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        user?: CurrentUser;
+      };
+      if (!response.ok) {
+        setMessage(data.error ?? "No se pudo sincronizar el perfil con Google.");
+        return;
+      }
+      if (data.user) {
+        setUser(data.user);
+        setProfileForm({
+          firstName: data.user.firstName ?? "",
+          lastName: data.user.lastName ?? "",
+          image: data.user.image ?? ""
+        });
+      }
+      setMessage(data.message ?? "Perfil sincronizado con Google.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo sincronizar el perfil con Google.");
+    } finally {
+      setIsSyncingGoogleProfile(false);
+    }
+  }
+
   return (
     <section>
       <h1 className="title">Gestión Institucional de Salas Zoom</h1>
-      <p className="muted">
-        Experiencia SPA inicial del nuevo sistema (solicitudes, soporte, provisión manual y tarifas).
-      </p>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         {isDocente && (
-          <button className="btn primary" onClick={() => setTab("solicitudes")} type="button">
+          <button
+            className={tab === "solicitudes" && docenteSolicitudesView === "form" ? "btn primary" : "btn ghost"}
+            onClick={() => {
+              setTab("solicitudes");
+              setDocenteSolicitudesView("form");
+            }}
+            type="button"
+          >
             Pedir sala Zoom
           </button>
         )}
-        <button className="btn ghost" onClick={() => setTab("dashboard")} type="button">
+        <button className={tab === "dashboard" ? "btn primary" : "btn ghost"} onClick={() => setTab("dashboard")} type="button">
           Dashboard
         </button>
-        <button className="btn ghost" onClick={() => setTab("solicitudes")} type="button">
+        <button
+          className={tab === "solicitudes" && (!isDocente || docenteSolicitudesView === "list") ? "btn primary" : "btn ghost"}
+          onClick={() => {
+            setTab("solicitudes");
+            if (isDocente) setDocenteSolicitudesView("list");
+          }}
+          type="button"
+        >
           {isDocente ? "Solicitudes hechas" : "Solicitudes"}
         </button>
         {canSeeAgenda && (
@@ -487,34 +692,17 @@ export function SpaHome() {
             Resolución manual
           </button>
         )}
+        {canSeeZoomAccounts && (
+          <button className="btn ghost" onClick={() => setTab("cuentas")} type="button">
+            Cuentas Zoom
+          </button>
+        )}
         {canSeeTarifas && (
           <button className="btn ghost" onClick={() => setTab("tarifas")} type="button">
             Tarifas
           </button>
         )}
-        <button className="btn ghost" onClick={() => setTab("perfil")} type="button">
-          Mi perfil
-        </button>
       </div>
-
-      {user && (
-        <div style={{ marginBottom: 24, padding: 16, backgroundColor: "#f5f5f5", borderRadius: 8, display: "flex", gap: 16, alignItems: "center" }}>
-          <UserAvatar
-            firstName={user.firstName}
-            lastName={user.lastName}
-            image={user.image}
-            size={80}
-          />
-          <div>
-            <h2 style={{ margin: 0, marginBottom: 4 }}>
-              {user.firstName && user.lastName
-                ? `${user.firstName} ${user.lastName}`
-                : user.firstName || user.lastName || "Usuario"}
-            </h2>
-            <p style={{ margin: 0, color: "#666" }}>{user.email}</p>
-          </div>
-        </div>
-      )}
 
       {loading && <p className="muted">Cargando...</p>}
 
@@ -542,18 +730,10 @@ export function SpaHome() {
       {tab === "solicitudes" && (
         <article className="card">
           <h3 style={{ marginTop: 0 }}>{isDocente ? "Pedir sala Zoom" : "Solicitudes de sala"}</h3>
-          <p className="muted">
-            Usuario actual: {user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : user?.email} ({user?.role})
-            {isAdminUser ? ` | Vista activa: ${effectiveRole}` : ""}
-          </p>
 
-          {isDocente ? (
+          {isDocente && docenteSolicitudesView === "form" ? (
             <form onSubmit={submitDocenteSolicitud}>
               <h4 style={{ marginBottom: 8 }}>Sección 1 de 3 - Datos generales</h4>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Correo
-                <input type="email" value={user?.email ?? ""} disabled />
-              </label>
               <label style={{ display: "block", marginBottom: 8 }}>
                 Tema
                 <input
@@ -728,10 +908,11 @@ export function SpaHome() {
                 {isSubmittingSolicitud ? "Enviando solicitud..." : "Enviar solicitud"}
               </button>
             </form>
-          ) : (
+          ) : !isDocente ? (
             <p className="muted">Selecciona una solicitud para revisar su detalle.</p>
-          )}
+          ) : null}
 
+          {(!isDocente || docenteSolicitudesView === "list") && (
           <div style={{ marginTop: 12 }}>
             {isDocente && <h4 style={{ marginTop: 0 }}>Solicitudes ya hechas</h4>}
             {solicitudes.length === 0 && <p className="muted">No hay solicitudes registradas.</p>}
@@ -762,6 +943,7 @@ export function SpaHome() {
               </table>
             )}
           </div>
+          )}
         </article>
       )}
 
@@ -898,8 +1080,105 @@ export function SpaHome() {
         </article>
       )}
 
-      {tab === "perfil" && user && (
+      {tab === "cuentas" && canSeeZoomAccounts && (
         <article className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <h3 style={{ marginTop: 0, marginBottom: 0 }}>Cuentas Zoom disponibles</h3>
+            <button className="btn ghost" onClick={() => void loadZoomAccounts()} type="button" disabled={isLoadingZoomAccounts}>
+              {isLoadingZoomAccounts ? "Actualizando..." : "Actualizar"}
+            </button>
+          </div>
+          <p className="muted" style={{ marginTop: 8 }}>
+            Grupo: {zoomGroupName || "(sin nombre)"}
+          </p>
+          {isLoadingZoomAccounts && <p className="muted">Cargando cuentas...</p>}
+          {!isLoadingZoomAccounts && zoomAccounts.length === 0 && (
+            <p className="muted">No hay cuentas disponibles en el grupo.</p>
+          )}
+          {!isLoadingZoomAccounts && zoomAccounts.length > 0 && (
+            <table>
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Nombre</th>
+                  <th>Tipo</th>
+                  <th>Estado de cuenta</th>
+                  <th>Eventos pendientes (Zoom)</th>
+                  <th>Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {zoomAccounts.map((account) => (
+                  <Fragment key={account.id}>
+                    <tr>
+                      <td>{account.email || "-"}</td>
+                      <td>{[account.firstName, account.lastName].filter(Boolean).join(" ") || "-"}</td>
+                      <td>{formatZoomType(account.type)}</td>
+                      <td>{formatZoomAccountStatus(account.status)}</td>
+                      <td>{account.pendingEventsCount}</td>
+                      <td>
+                        {account.pendingEventsCount > 0 ? (
+                          <button
+                            className="btn ghost"
+                            type="button"
+                            onClick={() =>
+                              setExpandedZoomAccountId((prev) => (prev === account.id ? null : account.id))
+                            }
+                          >
+                            {expandedZoomAccountId === account.id ? "Ocultar detalle" : "Ver detalle"}
+                          </button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                    </tr>
+                    {expandedZoomAccountId === account.id && account.pendingEventsCount > 0 && (
+                      <tr>
+                        <td colSpan={6}>
+                          <div style={{ padding: "8px 0" }}>
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>Tema</th>
+                                  <th>Inicio</th>
+                                  <th>Duración</th>
+                                  <th>Link</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {account.pendingEvents.map((event) => (
+                                  <tr key={event.id}>
+                                    <td>{event.topic}</td>
+                                    <td>{formatZoomDateTime(event.startTime)}</td>
+                                    <td>{formatDurationHoursMinutes(event.durationMinutes)}</td>
+                                    <td>
+                                      {event.joinUrl ? (
+                                        <a href={event.joinUrl} target="_blank" rel="noreferrer">
+                                          Abrir link
+                                        </a>
+                                      ) : (
+                                        "-"
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </article>
+      )}
+
+      {tab === "perfil" && user && (
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
+        <article className="card" style={{ width: "min(100%, 720px)" }}>
           <h3 style={{ marginTop: 0 }}>Mi perfil</h3>
           {!showProfileForm ? (
             <div>
@@ -907,17 +1186,55 @@ export function SpaHome() {
                 <p><strong>Nombre:</strong> {user.firstName || "-"}</p>
                 <p><strong>Apellido:</strong> {user.lastName || "-"}</p>
                 <p><strong>Email:</strong> {user.email}</p>
-                <p style={{ marginTop: 12 }}>
-                  <strong>Foto de perfil:</strong>
-                  <div style={{ marginTop: 8 }}>
-                    <UserAvatar
-                      firstName={user.firstName}
-                      lastName={user.lastName}
-                      image={user.image}
-                      size={100}
-                    />
-                  </div>
-                </p>
+                <p style={{ marginTop: 12, marginBottom: 8 }}><strong>Foto de perfil:</strong></p>
+                <div style={{ marginTop: 8 }}>
+                  <UserAvatar
+                    firstName={user.firstName}
+                    lastName={user.lastName}
+                    image={user.image}
+                    size={100}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <h4 style={{ marginTop: 0, marginBottom: 8 }}>Cuenta de Google</h4>
+                {isLoadingGoogleStatus ? (
+                  <p className="muted" style={{ marginTop: 0 }}>Cargando estado de vinculación...</p>
+                ) : (
+                  <>
+                    <p className="muted" style={{ marginTop: 0 }}>
+                      Estado: {googleLinked ? "Vinculada" : "No vinculada"}
+                    </p>
+                    {!hasPassword && (
+                      <p className="muted" style={{ marginTop: 0 }}>
+                        Aviso: para desvincular Google debes tener contraseña establecida.
+                      </p>
+                    )}
+                  </>
+                )}
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button className="btn ghost" type="button" onClick={() => void linkGoogleAccount()}>
+                    Vincular Google
+                  </button>
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    onClick={() => void unlinkGoogleAccount()}
+                    disabled={!googleLinked || !hasPassword || isUnlinkingGoogleAccount}
+                  >
+                    {isUnlinkingGoogleAccount ? "Desvinculando..." : "Desvincular Google"}
+                  </button>
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    onClick={() => void syncProfileFromGoogle()}
+                    disabled={!googleLinked || isSyncingGoogleProfile}
+                  >
+                    {isSyncingGoogleProfile ? "Sincronizando..." : "Volver a sincronizar con Google"}
+                  </button>
+                </div>
               </div>
               <button className="btn primary" onClick={() => setShowProfileForm(true)} type="button">
                 Editar perfil
@@ -1017,6 +1334,7 @@ export function SpaHome() {
             </form>
           )}
         </article>
+        </div>
       )}
 
       {message && (

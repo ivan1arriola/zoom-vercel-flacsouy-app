@@ -31,6 +31,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     select: {
       id: true,
       email: true,
+      emailVerified: true,
       role: true,
       firstName: true,
       lastName: true,
@@ -39,7 +40,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     }
   });
 
-  if (!dbUser) return null;
+  if (!dbUser || !dbUser.emailVerified) return null;
 
   return {
     id: dbUser.id,

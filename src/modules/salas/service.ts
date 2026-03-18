@@ -221,6 +221,7 @@ export class SalasService {
     const canSeeAll =
       user.role === UserRole.ADMINISTRADOR ||
       user.role === UserRole.CONTADURIA ||
+      user.role === UserRole.ASISTENTE_ZOOM ||
       user.role === UserRole.SOPORTE_ZOOM;
 
     return db.solicitudSala.findMany({

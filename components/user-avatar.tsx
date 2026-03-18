@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 interface UserAvatarProps {
   firstName?: string | null;
   lastName?: string | null;
@@ -15,13 +17,22 @@ export function UserAvatar({
   size = 36,
   className
 }: UserAvatarProps) {
+  const [imageLoadError, setImageLoadError] = useState(false);
+
+  useEffect(() => {
+    setImageLoadError(false);
+  }, [image]);
+
   const initials = `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
 
-  if (image) {
+  if (image && !imageLoadError) {
     return (
       <img
         src={image}
         alt={`${firstName} ${lastName}`}
+        onError={() => setImageLoadError(true)}
+        referrerPolicy="no-referrer"
+        crossOrigin="anonymous"
         style={{
           width: size,
           height: size,
