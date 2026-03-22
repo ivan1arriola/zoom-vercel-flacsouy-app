@@ -18,6 +18,7 @@ export function UserAvatar({
   className
 }: UserAvatarProps) {
   const [imageLoadError, setImageLoadError] = useState(false);
+  const displayName = [firstName, lastName].filter(Boolean).join(" ").trim() || "Usuario";
 
   useEffect(() => {
     setImageLoadError(false);
@@ -29,7 +30,7 @@ export function UserAvatar({
     return (
       <img
         src={image}
-        alt={`${firstName} ${lastName}`}
+        alt={displayName}
         onError={() => setImageLoadError(true)}
         referrerPolicy="no-referrer"
         crossOrigin="anonymous"
@@ -52,7 +53,7 @@ export function UserAvatar({
           width: size,
           height: size,
           borderRadius: "50%",
-          backgroundColor: "#4f46e5",
+          backgroundColor: "#1d3a72",
           color: "white",
           display: "flex",
           alignItems: "center",

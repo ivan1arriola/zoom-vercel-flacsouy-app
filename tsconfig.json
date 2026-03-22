@@ -12,10 +12,9 @@
     "allowJs": false,
     "incremental": true,
     "isolatedModules": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": [
-        "*"
+        "./*"
       ]
     },
     "plugins": [

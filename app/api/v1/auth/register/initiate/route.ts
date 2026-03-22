@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   const parsed = bodySchema.safeParse(json);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: "Datos inválidos." }, { status: 400 });
+    return NextResponse.json({ error: "Datos invalidos." }, { status: 400 });
   }
 
   try {
@@ -31,12 +31,17 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      message: "Te enviamos un correo de verificación.",
+      message: "Te enviamos un correo de verificacion.",
       verificationUrl: result.verificationUrl
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo iniciar el registro.";
-    const status = message.includes("ya está registrado") ? 409 : 400;
+    const normalizedMessage = message.toLowerCase();
+    const status =
+      normalizedMessage.includes("ya esta registrado") ||
+      normalizedMessage.includes("ya est� registrado")
+        ? 409
+        : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }

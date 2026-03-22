@@ -8,15 +8,31 @@ type InlineLoginProps = {
   verificationToken?: string;
   verificationEmail?: string;
   resetToken?: string;
+  resetMode?: string;
 };
 
-type AuthPanel = "login" | "register" | "recovery";
+type AuthPanel = "login" | "register" | "recovery" | "activation";
+type PasswordFlowMode = "recovery" | "activation";
+
+function mapAuthError(raw?: string): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "";
+  if (value === "AccessDenied") {
+    return "Google solo esta habilitado para cuentas @flacso.edu.uy. Usa registro por correo.";
+  }
+  return value;
+}
+
+function normalizeResetMode(raw?: string): PasswordFlowMode {
+  return raw?.trim().toLowerCase() === "activation" ? "activation" : "recovery";
+}
 
 export function InlineLogin({
   initialError,
   verificationToken,
   verificationEmail,
-  resetToken
+  resetToken,
+  resetMode
 }: InlineLoginProps) {
   const [activePanel, setActivePanel] = useState<AuthPanel>("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -25,13 +41,23 @@ export function InlineLogin({
   const [isRecoverySubmitting, setIsRecoverySubmitting] = useState(false);
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [error, setError] = useState(initialError ?? "");
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showResetPasswordConfirm, setShowResetPasswordConfirm] = useState(false);
+  const [error, setError] = useState(mapAuthError(initialError));
   const [info, setInfo] = useState("");
 
   const canAutoVerify = useMemo(
     () => Boolean(verificationToken && verificationEmail),
     [verificationEmail, verificationToken]
   );
+
+  const hasResetPayload = useMemo(
+    () => Boolean(resetToken && verificationEmail),
+    [resetToken, verificationEmail]
+  );
+
+  const passwordFlowMode = useMemo<PasswordFlowMode>(() => normalizeResetMode(resetMode), [resetMode]);
+  const isActivationFlow = hasResetPayload && passwordFlowMode === "activation";
 
   useEffect(() => {
     if (!canAutoVerify) return;
@@ -55,7 +81,7 @@ export function InlineLogin({
       if (!response.ok) {
         setError(data.error ?? "No se pudo verificar el correo.");
       } else {
-        setInfo(data.message ?? "Correo verificado. Ya puedes iniciar sesión.");
+        setInfo(data.message ?? "Correo verificado. Ya puedes iniciar sesion.");
       }
       setIsVerifying(false);
     }
@@ -68,17 +94,16 @@ export function InlineLogin({
   }, [canAutoVerify, verificationEmail, verificationToken]);
 
   useEffect(() => {
-    if (resetToken && verificationEmail) {
-      setActivePanel("recovery");
-    }
-  }, [resetToken, verificationEmail]);
+    if (!hasResetPayload) return;
+    setActivePanel(isActivationFlow ? "activation" : "recovery");
+  }, [hasResetPayload, isActivationFlow]);
 
   async function onSubmit(formData: FormData) {
     const email = String(formData.get("email") ?? "").trim().toLowerCase();
     const password = String(formData.get("password") ?? "");
 
     if (!email || !password) {
-      setError("Ingresa email y contraseña.");
+      setError("Ingresa email y contrasena.");
       return;
     }
 
@@ -94,7 +119,7 @@ export function InlineLogin({
     setIsSubmitting(false);
 
     if (!result || result.error) {
-      setError("Credenciales inválidas.");
+      setError("Credenciales invalidas.");
       return;
     }
 
@@ -115,7 +140,7 @@ export function InlineLogin({
     const password = String(formData.get("regPassword") ?? "");
 
     if (!email || !password) {
-      setError("Completa email y contraseña para registrarte.");
+      setError("Completa email y contrasena para registrarte.");
       return;
     }
 
@@ -153,7 +178,7 @@ export function InlineLogin({
   async function onRequestRecovery(formData: FormData) {
     const email = String(formData.get("recoveryEmail") ?? "").trim().toLowerCase();
     if (!email) {
-      setError("Ingresa el correo para recuperar contraseña.");
+      setError("Ingresa el correo para recuperar contrasena.");
       return;
     }
 
@@ -170,7 +195,7 @@ export function InlineLogin({
     const data = (await response.json()) as { error?: string; message?: string; resetUrl?: string };
 
     if (!response.ok) {
-      setError(data.error ?? "No se pudo procesar la recuperación.");
+      setError(data.error ?? "No se pudo procesar la recuperacion.");
       setIsRecoverySubmitting(false);
       return;
     }
@@ -178,7 +203,7 @@ export function InlineLogin({
     if (data.resetUrl) {
       setInfo(`Si el correo existe, enviamos instrucciones. En desarrollo: ${data.resetUrl}`);
     } else {
-      setInfo(data.message ?? "Si el correo existe, enviamos instrucciones de recuperación.");
+      setInfo(data.message ?? "Si el correo existe, enviamos instrucciones de recuperacion.");
     }
 
     setIsRecoverySubmitting(false);
@@ -190,17 +215,17 @@ export function InlineLogin({
     const confirmPassword = String(formData.get("resetPasswordConfirm") ?? "");
 
     if (!email || !resetToken) {
-      setError("Falta email o token para restablecer la contraseña.");
+      setError("Falta email o token para restablecer la contrasena.");
       return;
     }
 
     if (password.length < 8) {
-      setError("La nueva contraseña debe tener al menos 8 caracteres.");
+      setError("La nueva contrasena debe tener al menos 8 caracteres.");
       return;
     }
 
     if (password !== confirmPassword) {
-      setError("Las contraseñas no coinciden.");
+      setError("Las contrasenas no coinciden.");
       return;
     }
 
@@ -211,30 +236,92 @@ export function InlineLogin({
     const response = await fetch("/api/v1/auth/password-recovery/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, token: resetToken, password })
+      body: JSON.stringify({ email, token: resetToken, password, mode: isActivationFlow ? "activation" : "recovery" })
     });
 
     const data = (await response.json()) as { error?: string; message?: string };
 
     if (!response.ok) {
-      setError(data.error ?? "No se pudo actualizar la contraseña.");
+      setError(data.error ?? "No se pudo actualizar la contrasena.");
       setIsResetSubmitting(false);
       return;
     }
 
-    setInfo(data.message ?? "Contraseña actualizada. Ya puedes iniciar sesión.");
+    setInfo(
+      data.message ??
+        (isActivationFlow
+          ? "Cuenta activada. Ya puedes iniciar sesion."
+          : "Contrasena actualizada. Ya puedes iniciar sesion.")
+    );
     setIsResetSubmitting(false);
+  }
+
+  function renderResetForm(options: { title: string; submitLabel: string; helper: string }) {
+    if (!verificationEmail) return null;
+
+    return (
+      <article className="card auth-card auth-card-wide">
+        <h2 className="auth-card-title">{options.title}</h2>
+        <p className="muted auth-help">Cuenta: {verificationEmail}</p>
+        <p className="muted auth-help" style={{ marginTop: 0 }}>{options.helper}</p>
+        <form action={onResetPassword} className="auth-form" aria-busy={isResetSubmitting}>
+          <input type="hidden" name="resetEmail" value={verificationEmail} />
+          <label>
+            Nueva contrasena
+            <div className="auth-password-field">
+              <input
+                name="resetPassword"
+                type={showResetPassword ? "text" : "password"}
+                required
+                minLength={8}
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="auth-password-toggle"
+                onClick={() => setShowResetPassword((prev) => !prev)}
+              >
+                {showResetPassword ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
+          </label>
+          <label>
+            Repetir nueva contrasena
+            <div className="auth-password-field">
+              <input
+                name="resetPasswordConfirm"
+                type={showResetPasswordConfirm ? "text" : "password"}
+                required
+                minLength={8}
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="auth-password-toggle"
+                onClick={() => setShowResetPasswordConfirm((prev) => !prev)}
+              >
+                {showResetPasswordConfirm ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
+          </label>
+          <button className="btn success" type="submit" disabled={isResetSubmitting}>
+            {isResetSubmitting ? "Actualizando contrasena..." : options.submitLabel}
+          </button>
+          {isResetSubmitting ? <p className="muted auth-help">Actualizando contrasena, espera un momento...</p> : null}
+        </form>
+      </article>
+    );
   }
 
   return (
     <section className="auth-shell">
       <header className="auth-header">
         <p className="auth-kicker">FLACSO Uruguay</p>
-        <h1 className="title">Gestión Institucional de Salas Zoom</h1>
-        <p className="muted">Inicia sesión para continuar o regístrate con tu correo institucional o Google.</p>
+        <h1 className="title">Gestion Institucional de Salas Zoom</h1>
+        <p className="muted">Inicia sesion para continuar. Google solo para @flacso.edu.uy; el resto por correo y contrasena.</p>
       </header>
 
-      <nav className="auth-tabs" aria-label="Opciones de autenticación">
+      <nav className="auth-tabs" aria-label="Opciones de autenticacion">
         <button
           type="button"
           className={`auth-tab ${activePanel === "login" ? "is-active" : ""}`}
@@ -256,6 +343,15 @@ export function InlineLogin({
         >
           Recuperar
         </button>
+        {isActivationFlow ? (
+          <button
+            type="button"
+            className={`auth-tab ${activePanel === "activation" ? "is-active" : ""}`}
+            onClick={() => setActivePanel("activation")}
+          >
+            Activar cuenta
+          </button>
+        ) : null}
       </nav>
 
       <div className="auth-grid">
@@ -269,12 +365,12 @@ export function InlineLogin({
                   name="email"
                   type="email"
                   required
-                  placeholder="admin@flacso.edu.uy"
+                  placeholder="usuario@dominio.com"
                   autoComplete="email"
                 />
               </label>
               <label>
-                Contraseña
+                Contrasena
                 <input name="password" type="password" required autoComplete="current-password" />
               </label>
               <button className="btn primary" type="submit" disabled={isSubmitting}>
@@ -298,12 +394,13 @@ export function InlineLogin({
               </span>
               <span>{isGoogleSubmitting ? "Redirigiendo..." : "Ingresar con Google"}</span>
             </button>
+            <p className="muted auth-help">Google solo disponible para cuentas @flacso.edu.uy.</p>
           </article>
         ) : null}
 
         {activePanel === "register" ? (
           <article className="card auth-card auth-card-wide">
-            <h2 className="auth-card-title">Autoregistro @flacso.edu.uy</h2>
+            <h2 className="auth-card-title">Autoregistro por correo</h2>
             <button
               className="btn auth-google-btn"
               type="button"
@@ -320,7 +417,7 @@ export function InlineLogin({
               </span>
               <span>{isGoogleSubmitting ? "Redirigiendo..." : "Registrarme con Google"}</span>
             </button>
-            <p className="muted auth-help">Si no existe cuenta, se crea automáticamente al continuar con Google.</p>
+            <p className="muted auth-help">Google crea cuenta automaticamente solo para correos @flacso.edu.uy.</p>
             <form action={onRegister} className="auth-form">
               <div className="auth-row-2">
                 <label>
@@ -333,30 +430,30 @@ export function InlineLogin({
                 </label>
               </div>
               <label>
-                Correo institucional
+                Correo electronico
                 <input
                   name="regEmail"
                   type="email"
                   required
-                  placeholder="nombre@flacso.edu.uy"
+                  placeholder="nombre@dominio.com"
                   autoComplete="email"
                 />
               </label>
               <label>
-                Contraseña inicial
+                Contrasena inicial
                 <input name="regPassword" type="password" required minLength={8} autoComplete="new-password" />
               </label>
               <button className="btn success" type="submit" disabled={isRegisterSubmitting}>
-                {isRegisterSubmitting ? "Enviando verificación..." : "Registrarme"}
+                {isRegisterSubmitting ? "Enviando verificacion..." : "Registrarme"}
               </button>
             </form>
-            <p className="muted auth-help">Te enviaremos un enlace para demostrar que eres dueño de la cuenta.</p>
+            <p className="muted auth-help">Te enviaremos un enlace para demostrar que eres dueno de la cuenta.</p>
           </article>
         ) : null}
 
         {activePanel === "recovery" ? (
           <article className="card auth-card auth-card-wide">
-            <h2 className="auth-card-title">Recuperar contraseña</h2>
+            <h2 className="auth-card-title">Recuperar contrasena</h2>
             <form action={onRequestRecovery} className="auth-form">
               <label>
                 Correo de la cuenta
@@ -364,43 +461,32 @@ export function InlineLogin({
                   name="recoveryEmail"
                   type="email"
                   required
-                  placeholder="nombre@flacso.edu.uy"
+                  placeholder="nombre@dominio.com"
                   autoComplete="email"
                 />
               </label>
               <button className="btn ghost" type="submit" disabled={isRecoverySubmitting}>
-                {isRecoverySubmitting ? "Enviando enlace..." : "Enviar enlace de recuperación"}
+                {isRecoverySubmitting ? "Enviando enlace..." : "Enviar enlace de recuperacion"}
               </button>
             </form>
           </article>
         ) : null}
 
-        {resetToken && verificationEmail && activePanel === "recovery" ? (
-          <article className="card auth-card auth-card-wide">
-            <h2 className="auth-card-title">Restablecer contraseña</h2>
-            <p className="muted auth-help">Cuenta: {verificationEmail}</p>
-            <form action={onResetPassword} className="auth-form">
-              <input type="hidden" name="resetEmail" value={verificationEmail} />
-              <label>
-                Nueva contraseña
-                <input name="resetPassword" type="password" required minLength={8} autoComplete="new-password" />
-              </label>
-              <label>
-                Repetir nueva contraseña
-                <input
-                  name="resetPasswordConfirm"
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                />
-              </label>
-              <button className="btn success" type="submit" disabled={isResetSubmitting}>
-                {isResetSubmitting ? "Guardando..." : "Actualizar contraseña"}
-              </button>
-            </form>
-          </article>
-        ) : null}
+        {!isActivationFlow && hasResetPayload && activePanel === "recovery"
+          ? renderResetForm({
+              title: "Restablecer contrasena",
+              submitLabel: "Actualizar contrasena",
+              helper: "Define una nueva contrasena para recuperar tu acceso."
+            })
+          : null}
+
+        {isActivationFlow && hasResetPayload && activePanel === "activation"
+          ? renderResetForm({
+              title: "Activar cuenta",
+              submitLabel: "Activar cuenta",
+              helper: "Este paso completa la creacion de tu cuenta."
+            })
+          : null}
       </div>
 
       <div className="auth-feedback" aria-live="polite">
@@ -411,3 +497,4 @@ export function InlineLogin({
     </section>
   );
 }
+

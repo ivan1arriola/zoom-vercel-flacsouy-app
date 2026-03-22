@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "FLACSO Zoom Salas",
     short_name: "ZoomSalas",
-    description: "Sistema institucional para gestión de salas Zoom y asistentes.",
+    description: "Sistema institucional para gestion de salas Zoom y asistentes.",
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",
@@ -12,9 +12,14 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "es-UY",
     icons: [
       {
-        src: "/icon.svg",
-        sizes: "any",
-        type: "image/svg+xml"
+        src: "/icon-192.png",
+        sizes: "192x192",
+        type: "image/png"
+      },
+      {
+        src: "/icon-512.png",
+        sizes: "512x512",
+        type: "image/png"
       }
     ]
   };

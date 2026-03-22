@@ -10,6 +10,9 @@
     "build": "next build",
     "start": "next start",
     "check": "tsc --noEmit",
+    "size:app": "node scripts/app-size.mjs",
+    "analyze:health": "node scripts/analyze-health.mjs",
+    "analyze:health:ci": "node scripts/analyze-health.mjs --ci",
     "db:generate": "prisma generate",
     "db:push": "prisma db push --skip-generate",
     "db:migrate": "prisma migrate dev"

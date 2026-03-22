@@ -28,6 +28,7 @@ const envSchema = z.object({
   ZOOM_API_BASE: z.string().default("https://api.zoom.us/v2"),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
   GOOGLE_PRIVATE_KEY: z.string().optional(),
+  GOOGLE_SERVICE_ACCOUNT_SUBJECT: z.string().email().optional(),
   DRIVE_DESTINATION_ID: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),

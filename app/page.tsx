@@ -12,6 +12,7 @@ type HomePageProps = {
     verify?: string;
     email?: string;
     resetToken?: string;
+    mode?: string;
   }>;
 };
 
@@ -26,6 +27,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         verificationToken={params?.verify}
         verificationEmail={params?.email}
         resetToken={params?.resetToken}
+        resetMode={params?.mode}
       />
     );
   }

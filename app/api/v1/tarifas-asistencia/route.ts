@@ -34,7 +34,6 @@ export async function POST(request: Request) {
       valorHora: number;
       moneda: string;
       vigenteDesde?: string;
-      motivoCambio?: string;
     };
 
     if (!Object.values(ModalidadReunion).includes(body.modalidadReunion)) {

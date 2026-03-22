@@ -8,3 +8,14 @@ dist
 prisma/dev.db
 client_secret_135600066411-15h0hoe7ol8ji7c53jv9cr8iuppdfk1c.apps.googleusercontent.com.json
 flacso-uruguay-1734967269932-41310c1b547f.json
+
+.vercel
+.vercelignore
+.verceldeploy
+
+.vercel
+.vercel deploy
+.env*.local
+
+reports
+*.report

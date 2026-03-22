@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { google, type gmail_v1 } from "googleapis";
 import { asBoolean, asNumber, env } from "./env";
 import { logger } from "./logger";
 
@@ -12,16 +13,21 @@ type SendEmailParams = {
 
 export class EmailClient {
   private transporter: nodemailer.Transporter | null = null;
+  private gmailClient: gmail_v1.Gmail | null = null;
   private usingDevEthereal = false;
 
-  isConfigured(): boolean {
+  private isSmtpConfigured(): boolean {
     return Boolean(env.SMTP_HOST && env.SMTP_PORT && env.SMTP_USER && env.SMTP_PASS);
+  }
+
+  private isGmailServiceAccountConfigured(): boolean {
+    return Boolean(env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_PRIVATE_KEY);
   }
 
   private async getTransporter(): Promise<nodemailer.Transporter> {
     if (this.transporter) return this.transporter;
 
-    if (this.isConfigured()) {
+    if (this.isSmtpConfigured()) {
       this.transporter = nodemailer.createTransport({
         host: env.SMTP_HOST,
         port: asNumber(env.SMTP_PORT, 587),
@@ -32,10 +38,6 @@ export class EmailClient {
         }
       });
       return this.transporter;
-    }
-
-    if (env.NODE_ENV === "production") {
-      throw new Error("SMTP no configurado.");
     }
 
     const testAccount = await nodemailer.createTestAccount();
@@ -57,7 +59,106 @@ export class EmailClient {
     return this.transporter;
   }
 
+  private async getGmailClient(): Promise<gmail_v1.Gmail> {
+    if (this.gmailClient) return this.gmailClient;
+
+    if (!this.isGmailServiceAccountConfigured()) {
+      throw new Error("Gmail API no configurado.");
+    }
+
+    const privateKey = (env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
+    const senderAccount = env.GOOGLE_SERVICE_ACCOUNT_SUBJECT ?? env.SMTP_FROM ?? "noreply@flacso.edu.uy";
+
+    const auth = new google.auth.JWT({
+      email: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      key: privateKey,
+      scopes: ["https://www.googleapis.com/auth/gmail.send"],
+      subject: senderAccount
+    });
+
+    await auth.authorize();
+
+    this.gmailClient = google.gmail({
+      version: "v1",
+      auth
+    });
+
+    return this.gmailClient;
+  }
+
+  private buildRawMessage(params: SendEmailParams): string {
+    const from = env.SMTP_FROM || "noreply@flacso.edu.uy";
+    const headers = [
+      `From: ${from}`,
+      `To: ${params.to}`,
+      `Subject: ${this.encodeMimeHeader(params.subject)}`,
+      "MIME-Version: 1.0",
+      'Content-Type: text/html; charset="UTF-8"'
+    ];
+
+    if (params.cc?.length) {
+      headers.push(`Cc: ${params.cc.join(",")}`);
+    }
+
+    if (params.bcc?.length) {
+      headers.push(`Bcc: ${params.bcc.join(",")}`);
+    }
+
+    const raw = `${headers.join("\r\n")}\r\n\r\n${params.html}`;
+    return Buffer.from(raw, "utf8")
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+  }
+
+  private encodeMimeHeader(value: string): string {
+    return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+  }
+
   async send(params: SendEmailParams): Promise<void> {
+    if (this.isGmailServiceAccountConfigured()) {
+      const gmailClient = await this.getGmailClient();
+      await gmailClient.users.messages.send({
+        userId: "me",
+        requestBody: {
+          raw: this.buildRawMessage(params)
+        }
+      });
+
+      logger.info("Email enviado.", {
+        to: params.to,
+        subject: params.subject,
+        channel: "gmail_api"
+      });
+      return;
+    }
+
+    if (this.isSmtpConfigured()) {
+      const transporter = await this.getTransporter();
+      const info = await transporter.sendMail({
+        from: env.SMTP_FROM || "noreply@flacso.edu.uy",
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+        cc: params.cc?.length ? params.cc.join(",") : undefined,
+        bcc: params.bcc?.length ? params.bcc.join(",") : undefined
+      });
+
+      const previewUrl = nodemailer.getTestMessageUrl(info);
+      logger.info("Email enviado.", {
+        to: params.to,
+        subject: params.subject,
+        channel: this.usingDevEthereal ? "ethereal" : "smtp",
+        previewUrl: this.usingDevEthereal ? previewUrl : undefined
+      });
+      return;
+    }
+
+    if (env.NODE_ENV === "production") {
+      throw new Error("No hay proveedor de correo configurado (SMTP o Gmail API).");
+    }
+
     const transporter = await this.getTransporter();
     const info = await transporter.sendMail({
       from: env.SMTP_FROM || "noreply@flacso.edu.uy",
@@ -72,6 +173,7 @@ export class EmailClient {
     logger.info("Email enviado.", {
       to: params.to,
       subject: params.subject,
+      channel: "ethereal",
       previewUrl: this.usingDevEthereal ? previewUrl : undefined
     });
   }

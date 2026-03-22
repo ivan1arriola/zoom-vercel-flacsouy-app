@@ -1,57 +1,67 @@
 "use client";
 
+import { useId } from "react";
+
 interface ToggleButtonsProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options?: { value: string; label: string }[];
+  name?: string;
 }
 
 export function ToggleButtons({
   label,
   value,
   onChange,
+  name,
   options = [
-    { value: "SI", label: "Sí" },
+    { value: "SI", label: "Si" },
     { value: "NO", label: "No" }
   ]
 }: ToggleButtonsProps) {
+  const fallbackName = useId();
+  const groupName = name ?? fallbackName;
+
   return (
     <div style={{ marginBottom: 16 }}>
       <label style={{ display: "block", marginBottom: 8, fontWeight: 500 }}>
         {label}
       </label>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} role="radiogroup" aria-label={label}>
         {options.map((option) => (
-          <button
+          <label
             key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
             style={{
-              padding: "8px 16px",
+              position: "relative",
+              padding: "8px 14px",
               border: "2px solid #ddd",
-              borderRadius: 6,
-              backgroundColor: value === option.value ? "#4f46e5" : "white",
+              borderRadius: 8,
+              backgroundColor: value === option.value ? "var(--flacso-p1)" : "white",
               color: value === option.value ? "white" : "#333",
-              fontWeight: 500,
+              fontWeight: 600,
               cursor: "pointer",
               transition: "all 0.2s",
-              flex: 1,
+              flex: "1 1 140px",
               textAlign: "center"
             }}
-            onMouseEnter={(e) => {
-              if (value !== option.value) {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "#999";
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (value !== option.value) {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "#ddd";
-              }
-            }}
           >
+            <input
+              type="radio"
+              name={groupName}
+              value={option.value}
+              checked={value === option.value}
+              onChange={() => onChange(option.value)}
+              style={{
+                position: "absolute",
+                opacity: 0,
+                width: 0,
+                height: 0,
+                pointerEvents: "none"
+              }}
+            />
             {option.label}
-          </button>
+          </label>
         ))}
       </div>
     </div>

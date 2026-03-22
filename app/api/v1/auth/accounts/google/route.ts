@@ -3,6 +3,7 @@ import { getSessionUser } from "@/src/lib/api-auth";
 import { db } from "@/src/lib/db";
 
 export const runtime = "nodejs";
+const GOOGLE_ALLOWED_DOMAIN = "@flacso.edu.uy";
 
 type GoogleUserInfo = {
   email?: string;
@@ -13,11 +14,22 @@ type GoogleUserInfo = {
   picture?: string;
 };
 
+function canUseGoogle(email: string): boolean {
+  return email.trim().toLowerCase().endsWith(GOOGLE_ALLOWED_DOMAIN);
+}
+
 // POST: Volver a sincronizar datos de perfil con Google
 export async function POST() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!canUseGoogle(sessionUser.email)) {
+    return NextResponse.json(
+      { error: "Google solo esta habilitado para cuentas @flacso.edu.uy." },
+      { status: 403 }
+    );
   }
 
   try {
@@ -166,7 +178,8 @@ export async function GET() {
 
     return NextResponse.json({
       accounts,
-      hasPassword: Boolean(user?.passwordHash)
+      hasPassword: Boolean(user?.passwordHash),
+      canUseGoogle: canUseGoogle(sessionUser.email)
     });
   } catch (error) {
     console.error("Error fetching accounts:", error);

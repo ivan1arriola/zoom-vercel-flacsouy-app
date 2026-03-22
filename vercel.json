@@ -22,19 +22,5 @@
     "app/api/zoom-rooms/reminders/run/route.ts": {
       "maxDuration": 300
     }
-  },
-  "crons": [
-    {
-      "path": "/api/cron/zoom-drive-sync",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/cron/zoom-rooms-process",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/zoom-rooms-reminders",
-      "schedule": "*/15 * * * *"
-    }
-  ]
+  }
 }

@@ -5,8 +5,93 @@ import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
 import { signIn } from "next-auth/react";
 import { UserAvatar } from "@/components/user-avatar";
 import { ToggleButtons } from "@/components/toggle-buttons";
+import {
+  buildRecurringStarts,
+  buildRecurrenceSummary,
+  formatDateTime,
+  formatDuration,
+  getZoomWeekday,
+  parseWeekdaysCsv,
+  type ZoomMonthlyMode,
+  type ZoomRecurrenceType,
+  zoomMonthlyWeekOptions,
+  zoomWeekdayOptions
+} from "@/src/lib/spa-home/recurrence";
+import {
+  loadSummary,
+  loadAssignmentBoard,
+  type DashboardSummary,
+  type AssignmentBoardEvent,
+  type AssignableAssistant
+} from "@/src/services/dashboardApi";
+import {
+  loadPastMeetings,
+  loadSolicitudes,
+  submitDocenteSolicitud as submitDocenteSolicitudApi,
+  submitPastMeeting as submitPastMeetingApi,
+  type Solicitud
+} from "@/src/services/solicitudesApi";
+import {
+  loadAgendaLibre,
+  setInterest as setInterestApi,
+  assignAssistantToEvent as assignAssistantToEventApi,
+  type AgendaEvent
+} from "@/src/services/agendaApi";
+import {
+  loadUsers,
+  submitCreateUser as submitCreateUserApi,
+  loadGoogleAccountStatus,
+  unlinkGoogleAccount as unlinkGoogleAccountApi,
+  syncProfileFromGoogle as syncProfileFromGoogleApi,
+  updateProfile,
+  type ManagedUser
+} from "@/src/services/userApi";
+import {
+  loadTarifas,
+  submitTarifaUpdate as submitTarifaUpdateApi
+} from "@/src/services/tarifasApi";
+import {
+  loadZoomAccounts,
+  loadManualPendings,
+  type ZoomAccount
+} from "@/src/services/zoomApi";
+import { useSolicitudes } from "@/src/hooks/useSolicitudes";
+import { useTarifas, type TarifaModalidad } from "@/src/hooks/useTarifas";
+import { useZoomAccounts } from "@/src/hooks/useZoomAccounts";
+import { useManagedUsers } from "@/src/hooks/useManagedUsers";
+import { useAgendaLibre } from "@/src/hooks/useAgendaLibre";
+import { useAssignmentBoard } from "@/src/hooks/useAssignmentBoard";
+import { useUserProfile } from "@/src/hooks/useUserProfile";
+import { usePastMeetings } from "@/src/hooks/usePastMeetings";
+import { useDashboard } from "@/src/hooks/useDashboard";
+import { useUIState } from "@/src/hooks/useUIState";
+import { SpaTabDashboard } from "@/components/spa-tabs/SpaTabDashboard";
+import { SpaTabSolicitudes } from "@/components/spa-tabs/SpaTabSolicitudes";
+import { SpaTabAgendaLibre } from "@/components/spa-tabs/SpaTabAgendaLibre";
+import { SpaTabAsignacion } from "@/components/spa-tabs/SpaTabAsignacion";
+import { SpaTabManual } from "@/components/spa-tabs/SpaTabManual";
+import { SpaTabHistorico } from "@/components/spa-tabs/SpaTabHistorico";
+import { SpaTabTarifas } from "@/components/spa-tabs/SpaTabTarifas";
+import { SpaTabCuentas } from "@/components/spa-tabs/SpaTabCuentas";
+import { SpaTabUsuarios } from "@/components/spa-tabs/SpaTabUsuarios";
+import { SpaTabPerfil } from "@/components/spa-tabs/SpaTabPerfil";
+import {
+  formatZoomDateTime as formatZoomDateTimeUtil,
+  formatManagedUserRole as formatManagedUserRoleUtil,
+  formatManagedUserDate as formatManagedUserDateUtil,
+  formatModalidad as formatModalidadUtil,
+  normalizeZoomMeetingId,
+  resolveZoomJoinUrl
+} from "@/components/spa-tabs/spa-tabs-utils";
+import {
+  combineDateAndTimeToIso,
+  resolveEndByTimeOrDuration,
+  validateSolicitudTema,
+  validatePastMeetingRequired
+} from "@/components/spa-tabs/form-validators";
 
-type CurrentUser = {
+
+export type CurrentUser = {
   id: string;
   email: string;
   role: string;
@@ -15,85 +100,19 @@ type CurrentUser = {
   image?: string | null;
 };
 
-type DashboardSummary = {
-  solicitudesTotales: number;
-  manualPendings: number;
-  eventosSinSoporte: number;
-  agendaAbierta: number;
-};
-
-type Solicitud = {
-  id: string;
-  titulo: string;
-  modalidadReunion: string;
-  tipoInstancias: string;
-  estadoSolicitud: string;
-  requiresAsistencia?: boolean;
-  meetingPrincipalId?: string | null;
-  createdAt: string;
-};
-
-type AgendaEvent = {
-  id: string;
-  inicioProgramadoAt: string;
-  finProgramadoAt: string;
-  zoomJoinUrl?: string | null;
-  cuentaZoom?: {
-    nombreCuenta?: string | null;
-    ownerEmail?: string | null;
-  } | null;
-  solicitud: {
-    titulo: string;
-    modalidadReunion: string;
-    programaNombre?: string | null;
-    responsableNombre?: string | null;
-    patronRecurrencia?: Record<string, unknown> | null;
-    docente?: {
-      usuario?: {
-        email?: string | null;
-        name?: string | null;
-        firstName?: string | null;
-        lastName?: string | null;
-      } | null;
-    } | null;
-  };
-  asignaciones?: Array<{
-    asistente?: {
-      usuario?: {
-        name?: string | null;
-        firstName?: string | null;
-        lastName?: string | null;
-        email?: string | null;
-      } | null;
-    } | null;
-  }>;
-  intereses: Array<{
-    id: string;
-    estadoInteres: string;
-  }>;
-};
-
-const tabs = ["dashboard", "solicitudes", "agenda", "manual", "cuentas", "tarifas", "perfil"] as const;
+const tabs = [
+  "dashboard",
+  "solicitudes",
+  "agenda_libre",
+  "asignacion",
+  "manual",
+  "historico",
+  "cuentas",
+  "tarifas",
+  "usuarios",
+  "perfil"
+] as const;
 type Tab = (typeof tabs)[number];
-
-type ZoomAccount = {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  type: number | null;
-  status: string;
-  pendingEventsCount: number;
-  pendingEvents: Array<{
-    id: string;
-    topic: string;
-    startTime: string;
-    durationMinutes: number;
-    timezone: string;
-    joinUrl: string;
-    status: string;
-  }>;
-};
 
 function normalizeSupportRole(role: string): string {
   if (role === "ASISTENTE_ZOOM" || role === "SOPORTE_ZOOM") {
@@ -103,56 +122,54 @@ function normalizeSupportRole(role: string): string {
 }
 
 export function SpaHome() {
-  const searchParams = useSearchParams();
-  const [tab, setTab] = useState<Tab>("dashboard");
-  const [docenteSolicitudesView, setDocenteSolicitudesView] = useState<"form" | "list">("form");
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
-  const [agenda, setAgenda] = useState<AgendaEvent[]>([]);
-  const [manualPendings, setManualPendings] = useState<Array<{ id: string; titulo: string }>>([]);
-  const [zoomAccounts, setZoomAccounts] = useState<ZoomAccount[]>([]);
-  const [zoomGroupName, setZoomGroupName] = useState("");
-  const [isLoadingZoomAccounts, setIsLoadingZoomAccounts] = useState(false);
-  const [expandedZoomAccountId, setExpandedZoomAccountId] = useState<string | null>(null);
-  const [tarifas, setTarifas] = useState<Array<{ id: string; modalidadReunion: string; valorHora: string; moneda: string }>>([]);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [updatingInterestId, setUpdatingInterestId] = useState<string | null>(null);
-  const [isSubmittingSolicitud, setIsSubmittingSolicitud] = useState(false);
-  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
-  const [isLoadingGoogleStatus, setIsLoadingGoogleStatus] = useState(false);
-  const [isSyncingGoogleProfile, setIsSyncingGoogleProfile] = useState(false);
-  const [isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount] = useState(false);
-  const [googleLinked, setGoogleLinked] = useState(false);
-  const [hasPassword, setHasPassword] = useState(false);
-  const [profileForm, setProfileForm] = useState({
-    firstName: "",
-    lastName: "",
-    image: ""
-  });
-  const [showProfileForm, setShowProfileForm] = useState(false);
-  const [form, setForm] = useState({
-    tema: "",
-    responsable: "",
-    programa: "",
-    asistenciaZoom: "SI",
-    modalidad: "VIRTUAL",
-    grabacion: "NO",
-    unaOVarias: "UNA",
-    controlAsistencia: "NO",
-    descripcionUnica: "",
-    fechaUnica: "",
-    duracionUnica: "60",
-    descripcionRecurrente: "",
-    primeraFecha: "",
-    duracionRecurrente: "60",
-    frecuenciaRecurrente: "SEMANAL",
-    regimenEncuentros: "",
-    fechaFinal: "",
-    correosDocentes: ""
-  });
+  // UI State
+  const { tab, setTab, message, setMessage, loading, setLoading, requestedTab } = useUIState();
+  
+  // Solicitudes & Doctentes
+  const { solicitudes, setSolicitudes, docenteSolicitudesView, setDocenteSolicitudesView, isSubmittingSolicitud, setIsSubmittingSolicitud, form, setForm, updateForm } = useSolicitudes();
+  
+  // Dashboard
+  const { summary, setSummary, manualPendings, setManualPendings } = useDashboard();
+  
+  // Agenda Libre
+  const { agendaLibre, setAgendaLibre, updatingInterestId, setUpdatingInterestId } = useAgendaLibre();
+  
+  // Assignment Board
+  const { assignmentBoardEvents, setAssignmentBoardEvents, assignableAssistants, setAssignableAssistants, isLoadingAssignmentBoard, setIsLoadingAssignmentBoard, assigningEventId, setAssigningEventId, selectedAssistantByEvent, setSelectedAssistantByEvent } = useAssignmentBoard();
+  
+  // Tarifas
+  const {
+    setTarifas,
+    isSubmittingTarifa,
+    setIsSubmittingTarifa,
+    tarifaFormByModalidad,
+    setTarifaFormByModalidad,
+    currentTarifaByModalidad
+  } = useTarifas();
+  
+  // Zoom Accounts
+  const { zoomAccounts, setZoomAccounts, zoomGroupName, setZoomGroupName, isLoadingZoomAccounts, setIsLoadingZoomAccounts, expandedZoomAccountId, setExpandedZoomAccountId } = useZoomAccounts();
+  
+  // Managed Users
+  const { users, setUsers, isLoadingUsers, setIsLoadingUsers, isCreatingUser, setIsCreatingUser, createUserForm, setCreateUserForm } = useManagedUsers();
+  
+  // Past Meetings
+  const {
+    isSubmittingPastMeeting,
+    setIsSubmittingPastMeeting,
+    isLoadingPastMeetings,
+    setIsLoadingPastMeetings,
+    pastMeetings,
+    setPastMeetings,
+    pastMeetingForm,
+    setPastMeetingForm
+  } = usePastMeetings();
+  
+  // User Profile & Auth
+  const { user, setUser, googleLinked, setGoogleLinked, hasPassword, setHasPassword, isLoadingGoogleStatus, setIsLoadingGoogleStatus, isSyncingGoogleProfile, setIsSyncingGoogleProfile, isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount, isUpdatingProfile, setIsUpdatingProfile, profileForm, setProfileForm, showProfileForm, setShowProfileForm } = useUserProfile();
 
+  const { searchParams, tabs: availableTabs } = useUIState();
+  
   const adminViewRole = useMemo(() => {
     const rawRole = normalizeSupportRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
     const allowedRoles = ["ADMINISTRADOR", "DOCENTE", "SOPORTE_ZOOM", "CONTADURIA"];
@@ -166,19 +183,30 @@ export function SpaHome() {
   }, [user, adminViewRole]);
 
   const canSeeManual = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
+  const canSeePastMeetings = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
   const canSeeZoomAccounts = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
-  const canSeeAgenda = useMemo(() => ["SOPORTE_ZOOM", "ADMINISTRADOR"].includes(effectiveRole), [effectiveRole]);
+  const canSeeUsers = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
+  const canSeeAgendaLibre = useMemo(
+    () => ["SOPORTE_ZOOM", "ASISTENTE_ZOOM"].includes(user?.role ?? ""),
+    [user?.role]
+  );
+  const canSeeAssignmentBoard = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
   const canSeeTarifas = useMemo(
     () => ["CONTADURIA", "ADMINISTRADOR"].includes(effectiveRole),
     [effectiveRole]
   );
   const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
-  const isAssistantRole = useMemo(() => effectiveRole === "SOPORTE_ZOOM", [effectiveRole]);
-  const requestedTab = useMemo(() => {
-    const rawTab = (searchParams.get("tab") ?? "").toLowerCase();
-    if (!rawTab) return null;
-    return tabs.includes(rawTab as Tab) ? (rawTab as Tab) : null;
-  }, [searchParams]);
+  const canCreateSolicitudShortcut = useMemo(
+    () => ["DOCENTE", "ADMINISTRADOR"].includes(user?.role ?? ""),
+    [user?.role]
+  );
+  const canUseGoogleByEmail = useMemo(
+    () => Boolean(user?.email?.trim().toLowerCase().endsWith("@flacso.edu.uy")),
+    [user?.email]
+  );
+
+  // currentTarifaByModalidad is already provided by useTarifas hook
+  // requestedTab is already provided by useUIState hook
 
   useEffect(() => {
     void bootstrap();
@@ -203,13 +231,62 @@ export function SpaHome() {
         setTab("solicitudes");
       }
 
-      await Promise.all([
-        loadSummary(),
-        loadSolicitudes(),
-        loadAgenda(),
-        loadManualPendings(),
-        loadTarifas()
-      ]);
+      const loaders: Array<Promise<void>> = [
+        (async () => {
+          const summary = await loadSummary();
+          if (summary) setSummary(summary);
+        })(),
+        (async () => {
+          const solicitudes = await loadSolicitudes();
+          if (solicitudes) setSolicitudes(solicitudes);
+        })(),
+        (async () => {
+          const pendings = await loadManualPendings();
+          if (pendings) setManualPendings(pendings);
+        })(),
+        (async () => {
+          const tarifas = await loadTarifas();
+          if (tarifas) setTarifas(tarifas);
+        })()
+      ];
+
+      if (meJson.user.role === "ADMINISTRADOR") {
+        loaders.push(
+          (async () => {
+            const data = await loadAssignmentBoard();
+            if (data) {
+              setAssignmentBoardEvents(data.events ?? []);
+              setAssignableAssistants(data.assistants ?? []);
+              setSelectedAssistantByEvent((prev) => {
+                const next = { ...prev };
+                for (const event of data.events ?? []) {
+                  if (!next[event.id]) {
+                    next[event.id] = event.interesados[0]?.asistenteZoomId ?? "";
+                  }
+                }
+                return next;
+              });
+            }
+          })()
+        );
+        loaders.push(
+          (async () => {
+            const users = await loadUsers();
+            if (users) setUsers(users);
+          })()
+        );
+      }
+
+      if (["SOPORTE_ZOOM", "ASISTENTE_ZOOM"].includes(meJson.user.role)) {
+        loaders.push(
+          (async () => {
+            const agenda = await loadAgendaLibre();
+            if (agenda) setAgendaLibre(agenda);
+          })()
+        );
+      }
+
+      await Promise.all(loaders);
     } finally {
       setLoading(false);
     }
@@ -217,7 +294,11 @@ export function SpaHome() {
 
   useEffect(() => {
     if (!effectiveRole) return;
-    if (tab === "agenda" && !canSeeAgenda) {
+    if (tab === "agenda_libre" && !canSeeAgendaLibre) {
+      setTab("dashboard");
+      return;
+    }
+    if (tab === "asignacion" && !canSeeAssignmentBoard) {
       setTab("dashboard");
       return;
     }
@@ -225,173 +306,160 @@ export function SpaHome() {
       setTab("dashboard");
       return;
     }
+    if (tab === "historico" && !canSeePastMeetings) {
+      setTab("dashboard");
+      return;
+    }
     if (tab === "cuentas" && !canSeeZoomAccounts) {
+      setTab("dashboard");
+      return;
+    }
+    if (tab === "usuarios" && !canSeeUsers) {
       setTab("dashboard");
       return;
     }
     if (tab === "tarifas" && !canSeeTarifas) {
       setTab("dashboard");
     }
-  }, [effectiveRole, tab, canSeeAgenda, canSeeManual, canSeeZoomAccounts, canSeeTarifas]);
+  }, [
+    effectiveRole,
+    tab,
+    canSeeAgendaLibre,
+    canSeeAssignmentBoard,
+    canSeeManual,
+    canSeePastMeetings,
+    canSeeZoomAccounts,
+    canSeeUsers,
+    canSeeTarifas
+  ]);
 
   useEffect(() => {
     if (tab !== "perfil" || !user) return;
-    void loadGoogleAccountStatus();
-  }, [tab, user?.id]);
+    if (!canUseGoogleByEmail) {
+      setGoogleLinked(false);
+      return;
+    }
+    (async () => {
+      setIsLoadingGoogleStatus(true);
+      try {
+        const status = await loadGoogleAccountStatus();
+        setGoogleLinked(status.linked);
+        setHasPassword(status.hasPassword);
+      } finally {
+        setIsLoadingGoogleStatus(false);
+      }
+    })();
+  }, [tab, user?.id, canUseGoogleByEmail]);
 
   useEffect(() => {
     if (tab !== "cuentas" || !canSeeZoomAccounts) return;
-    void loadZoomAccounts();
+    (async () => {
+      setIsLoadingZoomAccounts(true);
+      try {
+        const result = await loadZoomAccounts();
+        if (result.error) {
+          setMessage(result.error);
+          return;
+        }
+        setZoomGroupName(result.groupName);
+        setZoomAccounts(result.accounts);
+      } finally {
+        setIsLoadingZoomAccounts(false);
+      }
+    })();
   }, [tab, canSeeZoomAccounts]);
+
+  useEffect(() => {
+    if (tab !== "usuarios" || !canSeeUsers) return;
+    (async () => {
+      setIsLoadingUsers(true);
+      try {
+        const users = await loadUsers();
+        if (users) setUsers(users);
+      } finally {
+        setIsLoadingUsers(false);
+      }
+    })();
+  }, [tab, canSeeUsers]);
+
+  useEffect(() => {
+    if (tab !== "agenda_libre" || !canSeeAgendaLibre) return;
+    (async () => {
+      const agenda = await loadAgendaLibre();
+      if (agenda) setAgendaLibre(agenda);
+    })();
+  }, [tab, canSeeAgendaLibre]);
+
+  useEffect(() => {
+    if (tab !== "asignacion" || !canSeeAssignmentBoard) return;
+    (async () => {
+      setIsLoadingAssignmentBoard(true);
+      try {
+        const data = await loadAssignmentBoard();
+        if (data) {
+          setAssignmentBoardEvents(data.events ?? []);
+          setAssignableAssistants(data.assistants ?? []);
+          setSelectedAssistantByEvent((prev) => {
+            const next = { ...prev };
+            for (const event of data.events ?? []) {
+              if (!next[event.id]) {
+                next[event.id] = event.interesados[0]?.asistenteZoomId ?? "";
+              }
+            }
+            return next;
+          });
+        }
+      } finally {
+        setIsLoadingAssignmentBoard(false);
+      }
+    })();
+  }, [tab, canSeeAssignmentBoard]);
+
+  useEffect(() => {
+    if (tab !== "historico" || !canSeePastMeetings) return;
+    void refreshPastMeetings();
+  }, [tab, canSeePastMeetings]);
 
   useEffect(() => {
     if (!requestedTab) return;
     setTab(requestedTab);
   }, [requestedTab]);
 
-  async function loadSummary() {
-    const res = await fetch("/api/v1/dashboard", { cache: "no-store" });
-    if (!res.ok) return;
-    const json = (await res.json()) as { summary: DashboardSummary };
-    setSummary(json.summary);
+  // Removed: All load* and fetch functions moved to service modules
+  // They are now imported from @/src/services/{dashboardApi,solicitudesApi,agendaApi,userApi,tarifasApi,zoomApi}
+
+  function isLicensedZoomAccount(account: ZoomAccount): boolean {
+    return account.type === 2;
   }
 
-  async function loadSolicitudes() {
-    const res = await fetch("/api/v1/solicitudes-sala", { cache: "no-store" });
-    if (!res.ok) return;
-    const json = (await res.json()) as { requests: Solicitud[] };
-    setSolicitudes(json.requests);
-  }
-
-  async function loadAgenda() {
-    const res = await fetch("/api/v1/agenda-soporte/abierta", { cache: "no-store" });
-    if (!res.ok) return;
-    const json = (await res.json()) as { agenda: AgendaEvent[] };
-    setAgenda(json.agenda);
-  }
-
-  async function loadManualPendings() {
-    const res = await fetch("/api/v1/provision-manual/pendientes", { cache: "no-store" });
-    if (!res.ok) return;
-    const json = (await res.json()) as { pendings: Array<{ id: string; titulo: string }> };
-    setManualPendings(json.pendings);
-  }
-
-  async function loadTarifas() {
-    const res = await fetch("/api/v1/tarifas-asistencia", { cache: "no-store" });
-    if (!res.ok) return;
-    const json = (await res.json()) as {
-      rates: Array<{ id: string; modalidadReunion: string; valorHora: string; moneda: string }>;
-    };
-    setTarifas(json.rates);
-  }
-
-  async function loadZoomAccounts() {
-    setIsLoadingZoomAccounts(true);
-    try {
-      const res = await fetch("/api/v1/zoom/cuentas-disponibles", { cache: "no-store" });
-      const json = (await res.json()) as {
-        error?: string;
-        groupName?: string;
-        accounts?: ZoomAccount[];
-      };
-      if (!res.ok) {
-        setMessage(json.error ?? "No se pudieron cargar las cuentas Zoom.");
-        return;
-      }
-      setZoomGroupName(json.groupName ?? "");
-      setZoomAccounts(json.accounts ?? []);
-    } finally {
-      setIsLoadingZoomAccounts(false);
-    }
-  }
-
-  function formatZoomType(type: number | null): string {
-    if (type === 1) return "Básica";
-    if (type === 2) return "Licenciada";
-    if (type === 3) return "On-Prem";
-    return "-";
-  }
-
-  function formatZoomAccountStatus(status: string): string {
-    const normalized = (status || "").toLowerCase();
-    if (normalized === "active") return "Activa";
-    if (normalized === "inactive") return "Inactiva";
-    if (normalized === "pending") return "Pendiente";
-    if (normalized === "locked") return "Bloqueada";
-    return status || "-";
+  function isMeetingStartingSoon(startTime: string): boolean {
+    const startMs = new Date(startTime).getTime();
+    if (Number.isNaN(startMs)) return false;
+    const diff = startMs - Date.now();
+    const hours24 = 24 * 60 * 60 * 1000;
+    return diff >= 0 && diff <= hours24;
   }
 
   function formatDurationHoursMinutes(totalMinutes: number): string {
     const minutes = Math.max(0, Math.floor(totalMinutes));
     const hours = Math.floor(minutes / 60);
     const rest = minutes % 60;
-    return `${hours} h ${String(rest).padStart(2, "0")} min`;
-  }
-
-  function formatZoomDateTime(value: string): string {
-    if (!value) return "-";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return new Intl.DateTimeFormat("es-UY", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false
-    }).format(date).replace(",", "");
-  }
-
-  function updateForm<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function estimateIntervalDays(regimen: string): number {
-    const normalized = regimen.toLowerCase();
-    if (normalized.includes("quinc")) return 14;
-    if (normalized.includes("mens")) return 30;
-    return 7;
-  }
-
-  function getIntervalDaysFromFrequency(freq: string, regimen: string): number {
-    if (freq === "QUINCENAL") return 14;
-    if (freq === "MENSUAL") return 30;
-    if (freq === "PERSONALIZADA") return estimateIntervalDays(regimen);
-    return 7;
-  }
-
-  function toIso(value: string, fieldName: string): string {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      throw new Error(`${fieldName} inválida.`);
-    }
-    return parsed.toISOString();
-  }
-
-  function formatModalidad(value: string): string {
-    return value === "HIBRIDA" ? "Presencial" : "Virtual";
-  }
-
-  function formatDateTime(value: string): string {
-    const date = new Date(value);
-    return new Intl.DateTimeFormat("es-UY", {
-      weekday: "long",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false
-    }).format(date).replace(",", "");
-  }
-
-  function formatDuration(startIso: string, endIso: string): string {
-    const minutes = Math.max(0, Math.floor((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000));
-    const hours = Math.floor(minutes / 60);
-    const rest = minutes % 60;
     return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
   }
+
+  // Using formatZoomDateTime from spa-tabs-utils
+  const formatZoomDateTime = formatZoomDateTimeUtil;
+
+  // Using formatManagedUserRole from spa-tabs-utils
+  const formatManagedUserRole = formatManagedUserRoleUtil;
+
+  // Using formatManagedUserDate from spa-tabs-utils
+  const formatManagedUserDate = formatManagedUserDateUtil;
+
+  // updateForm is now provided by useSolicitudes hook
+
+  // Using form validators from form-validators module
+  const formatModalidad = formatModalidadUtil;
 
   function getPreparacionDisplay(item: AgendaEvent): string {
     if (item.solicitud.modalidadReunion !== "HIBRIDA") return "";
@@ -443,12 +511,13 @@ export function SpaHome() {
       let payload: Record<string, unknown>;
 
       if (form.unaOVarias === "UNA") {
-        const startIso = toIso(form.fechaUnica, "Fecha única");
-        const minutes = Number(form.duracionUnica);
-        if (!Number.isFinite(minutes) || minutes <= 0) {
-          throw new Error("Duración de la reunión única inválida.");
-        }
-        const endIso = new Date(new Date(startIso).getTime() + minutes * 60_000).toISOString();
+        const startIso = combineDateAndTimeToIso(form.diaUnica, form.horaInicioUnica, "dia y hora de inicio");
+        const { endIso } = resolveEndByTimeOrDuration(
+          startIso,
+          form.horaFinUnica,
+          form.duracionUnica,
+          "la reunion unica"
+        );
 
         payload = {
           titulo: form.tema.trim(),
@@ -470,34 +539,109 @@ export function SpaHome() {
           motivoAsistencia: requiereAsistencia ? "Asistencia solicitada desde formulario docente." : undefined
         };
       } else {
-        const firstIso = toIso(form.primeraFecha, "Primera fecha");
-        const firstDate = new Date(firstIso);
-        const minutes = Number(form.duracionRecurrente);
-        if (!Number.isFinite(minutes) || minutes <= 0) {
-          throw new Error("Duración de reunión periódica inválida.");
-        }
+        const firstAnchorIso = combineDateAndTimeToIso(
+          form.primerDiaRecurrente,
+          form.horaInicioRecurrente,
+          "primer dia y hora de inicio"
+        );
+        const firstAnchorDate = new Date(firstAnchorIso);
+        const { durationMinutes } = resolveEndByTimeOrDuration(
+          firstAnchorIso,
+          form.horaFinRecurrente,
+          form.duracionRecurrente,
+          "las reuniones periodicas"
+        );
         if (!form.fechaFinal) {
           throw new Error("Debes completar la fecha final.");
         }
 
-        const firstTime = form.primeraFecha.split("T")[1] || "00:00";
-        const finalStart = new Date(`${form.fechaFinal}T${firstTime}`);
-        if (Number.isNaN(finalStart.getTime())) {
-          throw new Error("Fecha final inválida.");
+        const recurrenceEnd = new Date(`${form.fechaFinal}T${form.horaInicioRecurrente || "00:00"}`);
+        if (Number.isNaN(recurrenceEnd.getTime())) {
+          throw new Error("Fecha final invalida.");
         }
-        if (finalStart <= firstDate) {
+        if (recurrenceEnd <= firstAnchorDate) {
           throw new Error("La fecha final debe ser posterior a la primera fecha.");
         }
 
-        const endIso = new Date(finalStart.getTime() + minutes * 60_000).toISOString();
-        const intervalDays = getIntervalDaysFromFrequency(
-          form.frecuenciaRecurrente,
-          form.regimenEncuentros
-        );
-        const totalInstancias = Math.max(
-          2,
-          Math.floor((finalStart.getTime() - firstDate.getTime()) / (intervalDays * 24 * 60 * 60 * 1000)) + 1
-        );
+        const recurrenceType = form.recurrenciaTipoZoom as ZoomRecurrenceType;
+        if (!["1", "2", "3"].includes(recurrenceType)) {
+          throw new Error("Tipo de recurrencia invalido.");
+        }
+
+        const repeatInterval = Number(form.recurrenciaIntervalo);
+        if (!Number.isInteger(repeatInterval) || repeatInterval < 1) {
+          throw new Error("Intervalo de recurrencia invalido.");
+        }
+
+        const maxRepeatInterval = recurrenceType === "1" ? 90 : recurrenceType === "2" ? 12 : 3;
+        if (repeatInterval > maxRepeatInterval) {
+          throw new Error(`El intervalo supera el maximo permitido por Zoom (${maxRepeatInterval}).`);
+        }
+
+        const weeklyDays = parseWeekdaysCsv(form.recurrenciaDiasSemana);
+        if (recurrenceType === "2" && weeklyDays.length === 0) {
+          throw new Error("Debes seleccionar al menos un dia para recurrencia semanal.");
+        }
+        const weeklyDaysForRule =
+          recurrenceType === "2"
+            ? [...new Set([...weeklyDays, getZoomWeekday(firstAnchorDate)])].sort((a, b) => a - b)
+            : [];
+
+        const monthlyMode = form.recurrenciaMensualModo as ZoomMonthlyMode;
+        if (!["DAY_OF_MONTH", "WEEKDAY_OF_MONTH"].includes(monthlyMode)) {
+          throw new Error("Modo mensual invalido.");
+        }
+
+        const monthlyDay = Number(form.recurrenciaDiaMes);
+        if (recurrenceType === "3" && monthlyMode === "DAY_OF_MONTH" && (!Number.isInteger(monthlyDay) || monthlyDay < 1 || monthlyDay > 31)) {
+          throw new Error("El dia del mes debe estar entre 1 y 31.");
+        }
+
+        const monthlyWeek = Number(form.recurrenciaSemanaMes) as -1 | 1 | 2 | 3 | 4;
+        if (recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH" && ![-1, 1, 2, 3, 4].includes(monthlyWeek)) {
+          throw new Error("La semana del mes es invalida.");
+        }
+
+        const monthlyWeekDay = Number(form.recurrenciaDiaSemanaMes);
+        if (recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH" && (!Number.isInteger(monthlyWeekDay) || monthlyWeekDay < 1 || monthlyWeekDay > 7)) {
+          throw new Error("El dia de semana mensual es invalido.");
+        }
+
+        const recurringStarts = buildRecurringStarts({
+          firstStart: firstAnchorDate,
+          recurrenceEnd,
+          recurrenceType,
+          repeatInterval,
+          weeklyDays: weeklyDaysForRule,
+          monthlyMode,
+          monthlyDay,
+          monthlyWeek,
+          monthlyWeekDay
+        });
+
+        if (recurringStarts.length < 2) {
+          throw new Error("Con esa configuracion no se generan al menos 2 instancias.");
+        }
+        if (recurringStarts.length > 50) {
+          throw new Error("Zoom permite un maximo de 50 ocurrencias por reunion recurrente.");
+        }
+
+        const firstInstanceStart = recurringStarts[0];
+        const firstInstanceEndIso = new Date(
+          firstInstanceStart.getTime() + durationMinutes * 60_000
+        ).toISOString();
+
+        const recurrenceSummary = buildRecurrenceSummary({
+          recurrenceType,
+          repeatInterval,
+          weeklyDays: weeklyDaysForRule,
+          monthlyMode,
+          monthlyDay,
+          monthlyWeek,
+          monthlyWeekDay,
+          totalInstancias: recurringStarts.length,
+          fechaFinal: form.fechaFinal
+        });
 
         payload = {
           titulo: form.tema.trim(),
@@ -507,9 +651,9 @@ export function SpaHome() {
           finalidadAcademica: form.programa.trim() || undefined,
           modalidadReunion: form.modalidad,
           tipoInstancias: "MULTIPLE_COMPATIBLE_ZOOM",
-          fechaInicioSolicitada: firstIso,
-          fechaFinSolicitada: endIso,
-          fechaFinRecurrencia: finalStart.toISOString(),
+          fechaInicioSolicitada: firstInstanceStart.toISOString(),
+          fechaFinSolicitada: firstInstanceEndIso,
+          fechaFinRecurrencia: recurrenceEnd.toISOString(),
           timezone: "America/Montevideo",
           controlAsistencia: form.controlAsistencia === "SI",
           docentesCorreos: form.correosDocentes.trim() || undefined,
@@ -518,30 +662,58 @@ export function SpaHome() {
           requiereGrabacion,
           requiereAsistencia,
           motivoAsistencia: requiereAsistencia ? "Asistencia solicitada desde formulario docente." : undefined,
-          regimenEncuentros: form.regimenEncuentros,
+          regimenEncuentros: recurrenceSummary,
+          instanciasDetalle: recurringStarts.map((date) => ({
+            inicioProgramadoAt: date.toISOString()
+          })),
           patronRecurrencia: {
-            totalInstancias,
-            intervaloDias: intervalDays,
-            frecuencia: form.frecuenciaRecurrente,
-            regimenEncuentros: form.regimenEncuentros,
-            fechaFinal: form.fechaFinal
+            totalInstancias: recurringStarts.length,
+            fechaFinal: form.fechaFinal,
+            zoomRecurrence: {
+              type: Number(recurrenceType),
+              repeat_interval: repeatInterval,
+              weekly_days: recurrenceType === "2" ? weeklyDaysForRule.join(",") : undefined,
+              monthly_day:
+                recurrenceType === "3" && monthlyMode === "DAY_OF_MONTH" ? monthlyDay : undefined,
+              monthly_week:
+                recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH"
+                  ? monthlyWeek
+                  : undefined,
+              monthly_week_day:
+                recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH"
+                  ? monthlyWeekDay
+                  : undefined,
+              end_date_time: recurrenceEnd.toISOString(),
+              end_times: recurringStarts.length
+            }
           }
         };
       }
 
-      const response = await fetch("/api/v1/solicitudes-sala", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = (await response.json()) as { error?: string; request?: { id: string } };
-      if (!response.ok) {
-        setMessage(data.error ?? "No se pudo crear la solicitud.");
+      const response = await submitDocenteSolicitudApi(payload);
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo crear la solicitud.");
         return;
       }
 
-      setMessage(`Solicitud creada correctamente: ${data.request?.id}`);
-      await Promise.all([loadSolicitudes(), loadSummary(), loadAgenda(), loadManualPendings()]);
+      setMessage(`Solicitud creada correctamente: ${response.requestId}`);
+      setDocenteSolicitudesView("list");
+      const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
+        loadSummary(),
+        loadSolicitudes(),
+        loadAgendaLibre(),
+        loadAssignmentBoard(),
+        loadManualPendings()
+      ]);
+
+      if (summaryData) setSummary(summaryData);
+      if (solicitudesData) setSolicitudes(solicitudesData);
+      if (agendaData) setAgendaLibre(agendaData);
+      if (assignmentData) {
+        setAssignmentBoardEvents(assignmentData.events ?? []);
+        setAssignableAssistants(assignmentData.assistants ?? []);
+      }
+      if (manualData) setManualPendings(manualData);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo crear la solicitud.");
     } finally {
@@ -552,48 +724,59 @@ export function SpaHome() {
   async function setInterest(eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA") {
     setUpdatingInterestId(eventoId);
     try {
-      const response = await fetch(`/api/v1/eventos-zoom/${eventoId}/intereses`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estadoInteres })
-      });
-      const data = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setMessage(data.error ?? "No se pudo registrar interés.");
+      const response = await setInterestApi(eventoId, estadoInteres);
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo registrar interés.");
         return;
       }
       setMessage("Interés actualizado.");
-      await loadAgenda();
+      const [agendaData, assignmentData] = await Promise.all([loadAgendaLibre(), loadAssignmentBoard()]);
+      if (agendaData) setAgendaLibre(agendaData);
+      if (assignmentData) {
+        setAssignmentBoardEvents(assignmentData.events ?? []);
+        setAssignableAssistants(assignmentData.assistants ?? []);
+      }
     } finally {
       setUpdatingInterestId(null);
     }
   }
 
-  async function loadGoogleAccountStatus() {
-    setIsLoadingGoogleStatus(true);
+  async function assignAssistantToEvent(eventoId: string) {
+    const asistenteZoomId = selectedAssistantByEvent[eventoId];
+    if (!asistenteZoomId) {
+      setMessage("Debes seleccionar una persona para asignar.");
+      return;
+    }
+
+    setAssigningEventId(eventoId);
     try {
-      const response = await fetch("/api/v1/auth/accounts/google", { cache: "no-store" });
-      const data = (await response.json()) as {
-        error?: string;
-        accounts?: Array<{ provider: string }>;
-        hasPassword?: boolean;
-      };
-      if (!response.ok) {
-        setMessage(data.error ?? "No se pudo obtener el estado de Google.");
+      const response = await assignAssistantToEventApi(eventoId, asistenteZoomId);
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo asignar soporte.");
         return;
       }
 
-      const linked = Boolean(data.accounts?.some((account) => account.provider === "google"));
-      setGoogleLinked(linked);
-      setHasPassword(Boolean(data.hasPassword));
+      setMessage("Asignacion registrada.");
+      const [assignmentData, summaryData] = await Promise.all([loadAssignmentBoard(), loadSummary()]);
+      if (assignmentData) {
+        setAssignmentBoardEvents(assignmentData.events ?? []);
+        setAssignableAssistants(assignmentData.assistants ?? []);
+      }
+      if (summaryData) setSummary(summaryData);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No se pudo obtener el estado de Google.");
+      setMessage(error instanceof Error ? error.message : "No se pudo asignar soporte.");
     } finally {
-      setIsLoadingGoogleStatus(false);
+      setAssigningEventId(null);
     }
   }
 
+  // Removed: loadGoogleAccountStatus function now called from useEffect with API service
+
   async function linkGoogleAccount() {
+    if (!canUseGoogleByEmail) {
+      setMessage("Google solo esta habilitado para cuentas @flacso.edu.uy.");
+      return;
+    }
     setMessage("");
     await signIn("google", { callbackUrl: "/" });
   }
@@ -602,16 +785,13 @@ export function SpaHome() {
     setIsUnlinkingGoogleAccount(true);
     setMessage("");
     try {
-      const response = await fetch("/api/v1/auth/accounts/google", {
-        method: "DELETE"
-      });
-      const data = (await response.json()) as { ok?: boolean; error?: string; message?: string };
-      if (!response.ok) {
-        setMessage(data.error ?? "No se pudo desvincular la cuenta de Google.");
+      const response = await unlinkGoogleAccountApi();
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo desvincular la cuenta de Google.");
         return;
       }
       setGoogleLinked(false);
-      setMessage(data.message ?? "Cuenta de Google desvinculada.");
+      setMessage(response.message ?? "Cuenta de Google desvinculada.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo desvincular la cuenta de Google.");
     } finally {
@@ -623,32 +803,157 @@ export function SpaHome() {
     setIsSyncingGoogleProfile(true);
     setMessage("");
     try {
-      const response = await fetch("/api/v1/auth/accounts/google", {
-        method: "POST"
-      });
-      const data = (await response.json()) as {
-        ok?: boolean;
-        error?: string;
-        message?: string;
-        user?: CurrentUser;
-      };
-      if (!response.ok) {
-        setMessage(data.error ?? "No se pudo sincronizar el perfil con Google.");
+      const response = await syncProfileFromGoogleApi();
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo sincronizar el perfil con Google.");
         return;
       }
-      if (data.user) {
-        setUser(data.user);
+      if (response.user) {
+        setUser(response.user);
         setProfileForm({
-          firstName: data.user.firstName ?? "",
-          lastName: data.user.lastName ?? "",
-          image: data.user.image ?? ""
+          firstName: response.user.firstName ?? "",
+          lastName: response.user.lastName ?? "",
+          image: response.user.image ?? ""
         });
       }
-      setMessage(data.message ?? "Perfil sincronizado con Google.");
+      setMessage(response.message ?? "Perfil sincronizado con Google.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo sincronizar el perfil con Google.");
     } finally {
       setIsSyncingGoogleProfile(false);
+    }
+  }
+
+  async function submitCreateUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setIsCreatingUser(true);
+
+    try {
+      const response = await submitCreateUserApi({
+        firstName: createUserForm.firstName,
+        lastName: createUserForm.lastName,
+        email: createUserForm.email,
+        role: createUserForm.role
+      });
+
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo crear el usuario.");
+        return;
+      }
+
+      setCreateUserForm((prev) => ({
+        ...prev,
+        email: "",
+        firstName: "",
+        lastName: "",
+        role: "DOCENTE"
+      }));
+      setMessage("Usuario creado. Enviamos un enlace magico de activacion por correo.");
+      const users = await loadUsers();
+      if (users) setUsers(users);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo crear el usuario.");
+    } finally {
+      setIsCreatingUser(false);
+    }
+  }
+
+  async function submitTarifaUpdate(modalidad: TarifaModalidad) {
+    setMessage("");
+
+    const form = tarifaFormByModalidad[modalidad];
+    const parsedValue = Number(form.valorHora.replace(",", "."));
+    if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+      setMessage("Valor hora invalido.");
+      return;
+    }
+
+    setIsSubmittingTarifa(true);
+    try {
+      const response = await submitTarifaUpdateApi({
+        modalidadReunion: modalidad,
+        valorHora: parsedValue,
+        moneda: form.moneda.trim() || "UYU"
+      });
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo actualizar la tarifa.");
+        return;
+      }
+      setMessage(`Tarifa actualizada para ${modalidad}.`);
+      const tarifas = await loadTarifas();
+      if (tarifas) setTarifas(tarifas);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar la tarifa.");
+    } finally {
+      setIsSubmittingTarifa(false);
+    }
+  }
+
+  async function refreshPastMeetings() {
+    setIsLoadingPastMeetings(true);
+    try {
+      const meetings = await loadPastMeetings();
+      if (!meetings) {
+        setMessage("No se pudo cargar la lista de reuniones pasadas.");
+        return;
+      }
+      setPastMeetings(meetings);
+    } finally {
+      setIsLoadingPastMeetings(false);
+    }
+  }
+
+  async function submitPastMeeting(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setIsSubmittingPastMeeting(true);
+    try {
+      const response = await submitPastMeetingApi({
+        titulo: pastMeetingForm.titulo.trim(),
+        modalidadReunion: pastMeetingForm.modalidadReunion,
+        docenteEmail: pastMeetingForm.docenteEmail.trim().toLowerCase(),
+        monitorEmail: pastMeetingForm.monitorEmail.trim().toLowerCase() || undefined,
+        zoomMeetingId: pastMeetingForm.zoomMeetingId.trim() || undefined,
+        inicioRealAt: new Date(pastMeetingForm.inicioRealAt).toISOString(),
+        finRealAt: new Date(pastMeetingForm.finRealAt).toISOString(),
+        programaNombre: pastMeetingForm.programaNombre.trim() || undefined,
+        responsableNombre: pastMeetingForm.responsableNombre.trim() || undefined,
+        descripcion: pastMeetingForm.descripcion.trim() || undefined,
+        zoomJoinUrl: pastMeetingForm.zoomJoinUrl.trim() || undefined
+      });
+
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo registrar la reunion pasada.");
+        return;
+      }
+
+      setPastMeetingForm({
+        titulo: "",
+        modalidadReunion: "VIRTUAL",
+        docenteEmail: "",
+        monitorEmail: "",
+        zoomMeetingId: "",
+        inicioRealAt: "",
+        finRealAt: "",
+        programaNombre: "",
+        responsableNombre: "",
+        descripcion: "",
+        zoomJoinUrl: ""
+      });
+      setMessage(`Reunion registrada correctamente: ${response.solicitudId ?? ""}`);
+      const [solicitudesData, summaryData, meetingsData] = await Promise.all([
+        loadSolicitudes(),
+        loadSummary(),
+        loadPastMeetings()
+      ]);
+      if (solicitudesData) setSolicitudes(solicitudesData);
+      if (summaryData) setSummary(summaryData);
+      if (meetingsData) setPastMeetings(meetingsData);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo registrar la reunion pasada.");
+    } finally {
+      setIsSubmittingPastMeeting(false);
     }
   }
 
@@ -657,685 +962,236 @@ export function SpaHome() {
       <h1 className="title">Gestión Institucional de Salas Zoom</h1>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-        {isDocente && (
-          <button
-            className={tab === "solicitudes" && docenteSolicitudesView === "form" ? "btn primary" : "btn ghost"}
-            onClick={() => {
-              setTab("solicitudes");
-              setDocenteSolicitudesView("form");
-            }}
-            type="button"
-          >
-            Pedir sala Zoom
-          </button>
-        )}
-        <button className={tab === "dashboard" ? "btn primary" : "btn ghost"} onClick={() => setTab("dashboard")} type="button">
+        <button className={`${tab === "dashboard" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("dashboard")} type="button">
+          <span className="g-icon" aria-hidden="true">dashboard</span>
           Dashboard
         </button>
         <button
-          className={tab === "solicitudes" && (!isDocente || docenteSolicitudesView === "list") ? "btn primary" : "btn ghost"}
-          onClick={() => {
-            setTab("solicitudes");
-            if (isDocente) setDocenteSolicitudesView("list");
-          }}
+          className={`${tab === "solicitudes" ? "btn primary" : "btn ghost"} btn-with-icon`}
+          onClick={() => setTab("solicitudes")}
           type="button"
         >
-          {isDocente ? "Solicitudes hechas" : "Solicitudes"}
+          <span className="g-icon" aria-hidden="true">event_note</span>
+          Solicitudes
         </button>
-        {canSeeAgenda && (
-          <button className="btn ghost" onClick={() => setTab("agenda")} type="button">
-            Agenda soporte
+        {canSeeAgendaLibre && (
+          <button className={`${tab === "agenda_libre" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("agenda_libre")} type="button">
+            <span className="g-icon" aria-hidden="true">calendar_month</span>
+            Agenda libre
+          </button>
+        )}
+        {canSeeAssignmentBoard && (
+          <button className={`${tab === "asignacion" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("asignacion")} type="button">
+            <span className="g-icon" aria-hidden="true">groups</span>
+            Asignacion de personal
           </button>
         )}
         {canSeeManual && (
-          <button className="btn ghost" onClick={() => setTab("manual")} type="button">
+          <button className={`${tab === "manual" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("manual")} type="button">
+            <span className="g-icon" aria-hidden="true">build</span>
             Resolución manual
           </button>
         )}
+        {canSeePastMeetings && (
+          <button className={`${tab === "historico" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("historico")} type="button">
+            <span className="g-icon" aria-hidden="true">history</span>
+            Reuniones pasadas
+          </button>
+        )}
         {canSeeZoomAccounts && (
-          <button className="btn ghost" onClick={() => setTab("cuentas")} type="button">
+          <button className={`${tab === "cuentas" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("cuentas")} type="button">
+            <span className="g-icon" aria-hidden="true">videocam</span>
             Cuentas Zoom
           </button>
         )}
         {canSeeTarifas && (
-          <button className="btn ghost" onClick={() => setTab("tarifas")} type="button">
+          <button className={`${tab === "tarifas" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("tarifas")} type="button">
+            <span className="g-icon" aria-hidden="true">payments</span>
             Tarifas
+          </button>
+        )}
+        {canSeeUsers && (
+          <button className={`${tab === "usuarios" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("usuarios")} type="button">
+            <span className="g-icon" aria-hidden="true">group</span>
+            Usuarios
           </button>
         )}
       </div>
 
       {loading && <p className="muted">Cargando...</p>}
 
-      {tab === "dashboard" && summary && (
-        <div className="grid">
-          <article className="card">
-            <h3 style={{ marginTop: 0 }}>Solicitudes</h3>
-            <p><strong>Total:</strong> {summary.solicitudesTotales}</p>
-          </article>
-          <article className="card">
-            <h3 style={{ marginTop: 0 }}>Pendientes manuales</h3>
-            <p><strong>Casos:</strong> {summary.manualPendings}</p>
-          </article>
-          <article className="card">
-            <h3 style={{ marginTop: 0 }}>Cobertura soporte</h3>
-            <p><strong>Sin asignar:</strong> {summary.eventosSinSoporte}</p>
-          </article>
-          <article className="card">
-            <h3 style={{ marginTop: 0 }}>Agenda abierta</h3>
-            <p><strong>Eventos:</strong> {summary.agendaAbierta}</p>
-          </article>
-        </div>
-      )}
+      {tab === "dashboard" && <SpaTabDashboard summary={summary} />}
 
       {tab === "solicitudes" && (
-        <article className="card">
-          <h3 style={{ marginTop: 0 }}>{isDocente ? "Pedir sala Zoom" : "Solicitudes de sala"}</h3>
-
-          {isDocente && docenteSolicitudesView === "form" ? (
-            <form onSubmit={submitDocenteSolicitud}>
-              <h4 style={{ marginBottom: 8 }}>Sección 1 de 3 - Datos generales</h4>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Tema
-                <input
-                  type="text"
-                  required
-                  value={form.tema}
-                  onChange={(e) => updateForm("tema", e.target.value)}
-                  placeholder="Nombre del Seminario / Clase / Reunión"
-                />
-              </label>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Nombre de la persona responsable
-                <input
-                  type="text"
-                  required
-                  value={form.responsable}
-                  onChange={(e) => updateForm("responsable", e.target.value)}
-                />
-              </label>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Programa
-                <input
-                  type="text"
-                  required
-                  value={form.programa}
-                  onChange={(e) => updateForm("programa", e.target.value)}
-                  placeholder="Programa a cargo de la propuesta"
-                />
-              </label>
-
-              <ToggleButtons
-                label="Asistencia Zoom"
-                value={form.asistenciaZoom}
-                onChange={(val) => updateForm("asistenciaZoom", val)}
-              />
-
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Modalidad
-                <select value={form.modalidad} onChange={(e) => updateForm("modalidad", e.target.value)}>
-                  <option value="VIRTUAL">Virtual</option>
-                  <option value="HIBRIDA">Híbrida</option>
-                </select>
-              </label>
-
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Grabación
-                <select value={form.grabacion} onChange={(e) => updateForm("grabacion", e.target.value)}>
-                  <option value="SI">Sí</option>
-                  <option value="NO">No</option>
-                  <option value="DEFINIR">A definir en clase</option>
-                </select>
-              </label>
-
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Una o varias reuniones
-                <select value={form.unaOVarias} onChange={(e) => updateForm("unaOVarias", e.target.value)}>
-                  <option value="UNA">Una sola</option>
-                  <option value="VARIAS">Varias</option>
-                </select>
-              </label>
-
-              <ToggleButtons
-                label="Control de asistencia"
-                value={form.controlAsistencia}
-                onChange={(val) => updateForm("controlAsistencia", val)}
-              />
-
-              {form.unaOVarias === "UNA" ? (
-                <>
-                  <h4 style={{ marginBottom: 8 }}>Sección 2 de 3 - Reunión única</h4>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Descripción (opcional)
-                    <textarea
-                      value={form.descripcionUnica}
-                      onChange={(e) => updateForm("descripcionUnica", e.target.value)}
-                    />
-                  </label>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Fecha (única)
-                    <input
-                      type="datetime-local"
-                      required
-                      value={form.fechaUnica}
-                      onChange={(e) => updateForm("fechaUnica", e.target.value)}
-                    />
-                  </label>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Duración de la reunión (minutos)
-                    <input
-                      type="number"
-                      min={15}
-                      step={15}
-                      required
-                      value={form.duracionUnica}
-                      onChange={(e) => updateForm("duracionUnica", e.target.value)}
-                    />
-                  </label>
-                </>
-              ) : (
-                <>
-                  <h4 style={{ marginBottom: 8 }}>Sección 3 de 3 - Reuniones periódicas</h4>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Descripción (opcional)
-                    <textarea
-                      value={form.descripcionRecurrente}
-                      onChange={(e) => updateForm("descripcionRecurrente", e.target.value)}
-                    />
-                  </label>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Primera fecha
-                    <input
-                      type="datetime-local"
-                      required
-                      value={form.primeraFecha}
-                      onChange={(e) => updateForm("primeraFecha", e.target.value)}
-                    />
-                  </label>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Duración de la reunión recurrente (minutos)
-                    <input
-                      type="number"
-                      min={15}
-                      step={15}
-                      required
-                      value={form.duracionRecurrente}
-                      onChange={(e) => updateForm("duracionRecurrente", e.target.value)}
-                    />
-                  </label>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Régimen de encuentros
-                    <textarea
-                      required
-                      value={form.regimenEncuentros}
-                      onChange={(e) => updateForm("regimenEncuentros", e.target.value)}
-                      placeholder="Ej: Todos los sábados"
-                    />
-                  </label>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Frecuencia de recurrencia
-                    <select
-                      value={form.frecuenciaRecurrente}
-                      onChange={(e) => updateForm("frecuenciaRecurrente", e.target.value)}
-                    >
-                      <option value="SEMANAL">Semanal</option>
-                      <option value="QUINCENAL">Quincenal</option>
-                      <option value="MENSUAL">Mensual</option>
-                      <option value="PERSONALIZADA">Personalizada (según régimen)</option>
-                    </select>
-                  </label>
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Fecha final
-                    <input
-                      type="date"
-                      required
-                      value={form.fechaFinal}
-                      onChange={(e) => updateForm("fechaFinal", e.target.value)}
-                    />
-                  </label>
-                </>
-              )}
-
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Correos de docentes
-                <textarea
-                  value={form.correosDocentes}
-                  onChange={(e) => updateForm("correosDocentes", e.target.value)}
-                  placeholder="web@flacso.edu.uy; noreply@flacso.edu.uy"
-                />
-              </label>
-
-              <button className="btn primary" type="submit" disabled={isSubmittingSolicitud}>
-                {isSubmittingSolicitud ? "Enviando solicitud..." : "Enviar solicitud"}
-              </button>
-            </form>
-          ) : !isDocente ? (
-            <p className="muted">Selecciona una solicitud para revisar su detalle.</p>
-          ) : null}
-
-          {(!isDocente || docenteSolicitudesView === "list") && (
-          <div style={{ marginTop: 12 }}>
-            {isDocente && <h4 style={{ marginTop: 0 }}>Solicitudes ya hechas</h4>}
-            {solicitudes.length === 0 && <p className="muted">No hay solicitudes registradas.</p>}
-            {solicitudes.length > 0 && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Título</th>
-                    <th>Modalidad</th>
-                    <th>Instancias</th>
-                    <th>Estado</th>
-                    <th>Meeting ID</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {solicitudes.map((item) => (
-                    <tr key={item.id}>
-                      <td className="mono">{item.id}</td>
-                      <td>{item.titulo}</td>
-                      <td>{item.modalidadReunion}</td>
-                      <td>{item.tipoInstancias}</td>
-                      <td>{item.estadoSolicitud}</td>
-                      <td className="mono">{item.meetingPrincipalId || "(manual pendiente)"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-          )}
-        </article>
+        <SpaTabSolicitudes
+          solicitudes={solicitudes}
+          form={form}
+          updateForm={updateForm}
+          isSubmittingSolicitud={isSubmittingSolicitud}
+          canCreateShortcut={canCreateSolicitudShortcut}
+          docenteSolicitudesView={docenteSolicitudesView}
+          setDocenteSolicitudesView={setDocenteSolicitudesView}
+          onSubmit={submitDocenteSolicitud}
+        />
       )}
 
-      {tab === "agenda" && canSeeAgenda && (
-        <article className="card">
-          <h3 style={{ marginTop: 0 }}>Agenda abierta de soporte</h3>
-          {agenda.length === 0 && <p className="muted">No hay eventos abiertos para interés.</p>}
-          {agenda.length > 0 && (
-            <table>
-              <thead>
-                <tr>
-                  <th>Modalidad</th>
-                  {!isAssistantRole && <th>Persona asignada</th>}
-                  <th>Nombre actividad</th>
-                  <th>Día y hora</th>
-                  <th>Duración</th>
-                  {!isAssistantRole && <th>Preparación</th>}
-                  <th>Cuenta Zoom a manejar</th>
-                  <th>Programa</th>
-                  <th>Encargado</th>
-                  <th>Link</th>
-                  <th>Interés</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {agenda.map((item) => (
-                  <tr key={item.id}>
-                    <td>{formatModalidad(item.solicitud.modalidadReunion)}</td>
-                    {!isAssistantRole && <td>{getAssignedPerson(item) || "-"}</td>}
-                    <td>{item.solicitud.titulo}</td>
-                    <td>{formatDateTime(item.inicioProgramadoAt)}</td>
-                    <td className="mono">{formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)}</td>
-                    {!isAssistantRole && <td className="mono">{getPreparacionDisplay(item)}</td>}
-                    <td>{item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || ""}</td>
-                    <td>{item.solicitud.programaNombre || ""}</td>
-                    <td>{getEncargado(item) || item.solicitud.responsableNombre || ""}</td>
-                    <td>
-                      {item.zoomJoinUrl ? (
-                        <a href={item.zoomJoinUrl} target="_blank" rel="noreferrer">
-                          {item.zoomJoinUrl}
-                        </a>
-                      ) : (
-                        ""
-                      )}
-                    </td>
-                    <td>{item.intereses[0]?.estadoInteres || "SIN_RESPUESTA"}</td>
-                    <td>
-                      {item.intereses[0]?.estadoInteres ? (
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                          <span className="muted" style={{ margin: 0 }}>
-                            Toggle interés
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={item.intereses[0].estadoInteres === "ME_INTERESA"}
-                            disabled={updatingInterestId === item.id}
-                            onChange={(e) =>
-                              setInterest(item.id, e.target.checked ? "ME_INTERESA" : "NO_ME_INTERESA")
-                            }
-                          />
-                          <span>{item.intereses[0].estadoInteres === "ME_INTERESA" ? "Me interesa" : "No me interesa"}</span>
-                        </label>
-                      ) : (
-                        <>
-                          <button
-                            className="btn ghost"
-                            onClick={() => setInterest(item.id, "ME_INTERESA")}
-                            type="button"
-                            disabled={updatingInterestId === item.id}
-                          >
-                            Me interesa
-                          </button>
-                          <button
-                            className="btn ghost"
-                            style={{ marginLeft: 8 }}
-                            onClick={() => setInterest(item.id, "NO_ME_INTERESA")}
-                            type="button"
-                            disabled={updatingInterestId === item.id}
-                          >
-                            No me interesa
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </article>
+      {tab === "agenda_libre" && canSeeAgendaLibre && (
+        <SpaTabAgendaLibre
+          agendaLibre={agendaLibre}
+          updatingInterestId={updatingInterestId}
+          onSetInterest={setInterest}
+        />
+      )}
+
+      {tab === "asignacion" && canSeeAssignmentBoard && (
+        <SpaTabAsignacion
+          assignmentBoardEvents={assignmentBoardEvents}
+          assignableAssistants={assignableAssistants}
+          isLoadingAssignmentBoard={isLoadingAssignmentBoard}
+          assigningEventId={assigningEventId}
+          selectedAssistantByEvent={selectedAssistantByEvent}
+          onSelectedAssistantChange={(eventId, assistantId) =>
+            setSelectedAssistantByEvent((prev) => ({ ...prev, [eventId]: assistantId }))
+          }
+          onAssignAssistant={assignAssistantToEvent}
+        />
       )}
 
       {tab === "manual" && canSeeManual && (
-        <article className="card">
-          <h3 style={{ marginTop: 0 }}>Pendientes de resolución manual</h3>
-          {manualPendings.length === 0 && <p className="muted">No hay pendientes manuales.</p>}
-          {manualPendings.length > 0 && (
-            <ul>
-              {manualPendings.map((item) => (
-                <li key={item.id}>
-                  {item.id} - {item.titulo}
-                </li>
-              ))}
-            </ul>
-          )}
-        </article>
+        <SpaTabManual manualPendings={manualPendings} />
+      )}
+
+      {tab === "historico" && canSeePastMeetings && (
+        <SpaTabHistorico
+          pastMeetings={pastMeetings}
+          isLoadingPastMeetings={isLoadingPastMeetings}
+          onRefreshPastMeetings={() => {
+            void refreshPastMeetings();
+          }}
+          pastMeetingForm={pastMeetingForm}
+          setPastMeetingForm={setPastMeetingForm}
+          isSubmittingPastMeeting={isSubmittingPastMeeting}
+          onSubmit={submitPastMeeting}
+        />
       )}
 
       {tab === "tarifas" && canSeeTarifas && (
-        <article className="card">
-          <h3 style={{ marginTop: 0 }}>Tarifas por modalidad</h3>
-          {tarifas.length === 0 && <p className="muted">No hay tarifas registradas.</p>}
-          {tarifas.length > 0 && (
-            <table>
-              <thead>
-                <tr>
-                  <th>Modalidad</th>
-                  <th>Valor hora</th>
-                  <th>Moneda</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tarifas.map((rate) => (
-                  <tr key={rate.id}>
-                    <td>{rate.modalidadReunion}</td>
-                    <td>{rate.valorHora}</td>
-                    <td>{rate.moneda}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </article>
+        <SpaTabTarifas
+          tarifaFormByModalidad={tarifaFormByModalidad}
+          setTarifaFormByModalidad={setTarifaFormByModalidad}
+          isSubmittingTarifa={isSubmittingTarifa}
+          currentTarifaByModalidad={{
+            HIBRIDA: currentTarifaByModalidad.HIBRIDA ?? undefined,
+            VIRTUAL: currentTarifaByModalidad.VIRTUAL ?? undefined
+          }}
+          onSubmit={submitTarifaUpdate}
+        />
       )}
 
       {tab === "cuentas" && canSeeZoomAccounts && (
-        <article className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <h3 style={{ marginTop: 0, marginBottom: 0 }}>Cuentas Zoom disponibles</h3>
-            <button className="btn ghost" onClick={() => void loadZoomAccounts()} type="button" disabled={isLoadingZoomAccounts}>
-              {isLoadingZoomAccounts ? "Actualizando..." : "Actualizar"}
-            </button>
-          </div>
-          <p className="muted" style={{ marginTop: 8 }}>
-            Grupo: {zoomGroupName || "(sin nombre)"}
-          </p>
-          {isLoadingZoomAccounts && <p className="muted">Cargando cuentas...</p>}
-          {!isLoadingZoomAccounts && zoomAccounts.length === 0 && (
-            <p className="muted">No hay cuentas disponibles en el grupo.</p>
-          )}
-          {!isLoadingZoomAccounts && zoomAccounts.length > 0 && (
-            <table>
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Nombre</th>
-                  <th>Tipo</th>
-                  <th>Estado de cuenta</th>
-                  <th>Eventos pendientes (Zoom)</th>
-                  <th>Detalle</th>
-                </tr>
-              </thead>
-              <tbody>
-                {zoomAccounts.map((account) => (
-                  <Fragment key={account.id}>
-                    <tr>
-                      <td>{account.email || "-"}</td>
-                      <td>{[account.firstName, account.lastName].filter(Boolean).join(" ") || "-"}</td>
-                      <td>{formatZoomType(account.type)}</td>
-                      <td>{formatZoomAccountStatus(account.status)}</td>
-                      <td>{account.pendingEventsCount}</td>
-                      <td>
-                        {account.pendingEventsCount > 0 ? (
-                          <button
-                            className="btn ghost"
-                            type="button"
-                            onClick={() =>
-                              setExpandedZoomAccountId((prev) => (prev === account.id ? null : account.id))
-                            }
-                          >
-                            {expandedZoomAccountId === account.id ? "Ocultar detalle" : "Ver detalle"}
-                          </button>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                    </tr>
-                    {expandedZoomAccountId === account.id && account.pendingEventsCount > 0 && (
-                      <tr>
-                        <td colSpan={6}>
-                          <div style={{ padding: "8px 0" }}>
-                            <table>
-                              <thead>
-                                <tr>
-                                  <th>Tema</th>
-                                  <th>Inicio</th>
-                                  <th>Duración</th>
-                                  <th>Link</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {account.pendingEvents.map((event) => (
-                                  <tr key={event.id}>
-                                    <td>{event.topic}</td>
-                                    <td>{formatZoomDateTime(event.startTime)}</td>
-                                    <td>{formatDurationHoursMinutes(event.durationMinutes)}</td>
-                                    <td>
-                                      {event.joinUrl ? (
-                                        <a href={event.joinUrl} target="_blank" rel="noreferrer">
-                                          Abrir link
-                                        </a>
-                                      ) : (
-                                        "-"
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </article>
+        <SpaTabCuentas
+          zoomAccounts={zoomAccounts}
+          zoomGroupName={zoomGroupName}
+          isLoadingZoomAccounts={isLoadingZoomAccounts}
+          expandedZoomAccountId={expandedZoomAccountId}
+          setExpandedZoomAccountId={setExpandedZoomAccountId}
+          onRefresh={() => {
+            setIsLoadingZoomAccounts(true);
+            (async () => {
+              try {
+                const result = await loadZoomAccounts();
+                if (result.error) {
+                  setMessage(result.error);
+                  return;
+                }
+                setZoomGroupName(result.groupName);
+                setZoomAccounts(result.accounts);
+              } finally {
+                setIsLoadingZoomAccounts(false);
+              }
+            })();
+          }}
+        />
+      )}
+
+      {tab === "usuarios" && canSeeUsers && (
+        <SpaTabUsuarios
+          users={users}
+          createUserForm={createUserForm}
+          setCreateUserForm={setCreateUserForm}
+          isCreatingUser={isCreatingUser}
+          isLoadingUsers={isLoadingUsers}
+          onSubmit={submitCreateUser}
+          onRefresh={() => {
+            setIsLoadingUsers(true);
+            (async () => {
+              try {
+                const users = await loadUsers();
+                if (users) setUsers(users);
+              } finally {
+                setIsLoadingUsers(false);
+              }
+            })();
+          }}
+        />
       )}
 
       {tab === "perfil" && user && (
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
-        <article className="card" style={{ width: "min(100%, 720px)" }}>
-          <h3 style={{ marginTop: 0 }}>Mi perfil</h3>
-          {!showProfileForm ? (
-            <div>
-              <div style={{ marginBottom: 16 }}>
-                <p><strong>Nombre:</strong> {user.firstName || "-"}</p>
-                <p><strong>Apellido:</strong> {user.lastName || "-"}</p>
-                <p><strong>Email:</strong> {user.email}</p>
-                <p style={{ marginTop: 12, marginBottom: 8 }}><strong>Foto de perfil:</strong></p>
-                <div style={{ marginTop: 8 }}>
-                  <UserAvatar
-                    firstName={user.firstName}
-                    lastName={user.lastName}
-                    image={user.image}
-                    size={100}
-                  />
-                </div>
-              </div>
-
-              <div style={{ marginBottom: 18 }}>
-                <h4 style={{ marginTop: 0, marginBottom: 8 }}>Cuenta de Google</h4>
-                {isLoadingGoogleStatus ? (
-                  <p className="muted" style={{ marginTop: 0 }}>Cargando estado de vinculación...</p>
-                ) : (
-                  <>
-                    <p className="muted" style={{ marginTop: 0 }}>
-                      Estado: {googleLinked ? "Vinculada" : "No vinculada"}
-                    </p>
-                    {!hasPassword && (
-                      <p className="muted" style={{ marginTop: 0 }}>
-                        Aviso: para desvincular Google debes tener contraseña establecida.
-                      </p>
-                    )}
-                  </>
-                )}
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button className="btn ghost" type="button" onClick={() => void linkGoogleAccount()}>
-                    Vincular Google
-                  </button>
-                  <button
-                    className="btn ghost"
-                    type="button"
-                    onClick={() => void unlinkGoogleAccount()}
-                    disabled={!googleLinked || !hasPassword || isUnlinkingGoogleAccount}
-                  >
-                    {isUnlinkingGoogleAccount ? "Desvinculando..." : "Desvincular Google"}
-                  </button>
-                  <button
-                    className="btn ghost"
-                    type="button"
-                    onClick={() => void syncProfileFromGoogle()}
-                    disabled={!googleLinked || isSyncingGoogleProfile}
-                  >
-                    {isSyncingGoogleProfile ? "Sincronizando..." : "Volver a sincronizar con Google"}
-                  </button>
-                </div>
-              </div>
-              <button className="btn primary" onClick={() => setShowProfileForm(true)} type="button">
-                Editar perfil
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              setIsUpdatingProfile(true);
-              setMessage("");
-              try {
-                const response = await fetch("/api/v1/auth/profile", {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    firstName: profileForm.firstName,
-                    lastName: profileForm.lastName,
-                    image: profileForm.image
-                  })
-                });
-                const data = (await response.json()) as { error?: string; user?: CurrentUser };
-                if (!response.ok) {
-                  setMessage(data.error ?? "No se pudo actualizar el perfil.");
-                  return;
-                }
-                if (data.user) {
-                  setUser(data.user);
-                  setProfileForm({
-                    firstName: data.user.firstName ?? "",
-                    lastName: data.user.lastName ?? "",
-                    image: data.user.image ?? ""
-                  });
-                }
-                setMessage("Perfil actualizado correctamente.");
-                setShowProfileForm(false);
-              } catch (error) {
-                setMessage(error instanceof Error ? error.message : "Error al actualizar perfil.");
-              } finally {
-                setIsUpdatingProfile(false);
+        <SpaTabPerfil
+          user={user}
+          showProfileForm={showProfileForm}
+          setShowProfileForm={setShowProfileForm}
+          profileForm={profileForm}
+          setProfileForm={setProfileForm}
+          googleLinked={googleLinked}
+          hasPassword={hasPassword}
+          isLoadingGoogleStatus={isLoadingGoogleStatus}
+          isSyncingGoogleProfile={isSyncingGoogleProfile}
+          isUnlinkingGoogleAccount={isUnlinkingGoogleAccount}
+          isUpdatingProfile={isUpdatingProfile}
+          canUseGoogleByEmail={canUseGoogleByEmail}
+          onLinkGoogleAccount={linkGoogleAccount}
+          onUnlinkGoogleAccount={unlinkGoogleAccount}
+          onSyncProfileFromGoogle={syncProfileFromGoogle}
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setIsUpdatingProfile(true);
+            setMessage("");
+            try {
+              const response = await fetch("/api/v1/auth/profile", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  firstName: profileForm.firstName,
+                  lastName: profileForm.lastName,
+                  image: profileForm.image
+                })
+              });
+              const data = (await response.json()) as { error?: string; user?: CurrentUser };
+              if (!response.ok) {
+                setMessage(data.error ?? "No se pudo actualizar el perfil.");
+                return;
               }
-            }}>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Nombre
-                <input
-                  type="text"
-                  value={profileForm.firstName}
-                  onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
-                  placeholder="Tu nombre"
-                />
-              </label>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Apellido
-                <input
-                  type="text"
-                  value={profileForm.lastName}
-                  onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
-                  placeholder="Tu apellido"
-                />
-              </label>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                URL de foto de perfil
-                <input
-                  type="url"
-                  value={profileForm.image}
-                  onChange={(e) => setProfileForm({ ...profileForm, image: e.target.value })}
-                  placeholder="https://ejemplo.com/foto.jpg"
-                />
-              </label>
-              <div style={{ marginBottom: 16 }}>
-                <p style={{ margin: 0, marginBottom: 8 }}>Vista previa:</p>
-                <UserAvatar
-                  firstName={profileForm.firstName}
-                  lastName={profileForm.lastName}
-                  image={profileForm.image}
-                  size={100}
-                />
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn primary" type="submit" disabled={isUpdatingProfile}>
-                  {isUpdatingProfile ? "Guardando..." : "Guardar cambios"}
-                </button>
-                <button
-                  className="btn ghost"
-                  type="button"
-                  onClick={() => {
-                    setShowProfileForm(false);
-                    setProfileForm({
-                      firstName: user.firstName ?? "",
-                      lastName: user.lastName ?? "",
-                      image: user.image ?? ""
-                    });
-                  }}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          )}
-        </article>
-        </div>
+              if (data.user) {
+                setUser(data.user);
+                setProfileForm({
+                  firstName: data.user.firstName ?? "",
+                  lastName: data.user.lastName ?? "",
+                  image: data.user.image ?? ""
+                });
+              }
+              setMessage("Perfil actualizado correctamente.");
+              setShowProfileForm(false);
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : "Error al actualizar perfil.");
+            } finally {
+              setIsUpdatingProfile(false);
+            }
+          }}
+        />
       )}
+
+
 
       {message && (
         <p className="muted" style={{ marginTop: 14 }}>
@@ -1345,3 +1201,13 @@ export function SpaHome() {
     </section>
   );
 }
+
+
+
+
+
+
+
+
+
+
