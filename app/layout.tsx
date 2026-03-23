@@ -13,13 +13,8 @@ export const metadata: Metadata = {
   title: "FLACSO Uruguay | Plataforma Zoom",
   description: "Aplicacion modular con UI, base de datos e integraciones para FLACSO Uruguay",
   icons: {
-    icon: [
-      { url: "/favicon.svg?v=3", type: "image/svg+xml" },
-      { url: "/favicon.ico?v=3", type: "image/x-icon" },
-      { url: "/favicon.png?v=3", sizes: "32x32", type: "image/png" }
-    ],
-    shortcut: "/favicon.ico?v=3",
-    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]
+    icon: [{ url: "/favicon.ico", type: "image/x-icon" }],
+    shortcut: "/favicon.ico"
   }
 };
 
@@ -43,7 +38,7 @@ export default async function RootLayout({
               />
             </Link>
             <div className="brand-copy">
-              <h1>Plataforma de Gestion Zoom</h1>
+              <h1>Herramienta para coordinar Zoom</h1>
               <p>Facultad Latinoamericana de Ciencias Sociales - Uruguay</p>
             </div>
             <div style={{ marginLeft: "auto", textAlign: "right", display: "grid", gap: 8, justifyItems: "end" }}>

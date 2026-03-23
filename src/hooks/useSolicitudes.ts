@@ -6,6 +6,7 @@ export function useSolicitudes() {
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
   const [docenteSolicitudesView, setDocenteSolicitudesView] = useState<"form" | "list">("list");
   const [isSubmittingSolicitud, setIsSubmittingSolicitud] = useState(false);
+  const [deletingSolicitudId, setDeletingSolicitudId] = useState<string | null>(null);
   const [form, setForm] = useState({
     tema: "",
     responsable: "",
@@ -47,6 +48,8 @@ export function useSolicitudes() {
     setDocenteSolicitudesView,
     isSubmittingSolicitud,
     setIsSubmittingSolicitud,
+    deletingSolicitudId,
+    setDeletingSolicitudId,
     form,
     setForm,
     updateForm

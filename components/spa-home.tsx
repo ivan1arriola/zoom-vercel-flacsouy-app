@@ -28,6 +28,7 @@ import {
   loadPastMeetings,
   loadSolicitudes,
   submitDocenteSolicitud as submitDocenteSolicitudApi,
+  deleteSolicitud as deleteSolicitudApi,
   submitPastMeeting as submitPastMeetingApi,
   type Solicitud
 } from "@/src/services/solicitudesApi";
@@ -126,7 +127,19 @@ export function SpaHome() {
   const { tab, setTab, message, setMessage, loading, setLoading, requestedTab } = useUIState();
   
   // Solicitudes & Doctentes
-  const { solicitudes, setSolicitudes, docenteSolicitudesView, setDocenteSolicitudesView, isSubmittingSolicitud, setIsSubmittingSolicitud, form, setForm, updateForm } = useSolicitudes();
+  const {
+    solicitudes,
+    setSolicitudes,
+    docenteSolicitudesView,
+    setDocenteSolicitudesView,
+    isSubmittingSolicitud,
+    setIsSubmittingSolicitud,
+    deletingSolicitudId,
+    setDeletingSolicitudId,
+    form,
+    setForm,
+    updateForm
+  } = useSolicitudes();
   
   // Dashboard
   const { summary, setSummary, manualPendings, setManualPendings } = useDashboard();
@@ -487,6 +500,48 @@ export function SpaHome() {
     return docente.name || [docente.firstName, docente.lastName].filter(Boolean).join(" ") || docente.email || "";
   }
 
+  function applySolicitudTemplate(templateId: "DIDYP" | "DAVIA") {
+    setForm((prev) => {
+      const commonRecurringPatch = {
+        unaOVarias: "VARIAS",
+        primerDiaRecurrente: templateId === "DIDYP" ? "2026-04-08" : "2026-05-13",
+        horaInicioRecurrente: "18:30",
+        horaFinRecurrente: "20:30",
+        duracionRecurrente: "",
+        recurrenciaTipoZoom: "2" as ZoomRecurrenceType,
+        recurrenciaIntervalo: "1",
+        recurrenciaDiasSemana: "4",
+        recurrenciaMensualModo: "DAY_OF_MONTH" as ZoomMonthlyMode,
+        recurrenciaDiaMes: "1",
+        recurrenciaSemanaMes: "1",
+        recurrenciaDiaSemanaMes: "2",
+        fechaFinal: templateId === "DIDYP" ? "2026-07-29" : "2026-07-15"
+      };
+
+      if (templateId === "DIDYP") {
+        return {
+          ...prev,
+          ...commonRecurringPatch,
+          tema: "Clases DIDYP",
+          responsable: "DIDYP",
+          programa: "DIDYP",
+          asistenciaZoom: "NO",
+          grabacion: "DEFINIR",
+          controlAsistencia: "SI"
+        };
+      }
+
+      return {
+        ...prev,
+        ...commonRecurringPatch,
+        tema: "Clases DAVIA",
+        responsable: "DAVIA",
+        programa: "DAVIA"
+      };
+    });
+    setMessage(`Plantilla ${templateId} cargada.`);
+  }
+
   async function submitDocenteSolicitud(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
@@ -683,8 +738,7 @@ export function SpaHome() {
                 recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH"
                   ? monthlyWeekDay
                   : undefined,
-              end_date_time: recurrenceEnd.toISOString(),
-              end_times: recurringStarts.length
+              end_date_time: recurrenceEnd.toISOString()
             }
           }
         };
@@ -718,6 +772,51 @@ export function SpaHome() {
       setMessage(error instanceof Error ? error.message : "No se pudo crear la solicitud.");
     } finally {
       setIsSubmittingSolicitud(false);
+    }
+  }
+
+  async function deleteSolicitud(solicitudId: string) {
+    if (!window.confirm("Se eliminara la solicitud y tambien la reunion en Zoom. ¿Continuar?")) {
+      return;
+    }
+
+    setDeletingSolicitudId(solicitudId);
+    setMessage("");
+
+    try {
+      const response = await deleteSolicitudApi(solicitudId);
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo eliminar la solicitud.");
+        return;
+      }
+
+      const zoomMessage = response.zoomMeetingId
+        ? response.deletedInZoom
+          ? ` Reunión Zoom ${response.zoomMeetingId} eliminada.`
+          : ` Zoom no reportó eliminación para ${response.zoomMeetingId} (puede ya no existir).`
+        : "";
+      setMessage(`Solicitud eliminada correctamente.${zoomMessage}`);
+
+      const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
+        loadSummary(),
+        loadSolicitudes(),
+        loadAgendaLibre(),
+        loadAssignmentBoard(),
+        loadManualPendings()
+      ]);
+
+      if (summaryData) setSummary(summaryData);
+      if (solicitudesData) setSolicitudes(solicitudesData);
+      if (agendaData) setAgendaLibre(agendaData);
+      if (assignmentData) {
+        setAssignmentBoardEvents(assignmentData.events ?? []);
+        setAssignableAssistants(assignmentData.assistants ?? []);
+      }
+      if (manualData) setManualPendings(manualData);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo eliminar la solicitud.");
+    } finally {
+      setDeletingSolicitudId(null);
     }
   }
 
@@ -959,7 +1058,7 @@ export function SpaHome() {
 
   return (
     <section>
-      <h1 className="title">Gestión Institucional de Salas Zoom</h1>
+      <h1 className="title">Herramienta para coordinar salas Zoom</h1>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         <button className={`${tab === "dashboard" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("dashboard")} type="button">
@@ -1027,6 +1126,10 @@ export function SpaHome() {
           solicitudes={solicitudes}
           form={form}
           updateForm={updateForm}
+          onApplyTemplate={applySolicitudTemplate}
+          onDeleteSolicitud={deleteSolicitud}
+          deletingSolicitudId={deletingSolicitudId}
+          canDeleteSolicitud={canCreateSolicitudShortcut}
           isSubmittingSolicitud={isSubmittingSolicitud}
           canCreateShortcut={canCreateSolicitudShortcut}
           docenteSolicitudesView={docenteSolicitudesView}

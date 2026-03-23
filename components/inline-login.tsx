@@ -317,7 +317,7 @@ export function InlineLogin({
     <section className="auth-shell">
       <header className="auth-header">
         <p className="auth-kicker">FLACSO Uruguay</p>
-        <h1 className="title">Gestion Institucional de Salas Zoom</h1>
+        <h1 className="title">Herramienta para coordinar salas Zoom</h1>
         <p className="muted">Inicia sesion para continuar. Google solo para @flacso.edu.uy; el resto por correo y contrasena.</p>
       </header>
 

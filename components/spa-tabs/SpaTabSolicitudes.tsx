@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent } from "react";
+import { FormEvent, useMemo } from "react";
 import { ToggleButtons } from "@/components/toggle-buttons";
 import {
+  buildRecurringStarts,
   formatDateTime,
+  getZoomWeekday,
   parseWeekdaysCsv,
   zoomMonthlyWeekOptions,
-  zoomWeekdayOptions,
   type ZoomMonthlyMode,
   type ZoomRecurrenceType
 } from "@/src/lib/spa-home/recurrence";
@@ -46,6 +47,10 @@ interface SpaTabSolicitudesProps {
   solicitudes: Solicitud[];
   form: SolicitudForm;
   updateForm: (key: keyof SolicitudForm, value: string) => void;
+  onApplyTemplate: (templateId: "DIDYP" | "DAVIA") => void;
+  onDeleteSolicitud: (solicitudId: string) => void;
+  deletingSolicitudId: string | null;
+  canDeleteSolicitud: boolean;
   isSubmittingSolicitud: boolean;
   canCreateShortcut: boolean;
   docenteSolicitudesView: "form" | "list";
@@ -53,16 +58,218 @@ interface SpaTabSolicitudesProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
+const zoomWeekdayOptionsFull: Array<{ value: string; label: string }> = [
+  { value: "1", label: "Domingo" },
+  { value: "2", label: "Lunes" },
+  { value: "3", label: "Martes" },
+  { value: "4", label: "Miercoles" },
+  { value: "5", label: "Jueves" },
+  { value: "6", label: "Viernes" },
+  { value: "7", label: "Sabado" }
+];
+
+function parseTimeToMinutes(value: string): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function parseDurationToMinutes(value: string): number | null {
+  const parsed = Number(value.replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.floor(parsed);
+}
+
+function minutesToTime(value: number): string {
+  if (!Number.isInteger(value) || value < 0 || value >= 24 * 60) return "";
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
 export function SpaTabSolicitudes({
   solicitudes,
   form,
   updateForm,
+  onApplyTemplate,
+  onDeleteSolicitud,
+  deletingSolicitudId,
+  canDeleteSolicitud,
   isSubmittingSolicitud,
   canCreateShortcut,
   docenteSolicitudesView,
   setDocenteSolicitudesView,
   onSubmit
 }: SpaTabSolicitudesProps) {
+  function syncDurationFromTimes(startTime: string, endTime: string): string {
+    const startMinutes = parseTimeToMinutes(startTime);
+    const endMinutes = parseTimeToMinutes(endTime);
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+      return "";
+    }
+    return String(endMinutes - startMinutes);
+  }
+
+  function syncEndFromDuration(startTime: string, durationText: string): string {
+    const startMinutes = parseTimeToMinutes(startTime);
+    const durationMinutes = parseDurationToMinutes(durationText);
+    if (startMinutes === null || durationMinutes === null) {
+      return "";
+    }
+    return minutesToTime(startMinutes + durationMinutes);
+  }
+
+  function handleUniqueStartChange(nextStart: string) {
+    updateForm("horaInicioUnica", nextStart);
+    if (form.duracionUnica.trim()) {
+      updateForm("horaFinUnica", syncEndFromDuration(nextStart, form.duracionUnica));
+      return;
+    }
+    if (form.horaFinUnica.trim()) {
+      updateForm("duracionUnica", syncDurationFromTimes(nextStart, form.horaFinUnica));
+    }
+  }
+
+  function handleUniqueEndChange(nextEnd: string) {
+    updateForm("horaFinUnica", nextEnd);
+    updateForm("duracionUnica", syncDurationFromTimes(form.horaInicioUnica, nextEnd));
+  }
+
+  function handleUniqueDurationChange(nextDuration: string) {
+    updateForm("duracionUnica", nextDuration);
+    updateForm("horaFinUnica", syncEndFromDuration(form.horaInicioUnica, nextDuration));
+  }
+
+  function handleRecurringStartChange(nextStart: string) {
+    updateForm("horaInicioRecurrente", nextStart);
+    if (form.duracionRecurrente.trim()) {
+      updateForm("horaFinRecurrente", syncEndFromDuration(nextStart, form.duracionRecurrente));
+      return;
+    }
+    if (form.horaFinRecurrente.trim()) {
+      updateForm("duracionRecurrente", syncDurationFromTimes(nextStart, form.horaFinRecurrente));
+    }
+  }
+
+  function handleRecurringEndChange(nextEnd: string) {
+    updateForm("horaFinRecurrente", nextEnd);
+    updateForm("duracionRecurrente", syncDurationFromTimes(form.horaInicioRecurrente, nextEnd));
+  }
+
+  function handleRecurringDurationChange(nextDuration: string) {
+    updateForm("duracionRecurrente", nextDuration);
+    updateForm("horaFinRecurrente", syncEndFromDuration(form.horaInicioRecurrente, nextDuration));
+  }
+
+  const recurrencePreview = useMemo(() => {
+    if (form.unaOVarias !== "VARIAS") {
+      return { dates: [] as Date[], error: "" };
+    }
+
+    if (!form.primerDiaRecurrente || !form.horaInicioRecurrente || !form.fechaFinal) {
+      return { dates: [] as Date[], error: "" };
+    }
+
+    const firstAnchorDate = new Date(`${form.primerDiaRecurrente}T${form.horaInicioRecurrente}`);
+    if (Number.isNaN(firstAnchorDate.getTime())) {
+      return { dates: [] as Date[], error: "Primer dia u hora de comienzo invalido." };
+    }
+
+    const recurrenceEnd = new Date(`${form.fechaFinal}T${form.horaInicioRecurrente}`);
+    if (Number.isNaN(recurrenceEnd.getTime())) {
+      return { dates: [] as Date[], error: "Fecha final invalida." };
+    }
+
+    if (recurrenceEnd <= firstAnchorDate) {
+      return { dates: [] as Date[], error: "La fecha final debe ser posterior a la primera fecha." };
+    }
+
+    const recurrenceType = form.recurrenciaTipoZoom as ZoomRecurrenceType;
+    if (!["1", "2", "3"].includes(recurrenceType)) {
+      return { dates: [] as Date[], error: "Tipo de recurrencia invalido." };
+    }
+
+    const repeatInterval = Number(form.recurrenciaIntervalo);
+    if (!Number.isInteger(repeatInterval) || repeatInterval < 1) {
+      return { dates: [] as Date[], error: "Intervalo de recurrencia invalido." };
+    }
+
+    const weeklyDays = parseWeekdaysCsv(form.recurrenciaDiasSemana);
+    if (recurrenceType === "2" && weeklyDays.length === 0) {
+      return { dates: [] as Date[], error: "Selecciona al menos un dia de la semana." };
+    }
+
+    const weeklyDaysForRule =
+      recurrenceType === "2"
+        ? [...new Set([...weeklyDays, getZoomWeekday(firstAnchorDate)])].sort((a, b) => a - b)
+        : [];
+
+    const monthlyMode = form.recurrenciaMensualModo as ZoomMonthlyMode;
+    if (!["DAY_OF_MONTH", "WEEKDAY_OF_MONTH"].includes(monthlyMode)) {
+      return { dates: [] as Date[], error: "Modo mensual invalido." };
+    }
+
+    const monthlyDay = Number(form.recurrenciaDiaMes);
+    if (
+      recurrenceType === "3" &&
+      monthlyMode === "DAY_OF_MONTH" &&
+      (!Number.isInteger(monthlyDay) || monthlyDay < 1 || monthlyDay > 31)
+    ) {
+      return { dates: [] as Date[], error: "Dia del mes invalido (1 a 31)." };
+    }
+
+    const monthlyWeek = Number(form.recurrenciaSemanaMes) as -1 | 1 | 2 | 3 | 4;
+    if (recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH" && ![-1, 1, 2, 3, 4].includes(monthlyWeek)) {
+      return { dates: [] as Date[], error: "Semana del mes invalida." };
+    }
+
+    const monthlyWeekDay = Number(form.recurrenciaDiaSemanaMes);
+    if (
+      recurrenceType === "3" &&
+      monthlyMode === "WEEKDAY_OF_MONTH" &&
+      (!Number.isInteger(monthlyWeekDay) || monthlyWeekDay < 1 || monthlyWeekDay > 7)
+    ) {
+      return { dates: [] as Date[], error: "Dia de semana mensual invalido." };
+    }
+
+    const dates = buildRecurringStarts({
+      firstStart: firstAnchorDate,
+      recurrenceEnd,
+      recurrenceType,
+      repeatInterval,
+      weeklyDays: weeklyDaysForRule,
+      monthlyMode,
+      monthlyDay,
+      monthlyWeek,
+      monthlyWeekDay
+    });
+
+    if (dates.length === 0) {
+      return { dates: [] as Date[], error: "Con esta configuracion no se generan fechas." };
+    }
+
+    if (dates.length > 50) {
+      return {
+        dates: dates.slice(0, 50),
+        error: "Zoom permite como maximo 50 ocurrencias. Ajusta fecha final o intervalo."
+      };
+    }
+
+    return { dates, error: "" };
+  }, [
+    form.unaOVarias,
+    form.primerDiaRecurrente,
+    form.horaInicioRecurrente,
+    form.fechaFinal,
+    form.recurrenciaTipoZoom,
+    form.recurrenciaIntervalo,
+    form.recurrenciaDiasSemana,
+    form.recurrenciaMensualModo,
+    form.recurrenciaDiaMes,
+    form.recurrenciaSemanaMes,
+    form.recurrenciaDiaSemanaMes
+  ]);
+
   return (
     <article className="card">
       <div
@@ -100,6 +307,23 @@ export function SpaTabSolicitudes({
 
       {canCreateShortcut && docenteSolicitudesView === "form" ? (
         <form onSubmit={onSubmit}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 8, fontWeight: 500 }}>
+              Plantillas rapidas
+            </label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" className="btn ghost" onClick={() => onApplyTemplate("DIDYP")}>
+                Cargar DIDYP
+              </button>
+              <button type="button" className="btn ghost" onClick={() => onApplyTemplate("DAVIA")}>
+                Cargar DAVIA
+              </button>
+            </div>
+            <small className="muted">
+              Las plantillas completan la configuracion periodica para miercoles de 18:30 a 20:30.
+            </small>
+          </div>
+
           <h4 style={{ marginBottom: 8 }}>Seccion 1 de 3 - Datos generales</h4>
           <label style={{ display: "block", marginBottom: 8 }}>
             Tema
@@ -203,7 +427,7 @@ export function SpaTabSolicitudes({
                     type="time"
                     required
                     value={form.horaInicioUnica}
-                    onChange={(e) => updateForm("horaInicioUnica", e.target.value)}
+                    onChange={(e) => handleUniqueStartChange(e.target.value)}
                   />
                 </label>
               </div>
@@ -213,7 +437,7 @@ export function SpaTabSolicitudes({
                   <input
                     type="time"
                     value={form.horaFinUnica}
-                    onChange={(e) => updateForm("horaFinUnica", e.target.value)}
+                    onChange={(e) => handleUniqueEndChange(e.target.value)}
                     required={!form.duracionUnica}
                   />
                 </label>
@@ -224,7 +448,7 @@ export function SpaTabSolicitudes({
                     min={15}
                     step={15}
                     value={form.duracionUnica}
-                    onChange={(e) => updateForm("duracionUnica", e.target.value)}
+                    onChange={(e) => handleUniqueDurationChange(e.target.value)}
                     required={!form.horaFinUnica}
                   />
                 </label>
@@ -256,7 +480,7 @@ export function SpaTabSolicitudes({
                     type="time"
                     required
                     value={form.horaInicioRecurrente}
-                    onChange={(e) => updateForm("horaInicioRecurrente", e.target.value)}
+                    onChange={(e) => handleRecurringStartChange(e.target.value)}
                   />
                 </label>
               </div>
@@ -266,7 +490,7 @@ export function SpaTabSolicitudes({
                   <input
                     type="time"
                     value={form.horaFinRecurrente}
-                    onChange={(e) => updateForm("horaFinRecurrente", e.target.value)}
+                    onChange={(e) => handleRecurringEndChange(e.target.value)}
                     required={!form.duracionRecurrente}
                   />
                 </label>
@@ -277,7 +501,7 @@ export function SpaTabSolicitudes({
                     min={15}
                     step={15}
                     value={form.duracionRecurrente}
-                    onChange={(e) => updateForm("duracionRecurrente", e.target.value)}
+                    onChange={(e) => handleRecurringDurationChange(e.target.value)}
                     required={!form.horaFinRecurrente}
                   />
                 </label>
@@ -328,11 +552,11 @@ export function SpaTabSolicitudes({
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
                       gap: 8
                     }}
                   >
-                    {zoomWeekdayOptions.map((dayOption) => {
+                    {zoomWeekdayOptionsFull.map((dayOption) => {
                       const checked = parseWeekdaysCsv(form.recurrenciaDiasSemana).includes(Number(dayOption.value));
                       return (
                         <label key={dayOption.value} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -402,7 +626,7 @@ export function SpaTabSolicitudes({
                           value={form.recurrenciaDiaSemanaMes}
                           onChange={(e) => updateForm("recurrenciaDiaSemanaMes", e.target.value)}
                         >
-                          {zoomWeekdayOptions.map((option) => (
+                          {zoomWeekdayOptionsFull.map((option) => (
                             <option key={option.value} value={option.value}>
                               {option.label}
                             </option>
@@ -423,6 +647,38 @@ export function SpaTabSolicitudes({
                   onChange={(e) => updateForm("fechaFinal", e.target.value)}
                 />
               </label>
+
+              <div
+                style={{
+                  marginBottom: 10,
+                  border: "1px solid var(--flacso-border)",
+                  borderRadius: 8,
+                  padding: 10,
+                  background: "var(--flacso-p9)"
+                }}
+              >
+                <strong>Previsualizacion de fechas</strong>
+                {recurrencePreview.error ? (
+                  <p style={{ margin: "8px 0 0", color: "#9f2e18" }}>{recurrencePreview.error}</p>
+                ) : recurrencePreview.dates.length > 0 ? (
+                  <>
+                    <p className="muted" style={{ margin: "8px 0 8px" }}>
+                      Se crearan {recurrencePreview.dates.length} instancia(s).
+                    </p>
+                    <div style={{ display: "grid", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+                      {recurrencePreview.dates.map((date, index) => (
+                        <span key={`${date.toISOString()}-${index}`}>
+                          {index + 1}. {formatDateTime(date.toISOString())}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="muted" style={{ margin: "8px 0 0" }}>
+                    Completa primer dia, hora de comienzo y fecha final para ver la previsualizacion.
+                  </p>
+                )}
+              </div>
             </>
           )}
 
@@ -458,6 +714,7 @@ export function SpaTabSolicitudes({
                   <th>Link</th>
                   <th>Instancias</th>
                   <th>Detalle</th>
+                  {canDeleteSolicitud && <th>Acciones</th>}
                 </tr>
               </thead>
               <tbody>
@@ -521,6 +778,19 @@ export function SpaTabSolicitudes({
                           "-"
                         )}
                       </td>
+                      {canDeleteSolicitud && (
+                        <td>
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            onClick={() => onDeleteSolicitud(item.id)}
+                            disabled={deletingSolicitudId === item.id}
+                            style={{ color: "#9f2e18", borderColor: "#f1c4bc" }}
+                          >
+                            {deletingSolicitudId === item.id ? "Eliminando..." : "Eliminar"}
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

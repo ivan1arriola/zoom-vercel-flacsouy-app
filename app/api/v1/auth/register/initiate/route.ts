@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     const normalizedMessage = message.toLowerCase();
     const status =
       normalizedMessage.includes("ya esta registrado") ||
-      normalizedMessage.includes("ya est· registrado")
+      normalizedMessage.includes("ya est√° registrado")
         ? 409
         : 400;
     return NextResponse.json({ error: message }, { status });

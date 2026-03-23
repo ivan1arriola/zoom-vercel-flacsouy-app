@@ -108,3 +108,38 @@ export async function submitPastMeeting(payload: Record<string, unknown>): Promi
     solicitudId: data.result?.solicitudId
   };
 }
+
+export async function deleteSolicitud(solicitudId: string): Promise<{
+  success: boolean;
+  requestId?: string;
+  zoomMeetingId?: string | null;
+  deletedInZoom?: boolean;
+  error?: string;
+}> {
+  const response = await fetch(`/api/v1/solicitudes-sala/${encodeURIComponent(solicitudId)}`, {
+    method: "DELETE"
+  });
+
+  const data = (await response.json()) as {
+    error?: string;
+    result?: {
+      id: string;
+      zoomMeetingId?: string | null;
+      deletedInZoom?: boolean;
+    };
+  };
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo eliminar la solicitud."
+    };
+  }
+
+  return {
+    success: true,
+    requestId: data.result?.id,
+    zoomMeetingId: data.result?.zoomMeetingId ?? null,
+    deletedInZoom: data.result?.deletedInZoom ?? false
+  };
+}
