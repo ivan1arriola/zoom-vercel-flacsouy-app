@@ -239,8 +239,8 @@ async function resolveResponsibleNotificationEmail(
         ...(firstName && lastName
           ? [
               {
-                firstName: { equals: firstName, mode: "insensitive" },
-                lastName: { equals: lastName, mode: "insensitive" }
+              firstName: { equals: firstName, mode: Prisma.QueryMode.insensitive },
+              lastName: { equals: lastName, mode: Prisma.QueryMode.insensitive }
               }
             ]
           : []),
@@ -518,7 +518,7 @@ async function sendProvisionedSolicitudEmail(input: {
     where: {
       role: "ADMINISTRADOR",
       emailVerified: { not: null },
-      email: { not: null }
+      email: { not: "" }
     },
     select: { email: true }
   });
