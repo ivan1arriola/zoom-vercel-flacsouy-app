@@ -1,6 +1,15 @@
 "use client";
 
 import { FormEvent } from "react";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Stack,
+  TextField,
+  Typography
+} from "@mui/material";
 import { UserAvatar } from "@/components/user-avatar";
 import type { CurrentUser } from "@/components/spa-home";
 
@@ -50,148 +59,148 @@ export function SpaTabPerfil({
   if (!user) return null;
 
   return (
-    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
-      <article className="card" style={{ width: "min(100%, 720px)" }}>
-        <h3 style={{ marginTop: 0 }}>Mi perfil</h3>
-        {!showProfileForm ? (
-          <div>
-            <div style={{ marginBottom: 16 }}>
-              <p>
-                <strong>Nombre:</strong> {user.firstName || "-"}
-              </p>
-              <p>
-                <strong>Apellido:</strong> {user.lastName || "-"}
-              </p>
-              <p>
-                <strong>Email:</strong> {user.email}
-              </p>
-              <p style={{ marginTop: 12, marginBottom: 8 }}>
-                <strong>Foto de perfil:</strong>
-              </p>
-              <div style={{ marginTop: 8 }}>
-                <UserAvatar
-                  firstName={user.firstName}
-                  lastName={user.lastName}
-                  image={user.image}
-                  size={100}
+    <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+      <Card variant="outlined" sx={{ width: "min(100%, 760px)", borderRadius: 3 }}>
+        <CardContent>
+          <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>
+            Mi perfil
+          </Typography>
+
+          {!showProfileForm ? (
+            <Stack spacing={2}>
+              <Stack spacing={0.5}>
+                <Typography variant="body2">
+                  <Box component="span" sx={{ fontWeight: 700 }}>
+                    Nombre:
+                  </Box>{" "}
+                  {user.firstName || "-"}
+                </Typography>
+                <Typography variant="body2">
+                  <Box component="span" sx={{ fontWeight: 700 }}>
+                    Apellido:
+                  </Box>{" "}
+                  {user.lastName || "-"}
+                </Typography>
+                <Typography variant="body2">
+                  <Box component="span" sx={{ fontWeight: 700 }}>
+                    Email:
+                  </Box>{" "}
+                  {user.email}
+                </Typography>
+              </Stack>
+
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                  Foto de perfil
+                </Typography>
+                <UserAvatar firstName={user.firstName} lastName={user.lastName} image={user.image} size={100} />
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                  Cuenta de Google
+                </Typography>
+                {!canUseGoogleByEmail ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Google solo esta habilitado para cuentas @flacso.edu.uy.
+                  </Typography>
+                ) : isLoadingGoogleStatus ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Cargando estado de vinculacion...
+                  </Typography>
+                ) : (
+                  <>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                      Estado: {googleLinked ? "Vinculada" : "No vinculada"}
+                    </Typography>
+                    {!hasPassword && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        Aviso: para desvincular Google debes tener contrasena establecida.
+                      </Typography>
+                    )}
+                  </>
+                )}
+
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Button variant="outlined" onClick={onLinkGoogleAccount} disabled={!canUseGoogleByEmail}>
+                    Vincular Google
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={onUnlinkGoogleAccount}
+                    disabled={!canUseGoogleByEmail || !googleLinked || !hasPassword || isUnlinkingGoogleAccount}
+                  >
+                    {isUnlinkingGoogleAccount ? "Desvinculando..." : "Desvincular Google"}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={onSyncProfileFromGoogle}
+                    disabled={!canUseGoogleByEmail || !googleLinked || isSyncingGoogleProfile}
+                  >
+                    {isSyncingGoogleProfile ? "Sincronizando..." : "Volver a sincronizar"}
+                  </Button>
+                </Stack>
+              </Box>
+
+              <Button variant="contained" onClick={() => setShowProfileForm(true)}>
+                Editar perfil
+              </Button>
+            </Stack>
+          ) : (
+            <Box component="form" onSubmit={onSubmit}>
+              <Stack spacing={1.5}>
+                <TextField
+                  label="Nombre"
+                  value={profileForm.firstName}
+                  onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
                 />
-              </div>
-            </div>
+                <TextField
+                  label="Apellido"
+                  value={profileForm.lastName}
+                  onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                />
+                <TextField
+                  label="URL de foto de perfil"
+                  type="url"
+                  value={profileForm.image}
+                  onChange={(e) => setProfileForm({ ...profileForm, image: e.target.value })}
+                />
 
-            <div style={{ marginBottom: 18 }}>
-              <h4 style={{ marginTop: 0, marginBottom: 8 }}>Cuenta de Google</h4>
-              {!canUseGoogleByEmail ? (
-                <p className="muted" style={{ marginTop: 0 }}>
-                  Google solo esta habilitado para cuentas @flacso.edu.uy.
-                </p>
-              ) : isLoadingGoogleStatus ? (
-                <p className="muted" style={{ marginTop: 0 }}>
-                  Cargando estado de vinculacion...
-                </p>
-              ) : (
-                <>
-                  <p className="muted" style={{ marginTop: 0 }}>
-                    Estado: {googleLinked ? "Vinculada" : "No vinculada"}
-                  </p>
-                  {!hasPassword && (
-                    <p className="muted" style={{ marginTop: 0 }}>
-                      Aviso: para desvincular Google debes tener contrasena establecida.
-                    </p>
-                  )}
-                </>
-              )}
+                <Box>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    Vista previa
+                  </Typography>
+                  <UserAvatar
+                    firstName={profileForm.firstName}
+                    lastName={profileForm.lastName}
+                    image={profileForm.image}
+                    size={100}
+                  />
+                </Box>
 
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  className="btn ghost"
-                  type="button"
-                  onClick={onLinkGoogleAccount}
-                  disabled={!canUseGoogleByEmail}
-                >
-                  Vincular Google
-                </button>
-                <button
-                  className="btn ghost"
-                  type="button"
-                  onClick={onUnlinkGoogleAccount}
-                  disabled={!canUseGoogleByEmail || !googleLinked || !hasPassword || isUnlinkingGoogleAccount}
-                >
-                  {isUnlinkingGoogleAccount ? "Desvinculando..." : "Desvincular Google"}
-                </button>
-                <button
-                  className="btn ghost"
-                  type="button"
-                  onClick={onSyncProfileFromGoogle}
-                  disabled={!canUseGoogleByEmail || !googleLinked || isSyncingGoogleProfile}
-                >
-                  {isSyncingGoogleProfile ? "Sincronizando..." : "Volver a sincronizar con Google"}
-                </button>
-              </div>
-            </div>
-            <button className="btn primary" onClick={() => setShowProfileForm(true)} type="button">
-              Editar perfil
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={onSubmit}>
-            <label style={{ display: "block", marginBottom: 8 }}>
-              Nombre
-              <input
-                type="text"
-                value={profileForm.firstName}
-                onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
-                placeholder="Tu nombre"
-              />
-            </label>
-            <label style={{ display: "block", marginBottom: 8 }}>
-              Apellido
-              <input
-                type="text"
-                value={profileForm.lastName}
-                onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
-                placeholder="Tu apellido"
-              />
-            </label>
-            <label style={{ display: "block", marginBottom: 8 }}>
-              URL de foto de perfil
-              <input
-                type="url"
-                value={profileForm.image}
-                onChange={(e) => setProfileForm({ ...profileForm, image: e.target.value })}
-                placeholder="https://ejemplo.com/foto.jpg"
-              />
-            </label>
-            <div style={{ marginBottom: 16 }}>
-              <p style={{ margin: 0, marginBottom: 8 }}>Vista previa:</p>
-              <UserAvatar
-                firstName={profileForm.firstName}
-                lastName={profileForm.lastName}
-                image={profileForm.image}
-                size={100}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn primary" type="submit" disabled={isUpdatingProfile}>
-                {isUpdatingProfile ? "Guardando..." : "Guardar cambios"}
-              </button>
-              <button
-                className="btn ghost"
-                type="button"
-                onClick={() => {
-                  setShowProfileForm(false);
-                  setProfileForm({
-                    firstName: user.firstName ?? "",
-                    lastName: user.lastName ?? "",
-                    image: user.image ?? ""
-                  });
-                }}
-              >
-                Cancelar
-              </button>
-            </div>
-          </form>
-        )}
-      </article>
-    </div>
+                <Stack direction="row" spacing={1}>
+                  <Button type="submit" variant="contained" disabled={isUpdatingProfile}>
+                    {isUpdatingProfile ? "Guardando..." : "Guardar cambios"}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => {
+                      setShowProfileForm(false);
+                      setProfileForm({
+                        firstName: user.firstName ?? "",
+                        lastName: user.lastName ?? "",
+                        image: user.image ?? ""
+                      });
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                </Stack>
+              </Stack>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+    </Box>
   );
 }

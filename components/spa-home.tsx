@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
 import { signIn } from "next-auth/react";
+import { Alert, Backdrop, Box, CircularProgress, Tab as MuiTab, Tabs, Typography } from "@mui/material";
 import { UserAvatar } from "@/components/user-avatar";
 import { ToggleButtons } from "@/components/toggle-buttons";
 import {
@@ -29,9 +30,16 @@ import {
   loadSolicitudes,
   submitDocenteSolicitud as submitDocenteSolicitudApi,
   deleteSolicitud as deleteSolicitudApi,
+  cancelSolicitudSerie as cancelSolicitudSerieApi,
+  cancelSolicitudInstancia as cancelSolicitudInstanciaApi,
   submitPastMeeting as submitPastMeetingApi,
   type Solicitud
 } from "@/src/services/solicitudesApi";
+import {
+  createPrograma as createProgramaApi,
+  loadProgramas,
+  type Programa
+} from "@/src/services/programasApi";
 import {
   loadAgendaLibre,
   setInterest as setInterestApi,
@@ -114,6 +122,7 @@ const tabs = [
   "perfil"
 ] as const;
 type Tab = (typeof tabs)[number];
+const EMAIL_LINE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function normalizeSupportRole(role: string): string {
   if (role === "ASISTENTE_ZOOM" || role === "SOPORTE_ZOOM") {
@@ -122,7 +131,33 @@ function normalizeSupportRole(role: string): string {
   return role;
 }
 
+function normalizeDocentesCorreosByLine(raw: string): string | undefined {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return undefined;
+
+  const unique = new Set<string>();
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (line.includes(";") || line.includes(",")) {
+      throw new Error(`Correos de docentes: usa un correo por linea (error en linea ${index + 1}).`);
+    }
+    if (!EMAIL_LINE_REGEX.test(line)) {
+      throw new Error(`Correos de docentes: email invalido en linea ${index + 1}.`);
+    }
+    unique.add(line.toLowerCase());
+  }
+
+  return Array.from(unique.values()).join("\n");
+}
+
 export function SpaHome() {
+  const [programas, setProgramas] = useState<Programa[]>([]);
+  const [isCreatingPrograma, setIsCreatingPrograma] = useState(false);
+
   // UI State
   const { tab, setTab, message, setMessage, loading, setLoading, requestedTab } = useUIState();
   
@@ -136,6 +171,10 @@ export function SpaHome() {
     setIsSubmittingSolicitud,
     deletingSolicitudId,
     setDeletingSolicitudId,
+    cancellingSerieSolicitudId,
+    setCancellingSerieSolicitudId,
+    cancellingInstanciaKey,
+    setCancellingInstanciaKey,
     form,
     setForm,
     updateForm
@@ -213,10 +252,66 @@ export function SpaHome() {
     () => ["DOCENTE", "ADMINISTRADOR"].includes(user?.role ?? ""),
     [user?.role]
   );
+  const canDelegateSolicitudResponsable = useMemo(
+    () => effectiveRole === "ADMINISTRADOR",
+    [effectiveRole]
+  );
   const canUseGoogleByEmail = useMemo(
     () => Boolean(user?.email?.trim().toLowerCase().endsWith("@flacso.edu.uy")),
     [user?.email]
   );
+  const requesterDisplayName = useMemo(() => {
+    if (!user) return "";
+    const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+    return fullName || user.email || "";
+  }, [user]);
+  const responsableOptions = useMemo(() => {
+    const map = new Map<string, { value: string; label: string }>();
+
+    const addOption = (
+      firstName: string | null | undefined,
+      lastName: string | null | undefined,
+      email: string | null | undefined
+    ) => {
+      const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+      const value = (fullName || email || "").trim();
+      if (!value) return;
+      if (map.has(value.toLowerCase())) return;
+      const label = fullName && email ? `${fullName} (${email})` : value;
+      map.set(value.toLowerCase(), { value, label });
+    };
+
+    for (const managedUser of users) {
+      if (!["DOCENTE", "ADMINISTRADOR"].includes(managedUser.role)) continue;
+      addOption(managedUser.firstName, managedUser.lastName, managedUser.email);
+    }
+
+    addOption(user?.firstName, user?.lastName, user?.email);
+
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "es"));
+  }, [users, user]);
+  const programaOptions = useMemo(
+    () => programas.map((programa) => programa.nombre),
+    [programas]
+  );
+
+  const isGlobalBusy = useMemo(
+    () =>
+      loading ||
+      isSubmittingSolicitud ||
+      Boolean(deletingSolicitudId) ||
+      Boolean(cancellingSerieSolicitudId) ||
+      Boolean(cancellingInstanciaKey),
+    [loading, isSubmittingSolicitud, deletingSolicitudId, cancellingSerieSolicitudId, cancellingInstanciaKey]
+  );
+
+  const globalBusyLabel = useMemo(() => {
+    if (isSubmittingSolicitud) return "Enviando solicitud...";
+    if (deletingSolicitudId) return "Eliminando solicitud...";
+    if (cancellingSerieSolicitudId) return "Cancelando serie...";
+    if (cancellingInstanciaKey) return "Cancelando instancia...";
+    return "Cargando...";
+  }, [isSubmittingSolicitud, deletingSolicitudId, cancellingSerieSolicitudId, cancellingInstanciaKey]);
 
   // currentTarifaByModalidad is already provided by useTarifas hook
   // requestedTab is already provided by useUIState hook
@@ -260,6 +355,10 @@ export function SpaHome() {
         (async () => {
           const tarifas = await loadTarifas();
           if (tarifas) setTarifas(tarifas);
+        })(),
+        (async () => {
+          const loadedProgramas = await loadProgramas();
+          if (loadedProgramas) setProgramas(loadedProgramas);
         })()
       ];
 
@@ -345,6 +444,19 @@ export function SpaHome() {
     canSeeUsers,
     canSeeTarifas
   ]);
+
+  useEffect(() => {
+    if (!requesterDisplayName) return;
+    setForm((prev) => {
+      if (prev.responsable.trim()) {
+        return prev;
+      }
+      return {
+        ...prev,
+        responsable: requesterDisplayName
+      };
+    });
+  }, [requesterDisplayName, setForm]);
 
   useEffect(() => {
     if (tab !== "perfil" || !user) return;
@@ -500,46 +612,23 @@ export function SpaHome() {
     return docente.name || [docente.firstName, docente.lastName].filter(Boolean).join(" ") || docente.email || "";
   }
 
-  function applySolicitudTemplate(templateId: "DIDYP" | "DAVIA") {
-    setForm((prev) => {
-      const commonRecurringPatch = {
-        unaOVarias: "VARIAS",
-        primerDiaRecurrente: templateId === "DIDYP" ? "2026-04-08" : "2026-05-13",
-        horaInicioRecurrente: "18:30",
-        horaFinRecurrente: "20:30",
-        duracionRecurrente: "",
-        recurrenciaTipoZoom: "2" as ZoomRecurrenceType,
-        recurrenciaIntervalo: "1",
-        recurrenciaDiasSemana: "4",
-        recurrenciaMensualModo: "DAY_OF_MONTH" as ZoomMonthlyMode,
-        recurrenciaDiaMes: "1",
-        recurrenciaSemanaMes: "1",
-        recurrenciaDiaSemanaMes: "2",
-        fechaFinal: templateId === "DIDYP" ? "2026-07-29" : "2026-07-15"
-      };
+  async function refreshAfterSolicitudMutation() {
+    const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
+      loadSummary(),
+      loadSolicitudes(),
+      loadAgendaLibre(),
+      loadAssignmentBoard(),
+      loadManualPendings()
+    ]);
 
-      if (templateId === "DIDYP") {
-        return {
-          ...prev,
-          ...commonRecurringPatch,
-          tema: "Clases DIDYP",
-          responsable: "DIDYP",
-          programa: "DIDYP",
-          asistenciaZoom: "NO",
-          grabacion: "DEFINIR",
-          controlAsistencia: "SI"
-        };
-      }
-
-      return {
-        ...prev,
-        ...commonRecurringPatch,
-        tema: "Clases DAVIA",
-        responsable: "DAVIA",
-        programa: "DAVIA"
-      };
-    });
-    setMessage(`Plantilla ${templateId} cargada.`);
+    if (summaryData) setSummary(summaryData);
+    if (solicitudesData) setSolicitudes(solicitudesData);
+    if (agendaData) setAgendaLibre(agendaData);
+    if (assignmentData) {
+      setAssignmentBoardEvents(assignmentData.events ?? []);
+      setAssignableAssistants(assignmentData.assistants ?? []);
+    }
+    if (manualData) setManualPendings(manualData);
   }
 
   async function submitDocenteSolicitud(event: FormEvent<HTMLFormElement>) {
@@ -562,6 +651,7 @@ export function SpaHome() {
 
       const requiereAsistencia = form.asistenciaZoom === "SI";
       const requiereGrabacion = form.grabacion === "SI";
+      const normalizedDocentesCorreos = normalizeDocentesCorreosByLine(form.correosDocentes);
 
       let payload: Record<string, unknown>;
 
@@ -586,7 +676,7 @@ export function SpaHome() {
           fechaFinSolicitada: endIso,
           timezone: "America/Montevideo",
           controlAsistencia: form.controlAsistencia === "SI",
-          docentesCorreos: form.correosDocentes.trim() || undefined,
+          docentesCorreos: normalizedDocentesCorreos,
           grabacionPreferencia:
             form.grabacion === "SI" ? "SI" : form.grabacion === "NO" ? "NO" : "A_DEFINIR",
           requiereGrabacion,
@@ -711,7 +801,7 @@ export function SpaHome() {
           fechaFinRecurrencia: recurrenceEnd.toISOString(),
           timezone: "America/Montevideo",
           controlAsistencia: form.controlAsistencia === "SI",
-          docentesCorreos: form.correosDocentes.trim() || undefined,
+          docentesCorreos: normalizedDocentesCorreos,
           grabacionPreferencia:
             form.grabacion === "SI" ? "SI" : form.grabacion === "NO" ? "NO" : "A_DEFINIR",
           requiereGrabacion,
@@ -738,7 +828,7 @@ export function SpaHome() {
                 recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH"
                   ? monthlyWeekDay
                   : undefined,
-              end_date_time: recurrenceEnd.toISOString()
+              end_times: recurringStarts.length
             }
           }
         };
@@ -752,22 +842,7 @@ export function SpaHome() {
 
       setMessage(`Solicitud creada correctamente: ${response.requestId}`);
       setDocenteSolicitudesView("list");
-      const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
-        loadSummary(),
-        loadSolicitudes(),
-        loadAgendaLibre(),
-        loadAssignmentBoard(),
-        loadManualPendings()
-      ]);
-
-      if (summaryData) setSummary(summaryData);
-      if (solicitudesData) setSolicitudes(solicitudesData);
-      if (agendaData) setAgendaLibre(agendaData);
-      if (assignmentData) {
-        setAssignmentBoardEvents(assignmentData.events ?? []);
-        setAssignableAssistants(assignmentData.assistants ?? []);
-      }
-      if (manualData) setManualPendings(manualData);
+      await refreshAfterSolicitudMutation();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo crear la solicitud.");
     } finally {
@@ -797,26 +872,83 @@ export function SpaHome() {
         : "";
       setMessage(`Solicitud eliminada correctamente.${zoomMessage}`);
 
-      const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
-        loadSummary(),
-        loadSolicitudes(),
-        loadAgendaLibre(),
-        loadAssignmentBoard(),
-        loadManualPendings()
-      ]);
-
-      if (summaryData) setSummary(summaryData);
-      if (solicitudesData) setSolicitudes(solicitudesData);
-      if (agendaData) setAgendaLibre(agendaData);
-      if (assignmentData) {
-        setAssignmentBoardEvents(assignmentData.events ?? []);
-        setAssignableAssistants(assignmentData.assistants ?? []);
-      }
-      if (manualData) setManualPendings(manualData);
+      await refreshAfterSolicitudMutation();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo eliminar la solicitud.");
     } finally {
       setDeletingSolicitudId(null);
+    }
+  }
+
+  async function cancelSolicitudSerie(solicitudId: string, titulo: string) {
+    if (!window.confirm(`Se cancelara toda la serie de "${titulo}" en Zoom y en el sistema. ¿Continuar?`)) {
+      return;
+    }
+
+    setCancellingSerieSolicitudId(solicitudId);
+    setMessage("");
+
+    try {
+      const response = await cancelSolicitudSerieApi(solicitudId);
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo cancelar la serie.");
+        return;
+      }
+
+      const zoomMessage = response.result?.zoomMeetingId
+        ? response.result?.cancelledInZoom
+          ? ` Serie Zoom ${response.result.zoomMeetingId} cancelada.`
+          : ` Zoom no reportó cancelación para ${response.result.zoomMeetingId} (puede ya no existir).`
+        : "";
+      setMessage(`Serie cancelada correctamente.${zoomMessage}`);
+      await refreshAfterSolicitudMutation();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo cancelar la serie.");
+    } finally {
+      setCancellingSerieSolicitudId(null);
+    }
+  }
+
+  async function cancelSolicitudInstancia(input: {
+    solicitudId: string;
+    titulo: string;
+    eventoId?: string | null;
+    occurrenceId?: string | null;
+    startTime: string;
+  }) {
+    const instanceDateLabel = formatDateTime(input.startTime);
+    if (!window.confirm(`Se cancelara la instancia ${instanceDateLabel} de "${input.titulo}". ¿Continuar?`)) {
+      return;
+    }
+
+    const instanceKey = `${input.solicitudId}:${input.eventoId ?? input.occurrenceId ?? input.startTime}`;
+    setCancellingInstanciaKey(instanceKey);
+    setMessage("");
+
+    try {
+      const response = await cancelSolicitudInstanciaApi({
+        solicitudId: input.solicitudId,
+        eventoId: input.eventoId ?? undefined,
+        occurrenceId: input.occurrenceId ?? undefined,
+        inicioProgramadoAt: input.startTime
+      });
+
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo cancelar la instancia.");
+        return;
+      }
+
+      const zoomMessage = response.result?.zoomMeetingId
+        ? response.result?.cancelledInZoom
+          ? ` Instancia cancelada en Zoom (${response.result.zoomMeetingId}).`
+          : ` Zoom no reportó cancelación (ID ${response.result.zoomMeetingId}).`
+        : "";
+      setMessage(`Instancia cancelada correctamente.${zoomMessage}`);
+      await refreshAfterSolicitudMutation();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo cancelar la instancia.");
+    } finally {
+      setCancellingInstanciaKey(null);
     }
   }
 
@@ -1056,68 +1188,58 @@ export function SpaHome() {
     }
   }
 
+  async function createProgramaOnDemand(nombre: string): Promise<string | null> {
+    setIsCreatingPrograma(true);
+    try {
+      const response = await createProgramaApi(nombre);
+      if (!response.success || !response.programa) {
+        setMessage(response.error ?? "No se pudo crear el programa.");
+        return null;
+      }
+
+      setProgramas((prev) => {
+        const exists = prev.some((item) => item.id === response.programa?.id);
+        const next = exists ? prev : [...prev, response.programa as Programa];
+        return [...next].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+      });
+      setMessage(`Programa listo: ${response.programa.nombre}`);
+      return response.programa.nombre;
+    } finally {
+      setIsCreatingPrograma(false);
+    }
+  }
+
   return (
-    <section>
-      <h1 className="title">Herramienta para coordinar salas Zoom</h1>
+    <Box component="section">
+      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1.5 }}>
+        Herramienta para coordinar salas Zoom
+      </Typography>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-        <button className={`${tab === "dashboard" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("dashboard")} type="button">
-          <span className="g-icon" aria-hidden="true">dashboard</span>
-          Dashboard
-        </button>
-        <button
-          className={`${tab === "solicitudes" ? "btn primary" : "btn ghost"} btn-with-icon`}
-          onClick={() => setTab("solicitudes")}
-          type="button"
-        >
-          <span className="g-icon" aria-hidden="true">event_note</span>
-          Solicitudes
-        </button>
-        {canSeeAgendaLibre && (
-          <button className={`${tab === "agenda_libre" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("agenda_libre")} type="button">
-            <span className="g-icon" aria-hidden="true">calendar_month</span>
-            Agenda libre
-          </button>
-        )}
-        {canSeeAssignmentBoard && (
-          <button className={`${tab === "asignacion" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("asignacion")} type="button">
-            <span className="g-icon" aria-hidden="true">groups</span>
-            Asignacion de personal
-          </button>
-        )}
-        {canSeeManual && (
-          <button className={`${tab === "manual" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("manual")} type="button">
-            <span className="g-icon" aria-hidden="true">build</span>
-            Resolución manual
-          </button>
-        )}
-        {canSeePastMeetings && (
-          <button className={`${tab === "historico" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("historico")} type="button">
-            <span className="g-icon" aria-hidden="true">history</span>
-            Reuniones pasadas
-          </button>
-        )}
-        {canSeeZoomAccounts && (
-          <button className={`${tab === "cuentas" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("cuentas")} type="button">
-            <span className="g-icon" aria-hidden="true">videocam</span>
-            Cuentas Zoom
-          </button>
-        )}
-        {canSeeTarifas && (
-          <button className={`${tab === "tarifas" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("tarifas")} type="button">
-            <span className="g-icon" aria-hidden="true">payments</span>
-            Tarifas
-          </button>
-        )}
-        {canSeeUsers && (
-          <button className={`${tab === "usuarios" ? "btn primary" : "btn ghost"} btn-with-icon`} onClick={() => setTab("usuarios")} type="button">
-            <span className="g-icon" aria-hidden="true">group</span>
-            Usuarios
-          </button>
-        )}
-      </div>
+      <Tabs
+        value={tab}
+        onChange={(_event, nextValue) => setTab(nextValue as Tab)}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        sx={{ mb: 2 }}
+      >
+        <MuiTab value="dashboard" label="Dashboard" />
+        <MuiTab value="solicitudes" label="Solicitudes" />
+        {canSeeAgendaLibre && <MuiTab value="agenda_libre" label="Agenda libre" />}
+        {canSeeAssignmentBoard && <MuiTab value="asignacion" label="Asignacion de personal" />}
+        {canSeeManual && <MuiTab value="manual" label="Resolucion manual" />}
+        {canSeePastMeetings && <MuiTab value="historico" label="Reuniones pasadas" />}
+        {canSeeZoomAccounts && <MuiTab value="cuentas" label="Cuentas Zoom" />}
+        {canSeeTarifas && <MuiTab value="tarifas" label="Tarifas" />}
+        {canSeeUsers && <MuiTab value="usuarios" label="Usuarios" />}
+      </Tabs>
 
-      {loading && <p className="muted">Cargando...</p>}
+      {loading && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.2, mb: 1.5 }}>
+          <CircularProgress size={18} />
+          <Typography variant="body2" color="text.secondary">Cargando...</Typography>
+        </Box>
+      )}
 
       {tab === "dashboard" && <SpaTabDashboard summary={summary} />}
 
@@ -1126,12 +1248,20 @@ export function SpaHome() {
           solicitudes={solicitudes}
           form={form}
           updateForm={updateForm}
-          onApplyTemplate={applySolicitudTemplate}
           onDeleteSolicitud={deleteSolicitud}
           deletingSolicitudId={deletingSolicitudId}
+          onCancelSolicitudSerie={cancelSolicitudSerie}
+          cancellingSerieSolicitudId={cancellingSerieSolicitudId}
+          onCancelSolicitudInstancia={cancelSolicitudInstancia}
+          cancellingInstanciaKey={cancellingInstanciaKey}
           canDeleteSolicitud={canCreateSolicitudShortcut}
           isSubmittingSolicitud={isSubmittingSolicitud}
           canCreateShortcut={canCreateSolicitudShortcut}
+          canDelegateResponsable={canDelegateSolicitudResponsable}
+          responsableOptions={responsableOptions}
+          programaOptions={programaOptions}
+          isCreatingPrograma={isCreatingPrograma}
+          onCreatePrograma={createProgramaOnDemand}
           docenteSolicitudesView={docenteSolicitudesView}
           setDocenteSolicitudesView={setDocenteSolicitudesView}
           onSubmit={submitDocenteSolicitud}
@@ -1296,14 +1426,28 @@ export function SpaHome() {
 
 
 
-      {message && (
-        <p className="muted" style={{ marginTop: 14 }}>
-          {message}
-        </p>
-      )}
-    </section>
+      {message && <Alert sx={{ mt: 1.8 }} severity="info">{message}</Alert>}
+
+      <Backdrop
+        open={isGlobalBusy}
+        sx={{
+          zIndex: (theme) => theme.zIndex.modal + 10,
+          color: "#fff",
+          display: "flex",
+          flexDirection: "column",
+          gap: 1.2
+        }}
+      >
+        <CircularProgress color="inherit" />
+        <Typography variant="body1" sx={{ color: "#fff", fontWeight: 600 }}>
+          {globalBusyLabel}
+        </Typography>
+      </Backdrop>
+    </Box>
   );
 }
+
+
 
 
 

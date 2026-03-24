@@ -1,6 +1,40 @@
 "use client";
 
-import { FormEvent, useMemo } from "react";
+import { FormEvent, Fragment, useMemo, useState } from "react";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import LaunchIcon from "@mui/icons-material/Launch";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import EventBusyOutlinedIcon from "@mui/icons-material/EventBusyOutlined";
+import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSendOutlined";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Chip,
+  Collapse,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  IconButton,
+  MenuItem,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+  useMediaQuery,
+  useTheme
+} from "@mui/material";
 import { ToggleButtons } from "@/components/toggle-buttons";
 import {
   buildRecurringStarts,
@@ -47,16 +81,32 @@ interface SpaTabSolicitudesProps {
   solicitudes: Solicitud[];
   form: SolicitudForm;
   updateForm: (key: keyof SolicitudForm, value: string) => void;
-  onApplyTemplate: (templateId: "DIDYP" | "DAVIA") => void;
   onDeleteSolicitud: (solicitudId: string) => void;
   deletingSolicitudId: string | null;
+  onCancelSolicitudSerie: (solicitudId: string, titulo: string) => void;
+  cancellingSerieSolicitudId: string | null;
+  onCancelSolicitudInstancia: (input: {
+    solicitudId: string;
+    titulo: string;
+    eventoId?: string | null;
+    occurrenceId?: string | null;
+    startTime: string;
+  }) => void;
+  cancellingInstanciaKey: string | null;
   canDeleteSolicitud: boolean;
   isSubmittingSolicitud: boolean;
   canCreateShortcut: boolean;
+  canDelegateResponsable: boolean;
+  responsableOptions: Array<{ value: string; label: string }>;
+  programaOptions: string[];
+  isCreatingPrograma: boolean;
+  onCreatePrograma: (nombre: string) => Promise<string | null>;
   docenteSolicitudesView: "form" | "list";
   setDocenteSolicitudesView: (view: "form" | "list") => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
+
+const CREATE_PROGRAMA_VALUE = "__create_programa__";
 
 const zoomWeekdayOptionsFull: Array<{ value: string; label: string }> = [
   { value: "1", label: "Domingo" },
@@ -87,20 +137,41 @@ function minutesToTime(value: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function normalizeEmailInputAsLines(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/[;,]+/g, "\n")
+    .replace(/\n[ \t]+/g, "\n");
+}
+
 export function SpaTabSolicitudes({
   solicitudes,
   form,
   updateForm,
-  onApplyTemplate,
   onDeleteSolicitud,
   deletingSolicitudId,
+  onCancelSolicitudSerie,
+  cancellingSerieSolicitudId,
+  onCancelSolicitudInstancia,
+  cancellingInstanciaKey,
   canDeleteSolicitud,
   isSubmittingSolicitud,
   canCreateShortcut,
+  canDelegateResponsable,
+  responsableOptions,
+  programaOptions,
+  isCreatingPrograma,
+  onCreatePrograma,
   docenteSolicitudesView,
   setDocenteSolicitudesView,
   onSubmit
 }: SpaTabSolicitudesProps) {
+  const [expandedSolicitudId, setExpandedSolicitudId] = useState<string | null>(null);
+  const [createProgramaOpen, setCreateProgramaOpen] = useState(false);
+  const [newProgramaNombre, setNewProgramaNombre] = useState("");
+  const theme = useTheme();
+  const isCompactLayout = useMediaQuery(theme.breakpoints.down("md"));
+
   function syncDurationFromTimes(startTime: string, endTime: string): string {
     const startMinutes = parseTimeToMinutes(startTime);
     const endMinutes = parseTimeToMinutes(endTime);
@@ -270,90 +341,237 @@ export function SpaTabSolicitudes({
     form.recurrenciaDiaSemanaMes
   ]);
 
+  function mapSolicitudStatus(estado: string): { label: string; color: "default" | "warning" | "success" | "error" | "info" } {
+    if (estado === "PROVISIONADA") return { label: "Provisionada", color: "success" };
+    if (estado === "PROVISIONANDO") return { label: "Provisionando", color: "info" };
+    if (estado === "PENDIENTE_RESOLUCION_MANUAL_ID") return { label: "Pendiente manual", color: "warning" };
+    if (estado === "SIN_CAPACIDAD_ZOOM") return { label: "Sin capacidad Zoom", color: "error" };
+    if (estado === "CANCELADA_ADMIN") return { label: "Cancelada admin", color: "error" };
+    if (estado === "CANCELADA_DOCENTE") return { label: "Cancelada docente", color: "error" };
+    if (estado === "REGISTRADA") return { label: "Registrada", color: "default" };
+    return { label: estado, color: "default" };
+  }
+
+  function mapInstanciaStatus(
+    estadoEvento: string | null | undefined,
+    zoomStatus: string | null | undefined
+  ): { label: string; color: "default" | "warning" | "success" | "error" | "info"; cancellable: boolean } {
+    if (estadoEvento === "CANCELADO" || zoomStatus === "deleted") {
+      return { label: "Cancelada", color: "error", cancellable: false };
+    }
+    if (estadoEvento === "FINALIZADO") {
+      return { label: "Finalizada", color: "default", cancellable: false };
+    }
+    if (estadoEvento === "PROGRAMADO" || estadoEvento === "CREADO_ZOOM") {
+      return { label: "Programada", color: "success", cancellable: true };
+    }
+    if (zoomStatus === "available") {
+      return { label: "Disponible", color: "success", cancellable: true };
+    }
+    return { label: "Activa", color: "info", cancellable: true };
+  }
+
+  function renderInstanceList(
+    item: Solicitud,
+    instances: NonNullable<Solicitud["zoomInstances"]>,
+    isSolicitudCancelled: boolean
+  ) {
+    if (instances.length === 0) {
+      return (
+        <Typography variant="body2" color="text.secondary">
+          Esta solicitud no tiene instancias disponibles.
+        </Typography>
+      );
+    }
+
+    return (
+      <Stack spacing={1.2}>
+        {instances.map((instance, index) => {
+          const status = mapInstanciaStatus(instance.estadoEvento, instance.status);
+          const isInstanceCancelled = isSolicitudCancelled || !status.cancellable;
+          const instanceKey = `${item.id}:${instance.eventId ?? instance.occurrenceId ?? instance.startTime}`;
+
+          return (
+            <Paper
+              key={instanceKey}
+              variant="outlined"
+              sx={{
+                p: 1.2,
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 1
+              }}
+            >
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {index + 1}. {formatDateTime(instance.startTime)}
+                </Typography>
+                <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                  <Chip size="small" color={status.color} label={status.label} />
+                  {instance.occurrenceId ? (
+                    <Chip size="small" variant="outlined" label={`occurrence_id ${instance.occurrenceId}`} />
+                  ) : null}
+                </Stack>
+              </Box>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                {instance.joinUrl ? (
+                  <Button
+                    size="small"
+                    variant="text"
+                    href={instance.joinUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    endIcon={<LaunchIcon fontSize="small" />}
+                  >
+                    <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                      Abrir instancia
+                    </Box>
+                    <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+                      Abrir
+                    </Box>
+                  </Button>
+                ) : null}
+                {canDeleteSolicitud && (
+                  <Button
+                    type="button"
+                    size="small"
+                    variant="outlined"
+                    color="warning"
+                    startIcon={<EventBusyOutlinedIcon fontSize="small" />}
+                    disabled={isInstanceCancelled || cancellingInstanciaKey === instanceKey}
+                    onClick={() =>
+                      onCancelSolicitudInstancia({
+                        solicitudId: item.id,
+                        titulo: item.titulo,
+                        eventoId: instance.eventId ?? undefined,
+                        occurrenceId: instance.occurrenceId ?? undefined,
+                        startTime: instance.startTime
+                      })
+                    }
+                  >
+                    {cancellingInstanciaKey === instanceKey ? "Cancelando..." : "Cancelar instancia"}
+                  </Button>
+                )}
+              </Stack>
+            </Paper>
+          );
+        })}
+      </Stack>
+    );
+  }
+
   return (
-    <article className="card">
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 10
-        }}
-      >
-        <h3 style={{ marginTop: 0, marginBottom: 0 }}>Solicitudes de sala</h3>
-        {canCreateShortcut && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className={docenteSolicitudesView === "list" ? "btn primary" : "btn ghost"}
-              onClick={() => setDocenteSolicitudesView("list")}
-            >
-              Ver solicitudes
-            </button>
-            <button
-              type="button"
-              className={docenteSolicitudesView === "form" ? "btn primary" : "btn ghost"}
-              onClick={() => setDocenteSolicitudesView("form")}
-            >
-              Nueva solicitud
-            </button>
-          </div>
-        )}
-      </div>
-      <p className="muted" style={{ marginTop: 8 }}>
-        Listado de solicitudes con estado, solicitante e informacion de reunion.
-      </p>
+    <Card variant="outlined" sx={{ borderRadius: 3 }}>
+      <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1.5}
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          justifyContent="space-between"
+          sx={{ mb: 1.5 }}
+        >
+          <Typography variant="h5" component="h2" sx={{ fontWeight: 700 }}>
+            Solicitudes de sala
+          </Typography>
+          {canCreateShortcut && (
+            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              <Button
+                type="button"
+                variant={docenteSolicitudesView === "list" ? "contained" : "outlined"}
+                onClick={() => setDocenteSolicitudesView("list")}
+              >
+                Ver solicitudes
+              </Button>
+              <Button
+                type="button"
+                variant={docenteSolicitudesView === "form" ? "contained" : "outlined"}
+                onClick={() => setDocenteSolicitudesView("form")}
+              >
+                Nueva solicitud
+              </Button>
+            </Stack>
+          )}
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Listado de solicitudes con estado, solicitante e informacion de reunion.
+        </Typography>
 
       {canCreateShortcut && docenteSolicitudesView === "form" ? (
-        <form onSubmit={onSubmit}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", marginBottom: 8, fontWeight: 500 }}>
-              Plantillas rapidas
-            </label>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="btn ghost" onClick={() => onApplyTemplate("DIDYP")}>
-                Cargar DIDYP
-              </button>
-              <button type="button" className="btn ghost" onClick={() => onApplyTemplate("DAVIA")}>
-                Cargar DAVIA
-              </button>
-            </div>
-            <small className="muted">
-              Las plantillas completan la configuracion periodica para miercoles de 18:30 a 20:30.
-            </small>
-          </div>
-
-          <h4 style={{ marginBottom: 8 }}>Seccion 1 de 3 - Datos generales</h4>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Tema
-            <input
-              type="text"
+        <Box component="form" onSubmit={onSubmit} sx={{ display: "grid", gap: 1.2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mt: 0.5 }}>
+            Seccion 1 de 3 - Datos generales
+          </Typography>
+          <TextField
+            label="Tema"
+            required
+            fullWidth
+            value={form.tema}
+            onChange={(e) => updateForm("tema", e.target.value)}
+            placeholder="Nombre del Seminario / Clase / Reunion"
+            sx={{ mt: 0.2 }}
+          />
+          {canDelegateResponsable ? (
+            <TextField
+              label="Persona responsable"
               required
-              value={form.tema}
-              onChange={(e) => updateForm("tema", e.target.value)}
-              placeholder="Nombre del Seminario / Clase / Reunion"
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Nombre de la persona responsable
-            <input
-              type="text"
-              required
+              fullWidth
+              select
               value={form.responsable}
               onChange={(e) => updateForm("responsable", e.target.value)}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Programa
-            <input
-              type="text"
+              helperText="Por defecto es quien hace la peticion. Como admin, puedes delegarla a otro docente o admin."
+            >
+              {responsableOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+              {form.responsable.trim() &&
+                !responsableOptions.some((option) => option.value === form.responsable) && (
+                  <MenuItem value={form.responsable}>{form.responsable}</MenuItem>
+                )}
+            </TextField>
+          ) : (
+            <TextField
+              label="Persona responsable"
               required
-              value={form.programa}
-              onChange={(e) => updateForm("programa", e.target.value)}
-              placeholder="Programa a cargo de la propuesta"
+              fullWidth
+              value={form.responsable}
+              onChange={(e) => updateForm("responsable", e.target.value)}
+              helperText="Corresponde a quien hace la peticion."
             />
-          </label>
+          )}
+          <TextField
+            label="Programa"
+            required
+            fullWidth
+            select
+            value={form.programa}
+            disabled={isCreatingPrograma}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              if (nextValue !== CREATE_PROGRAMA_VALUE) {
+                updateForm("programa", nextValue);
+                return;
+              }
+
+              setNewProgramaNombre("");
+              setCreateProgramaOpen(true);
+            }}
+            helperText={
+              programaOptions.length === 0
+                ? "No hay programas cargados. Usa la opcion para crear uno."
+                : undefined
+            }
+          >
+            {programaOptions.map((programa) => (
+              <MenuItem key={programa} value={programa}>
+                {programa}
+              </MenuItem>
+            ))}
+            <MenuItem value={CREATE_PROGRAMA_VALUE}>+ Crear programa</MenuItem>
+          </TextField>
 
           <ToggleButtons
             label="Asistencia Zoom"
@@ -403,109 +621,135 @@ export function SpaTabSolicitudes({
 
           {form.unaOVarias === "UNA" ? (
             <>
-              <h4 style={{ marginBottom: 8 }}>Seccion 2 de 3 - Reunion unica</h4>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Descripcion (opcional)
-                <textarea
-                  value={form.descripcionUnica}
-                  onChange={(e) => updateForm("descripcionUnica", e.target.value)}
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mt: 0.8 }}>
+                Seccion 2 de 3 - Reunion unica
+              </Typography>
+              <TextField
+                label="Descripcion (opcional)"
+                multiline
+                minRows={3}
+                fullWidth
+                value={form.descripcionUnica}
+                onChange={(e) => updateForm("descripcionUnica", e.target.value)}
+              />
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 1.2
+                }}
+              >
+                <TextField
+                  label="Dia de comienzo"
+                  type="date"
+                  required
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  value={form.diaUnica}
+                  onChange={(e) => updateForm("diaUnica", e.target.value)}
                 />
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-                <label style={{ display: "block", marginBottom: 8 }}>
-                  Dia de comienzo
-                  <input
-                    type="date"
-                    required
-                    value={form.diaUnica}
-                    onChange={(e) => updateForm("diaUnica", e.target.value)}
-                  />
-                </label>
-                <label style={{ display: "block", marginBottom: 8 }}>
-                  Hora de comienzo
-                  <input
-                    type="time"
-                    required
-                    value={form.horaInicioUnica}
-                    onChange={(e) => handleUniqueStartChange(e.target.value)}
-                  />
-                </label>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-                <label style={{ display: "block", marginBottom: 8 }}>
-                  Hora de fin
-                  <input
-                    type="time"
-                    value={form.horaFinUnica}
-                    onChange={(e) => handleUniqueEndChange(e.target.value)}
-                    required={!form.duracionUnica}
-                  />
-                </label>
-                <label style={{ display: "block", marginBottom: 8 }}>
-                  Duracion (minutos)
-                  <input
-                    type="number"
-                    min={15}
-                    step={15}
-                    value={form.duracionUnica}
-                    onChange={(e) => handleUniqueDurationChange(e.target.value)}
-                    required={!form.horaFinUnica}
-                  />
-                </label>
-              </div>
+                <TextField
+                  label="Hora de comienzo"
+                  type="time"
+                  required
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  value={form.horaInicioUnica}
+                  onChange={(e) => handleUniqueStartChange(e.target.value)}
+                />
+              </Box>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 1.2
+                }}
+              >
+                <TextField
+                  label="Hora de fin"
+                  type="time"
+                  required={!form.duracionUnica}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  value={form.horaFinUnica}
+                  onChange={(e) => handleUniqueEndChange(e.target.value)}
+                />
+                <TextField
+                  label="Duracion (minutos)"
+                  type="number"
+                  required={!form.horaFinUnica}
+                  fullWidth
+                  inputProps={{ min: 15, step: 15 }}
+                  value={form.duracionUnica}
+                  onChange={(e) => handleUniqueDurationChange(e.target.value)}
+                />
+              </Box>
             </>
           ) : (
             <>
-              <h4 style={{ marginBottom: 8 }}>Seccion 3 de 3 - Reuniones periodicas</h4>
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Descripcion (opcional)
-                <textarea
-                  value={form.descripcionRecurrente}
-                  onChange={(e) => updateForm("descripcionRecurrente", e.target.value)}
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mt: 0.8 }}>
+                Seccion 3 de 3 - Reuniones periodicas
+              </Typography>
+              <TextField
+                label="Descripcion (opcional)"
+                multiline
+                minRows={3}
+                fullWidth
+                value={form.descripcionRecurrente}
+                onChange={(e) => updateForm("descripcionRecurrente", e.target.value)}
+              />
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 1.2
+                }}
+              >
+                <TextField
+                  label="Primer dia"
+                  type="date"
+                  required
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  value={form.primerDiaRecurrente}
+                  onChange={(e) => updateForm("primerDiaRecurrente", e.target.value)}
                 />
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-                <label style={{ display: "block", marginBottom: 8 }}>
-                  Primer dia
-                  <input
-                    type="date"
-                    required
-                    value={form.primerDiaRecurrente}
-                    onChange={(e) => updateForm("primerDiaRecurrente", e.target.value)}
-                  />
-                </label>
-                <label style={{ display: "block", marginBottom: 8 }}>
-                  Hora de comienzo
-                  <input
-                    type="time"
-                    required
-                    value={form.horaInicioRecurrente}
-                    onChange={(e) => handleRecurringStartChange(e.target.value)}
-                  />
-                </label>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-                <label style={{ display: "block", marginBottom: 8 }}>
-                  Hora de fin
-                  <input
-                    type="time"
-                    value={form.horaFinRecurrente}
-                    onChange={(e) => handleRecurringEndChange(e.target.value)}
-                    required={!form.duracionRecurrente}
-                  />
-                </label>
-                <label style={{ display: "block", marginBottom: 8 }}>
-                  Duracion (minutos)
-                  <input
-                    type="number"
-                    min={15}
-                    step={15}
-                    value={form.duracionRecurrente}
-                    onChange={(e) => handleRecurringDurationChange(e.target.value)}
-                    required={!form.horaFinRecurrente}
-                  />
-                </label>
-              </div>
+                <TextField
+                  label="Hora de comienzo"
+                  type="time"
+                  required
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  value={form.horaInicioRecurrente}
+                  onChange={(e) => handleRecurringStartChange(e.target.value)}
+                />
+              </Box>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 1.2
+                }}
+              >
+                <TextField
+                  label="Hora de fin"
+                  type="time"
+                  required={!form.duracionRecurrente}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  value={form.horaFinRecurrente}
+                  onChange={(e) => handleRecurringEndChange(e.target.value)}
+                />
+                <TextField
+                  label="Duracion (minutos)"
+                  type="number"
+                  required={!form.horaFinRecurrente}
+                  fullWidth
+                  inputProps={{ min: 15, step: 15 }}
+                  value={form.duracionRecurrente}
+                  onChange={(e) => handleRecurringDurationChange(e.target.value)}
+                />
+              </Box>
 
               <ToggleButtons
                 label="Recurrencia (Zoom)"
@@ -519,65 +763,63 @@ export function SpaTabSolicitudes({
                 ]}
               />
 
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Intervalo
-                <input
-                  type="number"
-                  min={1}
-                  max={
-                    form.recurrenciaTipoZoom === "1" ? 90 : form.recurrenciaTipoZoom === "2" ? 12 : 3
-                  }
-                  step={1}
-                  required
-                  value={form.recurrenciaIntervalo}
-                  onChange={(e) => updateForm("recurrenciaIntervalo", e.target.value)}
-                />
-                <small className="muted">
-                  {form.recurrenciaTipoZoom === "1" && "Zoom diario: maximo cada 90 dias."}
-                  {form.recurrenciaTipoZoom === "2" && "Zoom semanal: maximo cada 12 semanas."}
-                  {form.recurrenciaTipoZoom === "3" && "Zoom mensual: maximo cada 3 meses."}
-                </small>
-              </label>
+              <TextField
+                label="Intervalo"
+                type="number"
+                required
+                fullWidth
+                inputProps={{
+                  min: 1,
+                  max: form.recurrenciaTipoZoom === "1" ? 90 : form.recurrenciaTipoZoom === "2" ? 12 : 3,
+                  step: 1
+                }}
+                value={form.recurrenciaIntervalo}
+                onChange={(e) => updateForm("recurrenciaIntervalo", e.target.value)}
+                helperText={
+                  form.recurrenciaTipoZoom === "1"
+                    ? "Zoom diario: maximo cada 90 dias."
+                    : form.recurrenciaTipoZoom === "2"
+                      ? "Zoom semanal: maximo cada 12 semanas."
+                      : "Zoom mensual: maximo cada 3 meses."
+                }
+              />
 
               {form.recurrenciaTipoZoom === "2" && (
-                <fieldset
-                  style={{
-                    marginBottom: 8,
-                    border: "1px solid var(--flacso-border)",
-                    borderRadius: 8,
-                    padding: 10
-                  }}
-                >
-                  <legend style={{ padding: "0 6px" }}>Dias de la semana</legend>
-                  <div
-                    style={{
+                <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 0.6 }}>
+                    Dias de la semana
+                  </Typography>
+                  <Box
+                    sx={{
                       display: "grid",
                       gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-                      gap: 8
+                      gap: 0.6
                     }}
                   >
                     {zoomWeekdayOptionsFull.map((dayOption) => {
                       const checked = parseWeekdaysCsv(form.recurrenciaDiasSemana).includes(Number(dayOption.value));
                       return (
-                        <label key={dayOption.value} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => {
-                              const current = parseWeekdaysCsv(form.recurrenciaDiasSemana);
-                              const value = Number(dayOption.value);
-                              const next = e.target.checked
-                                ? [...new Set([...current, value])]
-                                : current.filter((day) => day !== value);
-                              updateForm("recurrenciaDiasSemana", next.sort((a, b) => a - b).join(","));
-                            }}
-                          />
-                          {dayOption.label}
-                        </label>
+                        <FormControlLabel
+                          key={dayOption.value}
+                          control={
+                            <Checkbox
+                              checked={checked}
+                              onChange={(e) => {
+                                const current = parseWeekdaysCsv(form.recurrenciaDiasSemana);
+                                const value = Number(dayOption.value);
+                                const next = e.target.checked
+                                  ? [...new Set([...current, value])]
+                                  : current.filter((day) => day !== value);
+                                updateForm("recurrenciaDiasSemana", next.sort((a, b) => a - b).join(","));
+                              }}
+                            />
+                          }
+                          label={dayOption.label}
+                        />
                       );
                     })}
-                  </div>
-                </fieldset>
+                  </Box>
+                </Paper>
               )}
 
               {form.recurrenciaTipoZoom === "3" && (
@@ -593,212 +835,441 @@ export function SpaTabSolicitudes({
                     ]}
                   />
                   {form.recurrenciaMensualModo === "DAY_OF_MONTH" ? (
-                    <label style={{ display: "block", marginBottom: 8 }}>
-                      Dia del mes (1-31)
-                      <input
-                        type="number"
-                        min={1}
-                        max={31}
-                        step={1}
-                        required
-                        value={form.recurrenciaDiaMes}
-                        onChange={(e) => updateForm("recurrenciaDiaMes", e.target.value)}
-                      />
-                    </label>
+                    <TextField
+                      label="Dia del mes (1-31)"
+                      type="number"
+                      required
+                      fullWidth
+                      inputProps={{ min: 1, max: 31, step: 1 }}
+                      value={form.recurrenciaDiaMes}
+                      onChange={(e) => updateForm("recurrenciaDiaMes", e.target.value)}
+                    />
                   ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-                      <label style={{ display: "block", marginBottom: 8 }}>
-                        Semana del mes
-                        <select
-                          value={form.recurrenciaSemanaMes}
-                          onChange={(e) => updateForm("recurrenciaSemanaMes", e.target.value)}
-                        >
-                          {zoomMonthlyWeekOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label style={{ display: "block", marginBottom: 8 }}>
-                        Dia de semana
-                        <select
-                          value={form.recurrenciaDiaSemanaMes}
-                          onChange={(e) => updateForm("recurrenciaDiaSemanaMes", e.target.value)}
-                        >
-                          {zoomWeekdayOptionsFull.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
+                    <Box
+                      sx={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                        gap: 1.2
+                      }}
+                    >
+                      <TextField
+                        label="Semana del mes"
+                        select
+                        fullWidth
+                        value={form.recurrenciaSemanaMes}
+                        onChange={(e) => updateForm("recurrenciaSemanaMes", e.target.value)}
+                      >
+                        {zoomMonthlyWeekOptions.map((option) => (
+                          <MenuItem key={option.value} value={option.value}>
+                            {option.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                      <TextField
+                        label="Dia de semana"
+                        select
+                        fullWidth
+                        value={form.recurrenciaDiaSemanaMes}
+                        onChange={(e) => updateForm("recurrenciaDiaSemanaMes", e.target.value)}
+                      >
+                        {zoomWeekdayOptionsFull.map((option) => (
+                          <MenuItem key={option.value} value={option.value}>
+                            {option.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    </Box>
                   )}
                 </>
               )}
 
-              <label style={{ display: "block", marginBottom: 8 }}>
-                Fecha final
-                <input
-                  type="date"
-                  required
-                  value={form.fechaFinal}
-                  onChange={(e) => updateForm("fechaFinal", e.target.value)}
-                />
-              </label>
+              <TextField
+                label="Fecha final"
+                type="date"
+                required
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                value={form.fechaFinal}
+                onChange={(e) => updateForm("fechaFinal", e.target.value)}
+              />
 
-              <div
-                style={{
-                  marginBottom: 10,
-                  border: "1px solid var(--flacso-border)",
-                  borderRadius: 8,
-                  padding: 10,
-                  background: "var(--flacso-p9)"
-                }}
+              <Paper
+                variant="outlined"
+                sx={{ mb: 1, p: 1.2, borderRadius: 2, backgroundColor: "grey.50" }}
               >
-                <strong>Previsualizacion de fechas</strong>
+                <Typography variant="subtitle2">Previsualizacion de fechas</Typography>
                 {recurrencePreview.error ? (
-                  <p style={{ margin: "8px 0 0", color: "#9f2e18" }}>{recurrencePreview.error}</p>
+                  <Typography variant="body2" color="error.main" sx={{ mt: 0.8 }}>
+                    {recurrencePreview.error}
+                  </Typography>
                 ) : recurrencePreview.dates.length > 0 ? (
                   <>
-                    <p className="muted" style={{ margin: "8px 0 8px" }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8, mb: 0.8 }}>
                       Se crearan {recurrencePreview.dates.length} instancia(s).
-                    </p>
-                    <div style={{ display: "grid", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+                    </Typography>
+                    <Box sx={{ display: "grid", gap: 0.5, maxHeight: 220, overflowY: "auto" }}>
                       {recurrencePreview.dates.map((date, index) => (
-                        <span key={`${date.toISOString()}-${index}`}>
+                        <Typography key={`${date.toISOString()}-${index}`} variant="body2">
                           {index + 1}. {formatDateTime(date.toISOString())}
-                        </span>
+                        </Typography>
                       ))}
-                    </div>
+                    </Box>
                   </>
                 ) : (
-                  <p className="muted" style={{ margin: "8px 0 0" }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
                     Completa primer dia, hora de comienzo y fecha final para ver la previsualizacion.
-                  </p>
+                  </Typography>
                 )}
-              </div>
+              </Paper>
             </>
           )}
 
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Correos de docentes
-            <textarea
-              value={form.correosDocentes}
-              onChange={(e) => updateForm("correosDocentes", e.target.value)}
-              placeholder="web@flacso.edu.uy; noreply@flacso.edu.uy"
-            />
-          </label>
+          <TextField
+            label="Correos de docentes"
+            multiline
+            minRows={3}
+            fullWidth
+            value={form.correosDocentes}
+            onChange={(e) => updateForm("correosDocentes", normalizeEmailInputAsLines(e.target.value))}
+            placeholder={"docente1@flacso.edu.uy\ndocente2@flacso.edu.uy"}
+            helperText="Se enviara una copia del correo de confirmacion cuando la solicitud quede provisionada. Ingresa un email por linea."
+            sx={{ mt: 1 }}
+          />
 
-          <button className="btn primary" type="submit" disabled={isSubmittingSolicitud}>
+          <Button type="submit" variant="contained" disabled={isSubmittingSolicitud}>
             {isSubmittingSolicitud ? "Enviando solicitud..." : "Enviar solicitud"}
-          </button>
-        </form>
+          </Button>
+
+          <Dialog
+            open={createProgramaOpen}
+            onClose={() => {
+              if (isCreatingPrograma) return;
+              setCreateProgramaOpen(false);
+            }}
+            fullWidth
+            maxWidth="xs"
+          >
+            <DialogTitle>Crear programa</DialogTitle>
+            <DialogContent>
+              <TextField
+                autoFocus
+                margin="dense"
+                label="Nombre del nuevo programa"
+                fullWidth
+                value={newProgramaNombre}
+                onChange={(event) => setNewProgramaNombre(event.target.value)}
+                onKeyDown={async (event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  const normalized = newProgramaNombre.trim();
+                  if (!normalized || isCreatingPrograma) return;
+                  const createdProgram = await onCreatePrograma(normalized);
+                  if (createdProgram) {
+                    updateForm("programa", createdProgram);
+                    setCreateProgramaOpen(false);
+                    setNewProgramaNombre("");
+                  }
+                }}
+                disabled={isCreatingPrograma}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button
+                onClick={() => {
+                  if (isCreatingPrograma) return;
+                  setCreateProgramaOpen(false);
+                }}
+                disabled={isCreatingPrograma}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="contained"
+                disabled={!newProgramaNombre.trim() || isCreatingPrograma}
+                onClick={async () => {
+                  const normalized = newProgramaNombre.trim();
+                  if (!normalized) return;
+                  const createdProgram = await onCreatePrograma(normalized);
+                  if (createdProgram) {
+                    updateForm("programa", createdProgram);
+                    setCreateProgramaOpen(false);
+                    setNewProgramaNombre("");
+                  }
+                }}
+              >
+                {isCreatingPrograma ? "Creando..." : "Crear"}
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </Box>
       ) : null}
 
       {(docenteSolicitudesView === "list" || !canCreateShortcut) && (
-        <div style={{ marginTop: 12 }}>
-          <h4 style={{ marginTop: 0 }}>Listado de solicitudes</h4>
-          {solicitudes.length === 0 && <p className="muted">No hay solicitudes registradas.</p>}
-          {solicitudes.length > 0 && (
-            <table>
-              <thead>
-                <tr>
-                  <th>Titulo</th>
-                  <th>Solicitado por</th>
-                  <th>Modalidad</th>
-                  <th>Estado</th>
-                  <th>ID de reunion</th>
-                  <th>Cuenta Zoom</th>
-                  <th>Link</th>
-                  <th>Instancias</th>
-                  <th>Detalle</th>
-                  {canDeleteSolicitud && <th>Acciones</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {solicitudes.map((item) => {
-                  const joinUrl = item.zoomJoinUrl ?? item.zoomInstances?.find((instance) => instance.joinUrl)?.joinUrl ?? null;
-                  const instanceCount = item.zoomInstanceCount ?? item.zoomInstances?.length ?? 1;
-                  const accountLabel = item.cuentaZoomAsignada?.ownerEmail || item.cuentaZoomAsignada?.nombreCuenta || "-";
-                  const requesterLabel = item.requestedBy?.name || item.requestedBy?.email || "-";
-                  const meetingIdDisplay =
-                    item.estadoSolicitud === "PENDIENTE_RESOLUCION_MANUAL_ID"
-                      ? "Pendiente"
-                      : item.meetingPrincipalId || "-";
-
-                  return (
-                    <tr key={item.id}>
-                      <td>{item.titulo}</td>
-                      <td>{requesterLabel}</td>
-                      <td>{item.modalidadReunion}</td>
-                      <td>{item.estadoSolicitud}</td>
-                      <td className="mono">{meetingIdDisplay}</td>
-                      <td>{accountLabel}</td>
-                      <td>
-                        {joinUrl ? (
-                          <a
-                            href={joinUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn success"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              padding: "6px 10px",
-                              borderRadius: 8,
-                              fontSize: "0.85rem",
-                              lineHeight: 1.1
-                            }}
-                          >
-                            Abrir link
-                          </a>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="mono">{instanceCount}</td>
-                      <td>
-                        {item.zoomInstances && item.zoomInstances.length > 1 ? (
-                          <details>
-                            <summary>Ver dias</summary>
-                            <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
-                              {item.zoomInstances.map((instance, index) => (
-                                <span key={`${item.id}-inst-${index}`}>
-                                  {index + 1}. {formatDateTime(instance.startTime)}
-                                </span>
-                              ))}
-                            </div>
-                          </details>
-                        ) : item.zoomInstances && item.zoomInstances.length === 1 ? (
-                          <span>{formatDateTime(item.zoomInstances[0].startTime)}</span>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      {canDeleteSolicitud && (
-                        <td>
-                          <button
-                            type="button"
-                            className="btn ghost"
-                            onClick={() => onDeleteSolicitud(item.id)}
-                            disabled={deletingSolicitudId === item.id}
-                            style={{ color: "#9f2e18", borderColor: "#f1c4bc" }}
-                          >
-                            {deletingSolicitudId === item.id ? "Eliminando..." : "Eliminar"}
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <Box sx={{ mt: 1 }}>
+          <Typography variant="h6" sx={{ mb: 1.5 }}>
+            Listado de solicitudes
+          </Typography>
+          {solicitudes.length === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              No hay solicitudes registradas.
+            </Typography>
           )}
-        </div>
+          {solicitudes.length > 0 && (
+            <TableContainer
+              component={Paper}
+              variant="outlined"
+              sx={{
+                borderRadius: 2,
+                width: "100%",
+                maxWidth: "100%",
+                overflowX: "auto"
+              }}
+            >
+              <Table size="small" sx={{ minWidth: 1220 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ width: 56 }} />
+                    <TableCell>Titulo</TableCell>
+                    <TableCell>Solicitado por</TableCell>
+                    <TableCell>Responsable</TableCell>
+                    <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>Modalidad</TableCell>
+                    <TableCell>Estado</TableCell>
+                    <TableCell>ID de reunion</TableCell>
+                    <TableCell sx={{ display: { xs: "none", lg: "table-cell" } }}>
+                      Cuenta anfitriona (Zoom)
+                    </TableCell>
+                    <TableCell>Link</TableCell>
+                    <TableCell>Instancias</TableCell>
+                    {canDeleteSolicitud && <TableCell>Acciones</TableCell>}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {solicitudes.map((item) => {
+                    const joinUrl =
+                      item.zoomJoinUrl ??
+                      item.zoomInstances?.find((instance) => instance.joinUrl)?.joinUrl ??
+                      null;
+                    const instanceCount = item.zoomInstanceCount ?? item.zoomInstances?.length ?? 1;
+                    const instances = item.zoomInstances ?? [];
+                    const isExpanded = expandedSolicitudId === item.id;
+                    const accountLabel =
+                      item.zoomHostAccount ||
+                      item.cuentaZoomAsignada?.ownerEmail ||
+                      item.cuentaZoomAsignada?.nombreCuenta ||
+                      "-";
+                    const requesterLabel = item.requestedBy?.name || item.requestedBy?.email || "-";
+                    const responsableLabel = item.responsableNombre?.trim() || requesterLabel;
+                    const meetingIdDisplay =
+                      item.estadoSolicitud === "PENDIENTE_RESOLUCION_MANUAL_ID"
+                        ? "Pendiente"
+                        : item.meetingPrincipalId || "-";
+                    const solicitudStatus = mapSolicitudStatus(item.estadoSolicitud);
+                    const isSolicitudCancelled =
+                      item.estadoSolicitud === "CANCELADA_ADMIN" || item.estadoSolicitud === "CANCELADA_DOCENTE";
+
+                    return (
+                      <Fragment key={item.id}>
+                        <TableRow hover>
+                          <TableCell>
+                            <IconButton
+                              size="small"
+                              onClick={() =>
+                                setExpandedSolicitudId((prev) => (prev === item.id ? null : item.id))
+                              }
+                              disabled={instances.length === 0}
+                              aria-label={isExpanded ? "Ocultar detalle" : "Mostrar detalle"}
+                            >
+                              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            </IconButton>
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 180 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {item.titulo}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{requesterLabel}</TableCell>
+                          <TableCell>{responsableLabel}</TableCell>
+                          <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>
+                            {item.modalidadReunion}
+                          </TableCell>
+                          <TableCell>
+                            <Chip size="small" color={solicitudStatus.color} label={solicitudStatus.label} />
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 180 }}>
+                            <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                              {meetingIdDisplay}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Anfitriona: {accountLabel}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ display: { xs: "none", lg: "table-cell" } }}>
+                            {accountLabel}
+                          </TableCell>
+                          <TableCell>
+                            {joinUrl ? (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="secondary"
+                                href={joinUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                endIcon={<LaunchIcon fontSize="small" />}
+                              >
+                                Abrir
+                              </Button>
+                            ) : (
+                              "-"
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ fontFamily: "monospace" }}>{instanceCount}</TableCell>
+                          {canDeleteSolicitud && (
+                            <TableCell sx={{ minWidth: 250 }}>
+                              <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+                                <Button
+                                  type="button"
+                                  size="small"
+                                  variant="outlined"
+                                  color="warning"
+                                  startIcon={<CancelScheduleSendOutlinedIcon fontSize="small" />}
+                                  disabled={isSolicitudCancelled || cancellingSerieSolicitudId === item.id}
+                                  onClick={() => onCancelSolicitudSerie(item.id, item.titulo)}
+                                >
+                                  {cancellingSerieSolicitudId === item.id
+                                    ? "Cancelando..."
+                                    : instanceCount > 1
+                                      ? "Cancelar serie"
+                                      : "Cancelar reunion"}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="small"
+                                  variant="outlined"
+                                  color="error"
+                                  startIcon={<DeleteOutlineIcon fontSize="small" />}
+                                  onClick={() => onDeleteSolicitud(item.id)}
+                                  disabled={deletingSolicitudId === item.id}
+                                >
+                                  {deletingSolicitudId === item.id ? "Eliminando..." : "Eliminar"}
+                                </Button>
+                              </Stack>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                        <TableRow>
+                          <TableCell
+                            colSpan={canDeleteSolicitud ? 11 : 10}
+                            sx={{ py: 0, borderBottom: isExpanded ? undefined : 0 }}
+                          >
+                            <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                              <Box sx={{ p: 2, backgroundColor: "grey.50" }}>
+                                <Typography variant="subtitle2" sx={{ mb: 1.2 }}>
+                                  Detalle de instancias ({instances.length}) - anfitriona: {accountLabel}
+                                </Typography>
+                                {instances.length === 0 ? (
+                                  <Typography variant="body2" color="text.secondary">
+                                    Esta solicitud no tiene instancias disponibles.
+                                  </Typography>
+                                ) : (
+                                  <Stack spacing={1.2}>
+                                    {instances.map((instance, index) => {
+                                      const status = mapInstanciaStatus(instance.estadoEvento, instance.status);
+                                      const isInstanceCancelled =
+                                        isSolicitudCancelled || !status.cancellable;
+                                      const instanceKey = `${item.id}:${
+                                        instance.eventId ?? instance.occurrenceId ?? instance.startTime
+                                      }`;
+
+                                      return (
+                                        <Paper
+                                          key={instanceKey}
+                                          variant="outlined"
+                                          sx={{
+                                            p: 1.2,
+                                            display: "flex",
+                                            flexWrap: "wrap",
+                                            alignItems: "center",
+                                            justifyContent: "space-between",
+                                            gap: 1
+                                          }}
+                                        >
+                                          <Box>
+                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                              {index + 1}. {formatDateTime(instance.startTime)}
+                                            </Typography>
+                                            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                                              <Chip size="small" color={status.color} label={status.label} />
+                                              {instance.occurrenceId ? (
+                                                <Chip
+                                                  size="small"
+                                                  variant="outlined"
+                                                  label={`occurrence_id ${instance.occurrenceId}`}
+                                                />
+                                              ) : null}
+                                            </Stack>
+                                          </Box>
+                                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                                            {instance.joinUrl ? (
+                                              <Button
+                                                size="small"
+                                                variant="text"
+                                                href={instance.joinUrl}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                endIcon={<LaunchIcon fontSize="small" />}
+                                              >
+                                                <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                                                  Abrir instancia
+                                                </Box>
+                                                <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+                                                  Abrir
+                                                </Box>
+                                              </Button>
+                                            ) : null}
+                                            {canDeleteSolicitud && (
+                                              <Button
+                                                type="button"
+                                                size="small"
+                                                variant="outlined"
+                                                color="warning"
+                                                startIcon={<EventBusyOutlinedIcon fontSize="small" />}
+                                                disabled={isInstanceCancelled || cancellingInstanciaKey === instanceKey}
+                                                onClick={() =>
+                                                  onCancelSolicitudInstancia({
+                                                    solicitudId: item.id,
+                                                    titulo: item.titulo,
+                                                    eventoId: instance.eventId ?? undefined,
+                                                    occurrenceId: instance.occurrenceId ?? undefined,
+                                                    startTime: instance.startTime
+                                                  })
+                                                }
+                                              >
+                                                {cancellingInstanciaKey === instanceKey
+                                                  ? "Cancelando..."
+                                                  : "Cancelar instancia"}
+                                              </Button>
+                                            )}
+                                          </Stack>
+                                        </Paper>
+                                      );
+                                    })}
+                                  </Stack>
+                                )}
+                              </Box>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      </Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
       )}
-    </article>
+      </CardContent>
+    </Card>
   );
 }

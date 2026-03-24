@@ -1,6 +1,7 @@
 export type Solicitud = {
   id: string;
   titulo: string;
+  responsableNombre?: string | null;
   modalidadReunion: string;
   tipoInstancias: string;
   estadoSolicitud: string;
@@ -12,12 +13,16 @@ export type Solicitud = {
   requiresAsistencia?: boolean;
   meetingPrincipalId?: string | null;
   zoomJoinUrl?: string | null;
+  zoomHostAccount?: string | null;
   zoomInstanceCount?: number;
   zoomReadFromApi?: boolean;
   zoomInstances?: Array<{
+    eventId?: string | null;
     occurrenceId?: string | null;
     startTime: string;
+    endTime?: string;
     durationMinutes: number;
+    estadoEvento?: string | null;
     status?: string | null;
     joinUrl?: string | null;
   }>;
@@ -141,5 +146,112 @@ export async function deleteSolicitud(solicitudId: string): Promise<{
     requestId: data.result?.id,
     zoomMeetingId: data.result?.zoomMeetingId ?? null,
     deletedInZoom: data.result?.deletedInZoom ?? false
+  };
+}
+
+export async function cancelSolicitudSerie(solicitudId: string, motivo?: string): Promise<{
+  success: boolean;
+  error?: string;
+  result?: {
+    scope: "SERIE";
+    solicitudId: string;
+    zoomMeetingId?: string | null;
+    cancelledInZoom?: boolean;
+    updatedEvents?: number;
+  };
+}> {
+  const response = await fetch(
+    `/api/v1/solicitudes-sala/${encodeURIComponent(solicitudId)}/cancelar`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope: "SERIE",
+        motivo
+      })
+    }
+  );
+
+  const data = (await response.json()) as {
+    error?: string;
+    result?: {
+      scope: "SERIE";
+      solicitudId: string;
+      zoomMeetingId?: string | null;
+      cancelledInZoom?: boolean;
+      updatedEvents?: number;
+    };
+  };
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo cancelar la serie."
+    };
+  }
+
+  return {
+    success: true,
+    result: data.result
+  };
+}
+
+export async function cancelSolicitudInstancia(input: {
+  solicitudId: string;
+  eventoId?: string;
+  occurrenceId?: string | null;
+  inicioProgramadoAt?: string;
+  motivo?: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+  result?: {
+    scope: "INSTANCIA";
+    solicitudId: string;
+    eventoId: string;
+    occurrenceId?: string | null;
+    zoomMeetingId?: string | null;
+    cancelledInZoom?: boolean;
+    activeEvents?: number;
+  };
+}> {
+  const response = await fetch(
+    `/api/v1/solicitudes-sala/${encodeURIComponent(input.solicitudId)}/cancelar`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope: "INSTANCIA",
+        eventoId: input.eventoId,
+        occurrenceId: input.occurrenceId,
+        inicioProgramadoAt: input.inicioProgramadoAt,
+        motivo: input.motivo
+      })
+    }
+  );
+
+  const data = (await response.json()) as {
+    error?: string;
+    result?: {
+      scope: "INSTANCIA";
+      solicitudId: string;
+      eventoId: string;
+      occurrenceId?: string | null;
+      zoomMeetingId?: string | null;
+      cancelledInZoom?: boolean;
+      activeEvents?: number;
+    };
+  };
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo cancelar la instancia."
+    };
+  }
+
+  return {
+    success: true,
+    result: data.result
   };
 }

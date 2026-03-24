@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Box, Container, Stack, Typography } from "@mui/material";
 import { auth } from "@/auth";
+import { MuiProvider } from "@/components/mui-provider";
 import { UserMenu } from "@/components/user-menu";
 import { PwaRegister } from "@/components/pwa-register";
+import "@fontsource/roboto/300.css";
+import "@fontsource/roboto/400.css";
+import "@fontsource/roboto/500.css";
+import "@fontsource/roboto/700.css";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -26,36 +32,58 @@ export default async function RootLayout({
   return (
     <html lang="es">
       <body>
-        <PwaRegister />
-        <div className="brand-strip" />
-        <header className="brand-header">
-          <div className="shell brand-inner">
-            <Link href="/" className="brand-logo-link">
-              <img
-                className="brand-logo"
-                src="/flacso-logo.png"
-                alt="FLACSO Uruguay"
-              />
-            </Link>
-            <div className="brand-copy">
-              <h1>Herramienta para coordinar Zoom</h1>
-              <p>Facultad Latinoamericana de Ciencias Sociales - Uruguay</p>
-            </div>
-            <div style={{ marginLeft: "auto", textAlign: "right", display: "grid", gap: 8, justifyItems: "end" }}>
-              {session?.user ? (
-                <UserMenu
-                  firstName={session.user.firstName}
-                  lastName={session.user.lastName}
-                  email={session.user.email}
-                  image={session.user.image}
-                  role={session.user.role}
-                />
-              ) : null}
-            </div>
-          </div>
-        </header>
+        <MuiProvider>
+          <PwaRegister />
+          <Box sx={{ height: 6, background: "linear-gradient(90deg, #1f4b8f, #f9b503)" }} />
 
-        <main className="shell app-content">{children}</main>
+          <Box
+            component="header"
+            sx={{
+              backgroundColor: "background.paper",
+              borderBottom: 1,
+              borderColor: "divider",
+              boxShadow: "0 8px 24px rgba(15, 26, 45, 0.06)"
+            }}
+          >
+            <Container maxWidth="lg" sx={{ py: 1.2 }}>
+              <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+                <Stack direction="row" spacing={2} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Link href="/" style={{ display: "inline-flex" }}>
+                    <Box
+                      component="img"
+                      src="/flacso-logo.png"
+                      alt="FLACSO Uruguay"
+                      sx={{ width: "188px", maxWidth: "42vw", height: "auto", display: "block" }}
+                    />
+                  </Link>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: "primary.main" }}>
+                      Herramienta para coordinar Zoom
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Facultad Latinoamericana de Ciencias Sociales - Uruguay
+                    </Typography>
+                  </Box>
+                </Stack>
+                <Box sx={{ ml: "auto", flexShrink: 0 }}>
+                  {session?.user ? (
+                    <UserMenu
+                      firstName={session.user.firstName}
+                      lastName={session.user.lastName}
+                      email={session.user.email}
+                      image={session.user.image}
+                      role={session.user.role}
+                    />
+                  ) : null}
+                </Box>
+              </Stack>
+            </Container>
+          </Box>
+
+          <Container maxWidth="lg" component="main" sx={{ py: 2.5 }}>
+            {children}
+          </Container>
+        </MuiProvider>
       </body>
     </html>
   );

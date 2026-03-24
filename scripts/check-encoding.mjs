@@ -1,8 +1,14 @@
 #!/usr/bin/env node
+
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const ROOT = process.cwd();
+
 const INCLUDE_EXTENSIONS = new Set([
   ".ts",
   ".tsx",
@@ -24,29 +30,87 @@ const EXCLUDED_DIRS = new Set([
 
 const mojibakePattern = /(\u00C3.|\u00C2.)/;
 
+let gitIgnoreEnabled = null;
+const gitIgnoreCache = new Map();
+
+function toRelative(filePath) {
+  return path.relative(ROOT, filePath).split(path.sep).join("/");
+}
+
+async function canUseGitIgnore() {
+  if (gitIgnoreEnabled !== null) {
+    return gitIgnoreEnabled;
+  }
+
+  try {
+    await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], {
+      cwd: ROOT
+    });
+    gitIgnoreEnabled = true;
+  } catch {
+    gitIgnoreEnabled = false;
+  }
+
+  return gitIgnoreEnabled;
+}
+
+async function isGitIgnored(targetPath, isDirectory = false) {
+  const relativePath = toRelative(targetPath);
+  const key = `${relativePath}::${isDirectory ? "dir" : "file"}`;
+
+  if (gitIgnoreCache.has(key)) {
+    return gitIgnoreCache.get(key);
+  }
+
+  if (!(await canUseGitIgnore())) {
+    gitIgnoreCache.set(key, false);
+    return false;
+  }
+
+  const candidate = isDirectory ? `${relativePath}/` : relativePath;
+
+  try {
+    await execFileAsync("git", ["check-ignore", "-q", candidate], {
+      cwd: ROOT
+    });
+
+    gitIgnoreCache.set(key, true);
+    return true;
+  } catch (error) {
+    const ignored = error && typeof error.code === "number" && error.code === 1
+      ? false
+      : false;
+
+    gitIgnoreCache.set(key, ignored);
+    return ignored;
+  }
+}
+
 async function collectFiles(dir) {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const out = [];
 
   for (const entry of entries) {
-    if (entry.name.startsWith(".") && entry.name !== ".") {
-      if (EXCLUDED_DIRS.has(entry.name)) {
-        continue;
-      }
-    }
-
-    if (EXCLUDED_DIRS.has(entry.name)) {
-      continue;
-    }
-
     const fullPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
+      if (EXCLUDED_DIRS.has(entry.name)) {
+        continue;
+      }
+
+      if (await isGitIgnored(fullPath, true)) {
+        continue;
+      }
+
       out.push(...(await collectFiles(fullPath)));
       continue;
     }
 
     if (!entry.isFile()) {
+      continue;
+    }
+
+    if (await isGitIgnored(fullPath, false)) {
       continue;
     }
 
@@ -58,10 +122,6 @@ async function collectFiles(dir) {
   return out;
 }
 
-function toRelative(filePath) {
-  return path.relative(ROOT, filePath).split(path.sep).join("/");
-}
-
 async function main() {
   const files = await collectFiles(ROOT);
   const bomFiles = [];
@@ -70,7 +130,12 @@ async function main() {
   for (const file of files) {
     const buffer = await fs.readFile(file);
 
-    if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    if (
+      buffer.length >= 3 &&
+      buffer[0] === 0xef &&
+      buffer[1] === 0xbb &&
+      buffer[2] === 0xbf
+    ) {
       bomFiles.push(toRelative(file));
     }
 

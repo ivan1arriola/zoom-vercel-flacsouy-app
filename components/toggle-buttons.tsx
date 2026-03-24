@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 
 interface ToggleButtonsProps {
   label: string;
@@ -20,50 +20,42 @@ export function ToggleButtons({
     { value: "NO", label: "No" }
   ]
 }: ToggleButtonsProps) {
-  const fallbackName = useId();
-  const groupName = name ?? fallbackName;
-
   return (
-    <div style={{ marginBottom: 16 }}>
-      <label style={{ display: "block", marginBottom: 8, fontWeight: 500 }}>
+    <Stack spacing={1} sx={{ mb: 2 }}>
+      <Typography variant="body2" sx={{ fontWeight: 600 }}>
         {label}
-      </label>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} role="radiogroup" aria-label={label}>
+      </Typography>
+      <ToggleButtonGroup
+        exclusive
+        value={value}
+        onChange={(_event, nextValue: string | null) => {
+          if (nextValue !== null) onChange(nextValue);
+        }}
+        aria-label={name ?? label}
+        sx={{
+          flexWrap: "wrap",
+          gap: 1,
+          "& .MuiToggleButton-root": {
+            px: 1.5,
+            py: 0.75,
+            minWidth: 120,
+            borderRadius: 2,
+            textTransform: "none",
+            fontWeight: 600,
+            borderColor: "divider"
+          }
+        }}
+      >
         {options.map((option) => (
-          <label
+          <ToggleButton
             key={option.value}
-            style={{
-              position: "relative",
-              padding: "8px 14px",
-              border: "2px solid #ddd",
-              borderRadius: 8,
-              backgroundColor: value === option.value ? "var(--flacso-p1)" : "white",
-              color: value === option.value ? "white" : "#333",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.2s",
-              flex: "1 1 140px",
-              textAlign: "center"
-            }}
+            value={option.value}
+            aria-label={option.label}
           >
-            <input
-              type="radio"
-              name={groupName}
-              value={option.value}
-              checked={value === option.value}
-              onChange={() => onChange(option.value)}
-              style={{
-                position: "absolute",
-                opacity: 0,
-                width: 0,
-                height: 0,
-                pointerEvents: "none"
-              }}
-            />
             {option.label}
-          </label>
+          </ToggleButton>
         ))}
-      </div>
-    </div>
+      </ToggleButtonGroup>
+    </Stack>
   );
 }

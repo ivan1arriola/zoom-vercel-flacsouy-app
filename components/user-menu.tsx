@@ -1,9 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { MouseEvent, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
+import {
+  Avatar,
+  Box,
+  Button,
+  Divider,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Stack,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography
+} from "@mui/material";
+import LogoutIcon from "@mui/icons-material/Logout";
+import PersonIcon from "@mui/icons-material/Person";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import AutorenewIcon from "@mui/icons-material/Autorenew";
 import { UserAvatar } from "./user-avatar";
 
 const SUPPORT_VIEW_ROLE = "SOPORTE_ZOOM";
@@ -37,57 +55,28 @@ interface UserMenuProps {
 }
 
 export function UserMenu({ firstName, lastName, email, image, role }: UserMenuProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [pendingView, setPendingView] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isAdmin = role === "ADMINISTRADOR";
-  const menuId = "user-menu-popover";
 
   const displayName = useMemo(() => {
     const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
-    if (fullName) {
-      return fullName;
-    }
-
-    if (email) {
-      const localPart = email.split("@")[0]?.trim();
-      return localPart || email;
-    }
-
+    if (fullName) return fullName;
+    if (email) return email.split("@")[0]?.trim() || email;
     return "Usuario";
   }, [email, firstName, lastName]);
+
   const rawView = normalizeViewRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
   const currentView = viewOptions.some((option) => option.value === rawView) ? rawView : "ADMINISTRADOR";
   const currentViewLabel = viewOptions.find((option) => option.value === currentView)?.label ?? "Administrador";
-  const secondaryLabel = useMemo(() => {
-    return isAdmin ? `Modo: ${currentViewLabel}` : formatRoleLabel(role);
-  }, [isAdmin, currentViewLabel, role]);
-
+  const secondaryLabel = isAdmin ? `Modo: ${currentViewLabel}` : formatRoleLabel(role);
   const isChangingView = pendingView !== null && pendingView !== currentView;
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onEscape);
-    return () => window.removeEventListener("keydown", onEscape);
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (pendingView && pendingView === currentView) {
-      setPendingView(null);
-    }
-  }, [pendingView, currentView]);
-
   function onViewChange(nextValue: string) {
-    if (!isAdmin) {
-      return;
-    }
+    if (!isAdmin) return;
     if (nextValue === currentView) {
       setPendingView(null);
       return;
@@ -106,107 +95,134 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
   }
 
   return (
-    <div className="user-menu">
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className={`user-menu-trigger ${isOpen ? "is-open" : ""}`}
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        aria-controls={isOpen ? menuId : undefined}
-        aria-label={isOpen ? "Cerrar menu de usuario" : "Abrir menu de usuario"}
+    <>
+      <Button
+        variant="outlined"
+        onClick={(event: MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget)}
+        startIcon={<UserAvatar firstName={firstName} lastName={lastName} image={image} size={34} />}
+        endIcon={<Avatar sx={{ width: 18, height: 18, bgcolor: "transparent", color: "text.secondary" }}>▾</Avatar>}
+        sx={{
+          textTransform: "none",
+          borderRadius: 3,
+          px: 1.2,
+          py: 0.7,
+          minWidth: 280,
+          justifyContent: "space-between",
+          "& .MuiButton-startIcon": { mr: 1 }
+        }}
       >
-        <div className="user-menu-trigger-main">
-          <UserAvatar firstName={firstName} lastName={lastName} image={image} size={38} />
-          <div className="user-menu-ident">
-            <p className="user-menu-name">{displayName}</p>
-            <p className="user-menu-role">{secondaryLabel}</p>
-          </div>
-        </div>
-        <span className="g-icon user-menu-chevron" aria-hidden="true">
-          {isOpen ? "expand_less" : "expand_more"}
-        </span>
-      </button>
+        <Box sx={{ textAlign: "left", minWidth: 0 }}>
+          <Typography noWrap variant="body2" sx={{ fontWeight: 700 }}>
+            {displayName}
+          </Typography>
+          <Typography noWrap variant="caption" color="text.secondary">
+            {secondaryLabel}
+          </Typography>
+        </Box>
+      </Button>
 
-      {isOpen && (
-        <>
-          <div id={menuId} className="user-menu-popover" role="menu" aria-label="Menu de usuario">
-            <div className="user-menu-popover-header">
-              <UserAvatar firstName={firstName} lastName={lastName} image={image} size={40} />
-              <div className="user-menu-popover-ident">
-                <p className="user-menu-popover-name">{displayName}</p>
-                <p className="user-menu-popover-email">{email || "-"}</p>
-              </div>
-            </div>
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={() => setAnchorEl(null)}
+        transformOrigin={{ horizontal: "right", vertical: "top" }}
+        anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+        PaperProps={{ sx: { width: 360, borderRadius: 2.5, mt: 1 } }}
+      >
+        <Box sx={{ px: 2, py: 1.5 }}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <UserAvatar firstName={firstName} lastName={lastName} image={image} size={40} />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                {displayName}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {email || "-"}
+              </Typography>
+            </Box>
+          </Stack>
+        </Box>
+        <Divider />
 
-            {isAdmin ? (
-              <div className="user-menu-section">
-                <p className="user-menu-section-title">Modo de vista</p>
-                <div className="user-menu-view-list" aria-busy={isChangingView}>
-                  {viewOptions.map((option) => {
-                    const isSelected = option.value === currentView;
-                    const isPendingOption = option.value === pendingView && isChangingView;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={`user-menu-view-option ${isSelected ? "is-selected" : ""} ${
-                          isPendingOption ? "is-pending" : ""
-                        }`}
-                        role="menuitemradio"
-                        aria-checked={isSelected}
-                        disabled={isChangingView}
-                        onClick={() => onViewChange(option.value)}
-                      >
-                        <span className="user-menu-view-option-text">{option.label}</span>
-                        <span className="g-icon user-menu-view-option-icon" aria-hidden="true">
-                          {isPendingOption
-                            ? "autorenew"
-                            : isSelected
-                              ? "check_circle"
-                              : "radio_button_unchecked"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {isChangingView ? (
-                  <p className="user-menu-view-status">
-                    <span className="g-icon user-menu-spinner" aria-hidden="true">
-                      autorenew
-                    </span>
-                    Actualizando vista...
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            <Link href="/?tab=perfil" onClick={() => setIsOpen(false)} className="user-menu-item" role="menuitem">
-              <span className="g-icon user-menu-item-icon" aria-hidden="true">
-                person
-              </span>
-              <span>Editar perfil</span>
-            </Link>
-
-            <button
-              type="button"
-              onClick={async () => {
-                setIsOpen(false);
-                await signOut({ redirectTo: "/" });
+        {isAdmin ? (
+          <Box sx={{ px: 2, py: 1.5 }}>
+            <Typography variant="overline" color="text.secondary">
+              Modo de vista
+            </Typography>
+            <ToggleButtonGroup
+              exclusive
+              fullWidth
+              value={currentView}
+              onChange={(_event, nextValue: string | null) => {
+                if (nextValue) onViewChange(nextValue);
               }}
-              className="user-menu-item user-menu-item-danger"
-              role="menuitem"
+              sx={{ mt: 0.8, display: "grid", gridTemplateColumns: "1fr", gap: 0.8 }}
             >
-              <span className="g-icon user-menu-item-icon" aria-hidden="true">
-                logout
-              </span>
-              <span>Cerrar sesion</span>
-            </button>
-          </div>
+              {viewOptions.map((option) => {
+                const isSelected = option.value === currentView;
+                const isPendingOption = option.value === pendingView && isChangingView;
+                return (
+                  <ToggleButton
+                    key={option.value}
+                    value={option.value}
+                    disabled={isChangingView}
+                    sx={{
+                      justifyContent: "space-between",
+                      textTransform: "none",
+                      borderRadius: 1.5
+                    }}
+                  >
+                    <Typography component="span" variant="body2">
+                      {option.label}
+                    </Typography>
+                    {isPendingOption ? (
+                      <AutorenewIcon
+                        fontSize="small"
+                        sx={{
+                          animation: "muiSpin 1s linear infinite",
+                          "@keyframes muiSpin": {
+                            "0%": { transform: "rotate(0deg)" },
+                            "100%": { transform: "rotate(360deg)" }
+                          }
+                        }}
+                      />
+                    ) : isSelected ? (
+                      <CheckCircleIcon fontSize="small" color="primary" />
+                    ) : (
+                      <RadioButtonUncheckedIcon fontSize="small" color="disabled" />
+                    )}
+                  </ToggleButton>
+                );
+              })}
+            </ToggleButtonGroup>
+          </Box>
+        ) : null}
 
-          <div className="user-menu-backdrop" onClick={() => setIsOpen(false)} aria-hidden="true" />
-        </>
-      )}
-    </div>
+        <MenuItem
+          onClick={() => {
+            setAnchorEl(null);
+            router.push("/?tab=perfil");
+          }}
+        >
+          <ListItemIcon>
+            <PersonIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Editar perfil</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={async () => {
+            setAnchorEl(null);
+            await signOut({ redirectTo: "/" });
+          }}
+        >
+          <ListItemIcon>
+            <LogoutIcon fontSize="small" color="error" />
+          </ListItemIcon>
+          <ListItemText primaryTypographyProps={{ color: "error.main" }}>
+            Cerrar sesion
+          </ListItemText>
+        </MenuItem>
+      </Menu>
+    </>
   );
 }

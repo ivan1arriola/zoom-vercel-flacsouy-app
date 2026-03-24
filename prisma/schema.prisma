@@ -7,6 +7,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Programa {
+  id     String @id @default(cuid())
+  nombre String @unique
+}
+
 model AppSetting {
   key       String   @id
   value     Json?

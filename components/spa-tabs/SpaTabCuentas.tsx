@@ -1,7 +1,29 @@
 "use client";
 
 import { Fragment } from "react";
-import { isLicensedZoomAccount, isMeetingStartingSoon, formatZoomDateTime, formatDurationHoursMinutes } from "./spa-tabs-utils";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  Collapse,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+  Paper
+} from "@mui/material";
+import {
+  isLicensedZoomAccount,
+  isMeetingStartingSoon,
+  formatZoomDateTime,
+  formatDurationHoursMinutes
+} from "./spa-tabs-utils";
 import type { ZoomAccount } from "@/src/services/zoomApi";
 
 interface SpaTabCuentasProps {
@@ -22,132 +44,125 @@ export function SpaTabCuentas({
   onRefresh
 }: SpaTabCuentasProps) {
   return (
-    <article className="card">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <h3 style={{ marginTop: 0, marginBottom: 0 }}>Cuentas Zoom disponibles</h3>
-        <button className="btn ghost" onClick={onRefresh} type="button" disabled={isLoadingZoomAccounts}>
-          {isLoadingZoomAccounts ? "Actualizando..." : "Actualizar"}
-        </button>
-      </div>
-      <p className="muted" style={{ marginTop: 8 }}>
-        Grupo: {zoomGroupName || "(sin nombre)"}
-      </p>
-      {isLoadingZoomAccounts && <p className="muted">Cargando cuentas...</p>}
-      {!isLoadingZoomAccounts && zoomAccounts.length === 0 && (
-        <p className="muted">No hay cuentas disponibles en el grupo.</p>
-      )}
-      {!isLoadingZoomAccounts && zoomAccounts.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Nombre</th>
-              <th>Eventos pendientes (Zoom)</th>
-              <th>Detalle</th>
-            </tr>
-          </thead>
-          <tbody>
-            {zoomAccounts.map((account) => (
-              <Fragment key={account.id}>
-                <tr>
-                  <td>{account.email || "-"}</td>
-                  <td>
-                    {[account.firstName, account.lastName].filter(Boolean).join(" ") || "-"}
-                    {isLicensedZoomAccount(account) ? (
-                      <span
-                        style={{
-                          marginLeft: 6,
-                          fontSize: "0.72rem",
-                          fontWeight: 800,
-                          color: "var(--flacso-btn)"
-                        }}
-                        title="Cuenta con licencia"
-                      >
-                        L
-                      </span>
-                    ) : null}
-                  </td>
-                  <td>{account.pendingEventsCount}</td>
-                  <td>
-                    {account.pendingEventsCount > 0 ? (
-                      <button
-                        className="btn ghost"
-                        type="button"
-                        onClick={() =>
-                          setExpandedZoomAccountId(expandedZoomAccountId === account.id ? null : account.id)
-                        }
-                      >
-                        {expandedZoomAccountId === account.id ? "Ocultar detalle" : "Ver detalle"}
-                      </button>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                </tr>
-                {expandedZoomAccountId === account.id && account.pendingEventsCount > 0 && (
-                  <tr>
-                    <td colSpan={4}>
-                      <div style={{ padding: "8px 0" }}>
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>#</th>
-                              <th>Tema</th>
-                              <th>Inicio</th>
-                              <th>Duracion (HH:mm)</th>
-                              <th>Link</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {account.pendingEvents.map((event, index) => (
-                              <tr
-                                key={event.id}
-                                style={
-                                  isMeetingStartingSoon(event.startTime)
-                                    ? { backgroundColor: "#fff6cc" }
-                                    : undefined
-                                }
-                              >
-                                <td className="mono">#{index + 1}</td>
-                                <td>{event.topic}</td>
-                                <td>{formatZoomDateTime(event.startTime)}</td>
-                                <td>{formatDurationHoursMinutes(event.durationMinutes)}</td>
-                                <td>
-                                  {event.joinUrl ? (
-                                    <a
-                                      href={event.joinUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="btn success"
-                                      style={{
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        padding: "6px 10px",
-                                        borderRadius: 8,
-                                        fontSize: "0.85rem",
-                                        lineHeight: 1.1
-                                      }}
-                                    >
-                                      Abrir link
-                                    </a>
-                                  ) : (
-                                    "-"
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </article>
+    <Card variant="outlined" sx={{ borderRadius: 3 }}>
+      <CardContent>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          justifyContent="space-between"
+          sx={{ mb: 1 }}
+        >
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>
+            Cuentas Zoom disponibles
+          </Typography>
+          <Button variant="outlined" onClick={onRefresh} disabled={isLoadingZoomAccounts}>
+            {isLoadingZoomAccounts ? "Actualizando..." : "Actualizar"}
+          </Button>
+        </Stack>
+
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Grupo: {zoomGroupName || "(sin nombre)"}
+        </Typography>
+
+        {isLoadingZoomAccounts ? (
+          <Typography variant="body2" color="text.secondary">
+            Cargando cuentas...
+          </Typography>
+        ) : zoomAccounts.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No hay cuentas disponibles en el grupo.
+          </Typography>
+        ) : (
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Email</TableCell>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Eventos pendientes (Zoom)</TableCell>
+                  <TableCell>Detalle</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {zoomAccounts.map((account) => (
+                  <Fragment key={account.id}>
+                    <TableRow hover>
+                      <TableCell>{account.email || "-"}</TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Typography component="span" variant="body2">
+                            {[account.firstName, account.lastName].filter(Boolean).join(" ") || "-"}
+                          </Typography>
+                          {isLicensedZoomAccount(account) ? <Chip size="small" color="success" label="Licencia" /> : null}
+                        </Stack>
+                      </TableCell>
+                      <TableCell>{account.pendingEventsCount}</TableCell>
+                      <TableCell>
+                        {account.pendingEventsCount > 0 ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() =>
+                              setExpandedZoomAccountId(expandedZoomAccountId === account.id ? null : account.id)
+                            }
+                          >
+                            {expandedZoomAccountId === account.id ? "Ocultar detalle" : "Ver detalle"}
+                          </Button>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={4} sx={{ py: 0, borderBottom: expandedZoomAccountId === account.id ? undefined : 0 }}>
+                        <Collapse in={expandedZoomAccountId === account.id} timeout="auto" unmountOnExit>
+                          <Box sx={{ py: 1.5 }}>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell>#</TableCell>
+                                  <TableCell>Tema</TableCell>
+                                  <TableCell>Inicio</TableCell>
+                                  <TableCell>Duracion</TableCell>
+                                  <TableCell>Link</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {account.pendingEvents.map((event, index) => (
+                                  <TableRow
+                                    key={event.id}
+                                    hover
+                                    sx={isMeetingStartingSoon(event.startTime) ? { backgroundColor: "warning.50" } : undefined}
+                                  >
+                                    <TableCell sx={{ fontFamily: "monospace" }}>#{index + 1}</TableCell>
+                                    <TableCell>{event.topic}</TableCell>
+                                    <TableCell>{formatZoomDateTime(event.startTime)}</TableCell>
+                                    <TableCell>{formatDurationHoursMinutes(event.durationMinutes)}</TableCell>
+                                    <TableCell>
+                                      {event.joinUrl ? (
+                                        <Button size="small" variant="contained" color="secondary" href={event.joinUrl} target="_blank" rel="noreferrer">
+                                          Abrir
+                                        </Button>
+                                      ) : (
+                                        "-"
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -1,6 +1,23 @@
 "use client";
 
 import { FormEvent } from "react";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  MenuItem,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+  Paper
+} from "@mui/material";
 import { formatManagedUserRole, formatManagedUserDate } from "./spa-tabs-utils";
 import type { ManagedUser } from "@/src/services/userApi";
 
@@ -31,95 +48,106 @@ export function SpaTabUsuarios({
   onRefresh
 }: SpaTabUsuariosProps) {
   return (
-    <article className="card">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <h3 style={{ marginTop: 0, marginBottom: 0 }}>Gestion de usuarios</h3>
-        <button className="btn ghost" onClick={onRefresh} type="button" disabled={isLoadingUsers}>
-          {isLoadingUsers ? "Actualizando..." : "Actualizar"}
-        </button>
-      </div>
+    <Card variant="outlined" sx={{ borderRadius: 3 }}>
+      <CardContent>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          justifyContent="space-between"
+          sx={{ mb: 2 }}
+        >
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>
+            Gestion de usuarios
+          </Typography>
+          <Button variant="outlined" onClick={onRefresh} disabled={isLoadingUsers}>
+            {isLoadingUsers ? "Actualizando..." : "Actualizar"}
+          </Button>
+        </Stack>
 
-      <form onSubmit={onSubmit} style={{ marginTop: 14, marginBottom: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-          <label style={{ display: "block" }}>
-            Nombre
-            <input
-              type="text"
+        <Box component="form" onSubmit={onSubmit} sx={{ mb: 2.5 }}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: 1.5
+            }}
+          >
+            <TextField
+              label="Nombre"
               value={createUserForm.firstName}
               onChange={(e) => setCreateUserForm((prev) => ({ ...prev, firstName: e.target.value }))}
-              placeholder="Nombre"
             />
-          </label>
-          <label style={{ display: "block" }}>
-            Apellido
-            <input
-              type="text"
+            <TextField
+              label="Apellido"
               value={createUserForm.lastName}
               onChange={(e) => setCreateUserForm((prev) => ({ ...prev, lastName: e.target.value }))}
-              placeholder="Apellido"
             />
-          </label>
-          <label style={{ display: "block" }}>
-            Email
-            <input
-              type="email"
+            <TextField
+              label="Email"
               required
+              type="email"
               value={createUserForm.email}
               onChange={(e) => setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))}
-              placeholder="usuario@dominio.com"
             />
-          </label>
-          <label style={{ display: "block" }}>
-            Rol
-            <select
+            <TextField
+              label="Rol"
+              select
               value={createUserForm.role}
               onChange={(e) => setCreateUserForm((prev) => ({ ...prev, role: e.target.value }))}
             >
-              <option value="DOCENTE">Docente</option>
-              <option value="SOPORTE_ZOOM">Soporte Zoom</option>
-              <option value="ASISTENTE_ZOOM">Asistente Zoom</option>
-              <option value="CONTADURIA">Contaduria</option>
-              <option value="ADMINISTRADOR">Administrador</option>
-            </select>
-          </label>
-        </div>
-        <p className="muted" style={{ marginTop: 10, marginBottom: 0 }}>
-          El usuario se crea sin contrasena y recibe un enlace magico para activar su acceso.
-        </p>
-        <div style={{ marginTop: 10 }}>
-          <button className="btn primary" type="submit" disabled={isCreatingUser}>
+              <MenuItem value="DOCENTE">Docente</MenuItem>
+              <MenuItem value="SOPORTE_ZOOM">Soporte Zoom</MenuItem>
+              <MenuItem value="ASISTENTE_ZOOM">Asistente Zoom</MenuItem>
+              <MenuItem value="CONTADURIA">Contaduria</MenuItem>
+              <MenuItem value="ADMINISTRADOR">Administrador</MenuItem>
+            </TextField>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            El usuario se crea sin contrasena y recibe un enlace magico para activar su acceso.
+          </Typography>
+          <Button sx={{ mt: 1.5 }} type="submit" variant="contained" disabled={isCreatingUser}>
             {isCreatingUser ? "Creando usuario..." : "Crear usuario y enviar enlace"}
-          </button>
-        </div>
-      </form>
+          </Button>
+        </Box>
 
-      {isLoadingUsers && <p className="muted">Cargando usuarios...</p>}
-      {!isLoadingUsers && users.length === 0 && <p className="muted">No hay usuarios registrados.</p>}
-
-      {!isLoadingUsers && users.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Nombre</th>
-              <th>Rol</th>
-              <th>Verificado</th>
-              <th>Creado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((managedUser) => (
-              <tr key={managedUser.id}>
-                <td>{managedUser.email}</td>
-                <td>{[managedUser.firstName, managedUser.lastName].filter(Boolean).join(" ") || "-"}</td>
-                <td>{formatManagedUserRole(managedUser.role)}</td>
-                <td>{managedUser.emailVerified ? "Si" : "No"}</td>
-                <td>{formatManagedUserDate(managedUser.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </article>
+        {isLoadingUsers ? (
+          <Typography variant="body2" color="text.secondary">
+            Cargando usuarios...
+          </Typography>
+        ) : users.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No hay usuarios registrados.
+          </Typography>
+        ) : (
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Email</TableCell>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Rol</TableCell>
+                  <TableCell>Verificado</TableCell>
+                  <TableCell>Creado</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {users.map((managedUser) => (
+                  <TableRow key={managedUser.id} hover>
+                    <TableCell>{managedUser.email}</TableCell>
+                    <TableCell>
+                      {[managedUser.firstName, managedUser.lastName].filter(Boolean).join(" ") || "-"}
+                    </TableCell>
+                    <TableCell>{formatManagedUserRole(managedUser.role)}</TableCell>
+                    <TableCell>{managedUser.emailVerified ? "Si" : "No"}</TableCell>
+                    <TableCell>{formatManagedUserDate(managedUser.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </CardContent>
+    </Card>
   );
 }

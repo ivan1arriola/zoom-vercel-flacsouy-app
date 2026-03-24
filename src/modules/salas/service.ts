@@ -16,6 +16,8 @@ import {
 } from "@prisma/client";
 import { db } from "@/src/lib/db";
 import { env } from "@/src/lib/env";
+import { EmailClient } from "@/src/lib/email.client";
+import { logger } from "@/src/lib/logger";
 import { notifyAdminTelegramMovement } from "@/src/lib/telegram.client";
 import { ZoomApiError, ZoomMeetingsClient } from "@/src/lib/zoom-meetings.client";
 import type { SessionUser } from "@/src/lib/api-auth";
@@ -41,9 +43,12 @@ type ZoomRecurrencePayload = {
 };
 
 type ZoomOccurrenceSnapshot = {
+  eventId?: string | null;
   occurrenceId: string | null;
   startTime: string;
+  endTime?: string;
   durationMinutes: number;
+  estadoEvento?: string | null;
   status: string | null;
   joinUrl: string | null;
 };
@@ -53,6 +58,7 @@ type ZoomMeetingSnapshot = {
   joinUrl: string | null;
   startUrl: string | null;
   timezone: string | null;
+  hostEmail: string | null;
   instances: ZoomOccurrenceSnapshot[];
   rawPayload: Prisma.InputJsonValue | undefined;
 };
@@ -137,6 +143,423 @@ function calculateEstimatedCost(minutes: number, rate: number): Prisma.Decimal {
   return new Prisma.Decimal((minutes / 60) * rate);
 }
 
+const EMAIL_LINE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SNAPSHOT_FALLBACK_MATCH_MAX_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+function resolveFallbackMinuteMatch(
+  snapshotStart: Date,
+  fallbackByMinute: Map<number, ZoomOccurrenceSnapshot>,
+  consumedFallbackMinuteKeys: Set<number>,
+  allowApproximateMatch: boolean
+): { minuteKey: number; matchedFallback?: ZoomOccurrenceSnapshot } {
+  const exactMinuteKey = Math.floor(snapshotStart.getTime() / 60_000);
+  const exactFallback = fallbackByMinute.get(exactMinuteKey);
+  if (exactFallback) {
+    return { minuteKey: exactMinuteKey, matchedFallback: exactFallback };
+  }
+
+  if (!allowApproximateMatch) {
+    return { minuteKey: exactMinuteKey };
+  }
+
+  let bestMinuteKey: number | null = null;
+  let bestFallback: ZoomOccurrenceSnapshot | undefined;
+  let bestDiffMs = Number.POSITIVE_INFINITY;
+
+  for (const [candidateMinuteKey, candidateFallback] of fallbackByMinute.entries()) {
+    if (consumedFallbackMinuteKeys.has(candidateMinuteKey)) continue;
+    const candidateStart = new Date(candidateFallback.startTime);
+    if (Number.isNaN(candidateStart.getTime())) continue;
+
+    const diffMs = Math.abs(snapshotStart.getTime() - candidateStart.getTime());
+    if (diffMs > SNAPSHOT_FALLBACK_MATCH_MAX_OFFSET_MS) continue;
+    if (diffMs < bestDiffMs) {
+      bestDiffMs = diffMs;
+      bestMinuteKey = candidateMinuteKey;
+      bestFallback = candidateFallback;
+    }
+  }
+
+  if (bestMinuteKey === null) {
+    return { minuteKey: exactMinuteKey };
+  }
+
+  return { minuteKey: bestMinuteKey, matchedFallback: bestFallback };
+}
+
+function parseDocentesEmailsByLine(raw?: string | null): string[] {
+  if (!raw) return [];
+  const lines = String(raw)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const unique = new Map<string, string>();
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (line.includes(";") || line.includes(",")) {
+      throw new Error(`Correos de docentes: usa un correo por linea (error en linea ${index + 1}).`);
+    }
+    if (!EMAIL_LINE_REGEX.test(line)) {
+      throw new Error(`Correos de docentes: email invalido en linea ${index + 1}.`);
+    }
+    const key = line.toLowerCase();
+    if (!unique.has(key)) {
+      unique.set(key, key);
+    }
+  }
+
+  return Array.from(unique.values());
+}
+
+function normalizeDocentesCorreosForStorage(raw?: string | null): string | undefined {
+  const parsed = parseDocentesEmailsByLine(raw);
+  return parsed.length > 0 ? parsed.join("\n") : undefined;
+}
+
+async function resolveResponsibleNotificationEmail(
+  responsableNombre?: string | null
+): Promise<string | null> {
+  const normalized = (responsableNombre ?? "").trim();
+  if (!normalized) return null;
+
+  if (EMAIL_LINE_REGEX.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+
+  const parts = normalized.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] ?? "";
+  const lastName = parts.slice(1).join(" ");
+
+  const matches = await db.user.findMany({
+    where: {
+      emailVerified: { not: null },
+      OR: [
+        { name: { equals: normalized, mode: "insensitive" } },
+        ...(firstName && lastName
+          ? [
+              {
+                firstName: { equals: firstName, mode: "insensitive" },
+                lastName: { equals: lastName, mode: "insensitive" }
+              }
+            ]
+          : []),
+        { email: { equals: normalized, mode: "insensitive" } }
+      ]
+    },
+    select: { email: true },
+    take: 1
+  });
+
+  const email = matches[0]?.email?.trim().toLowerCase();
+  return email && EMAIL_LINE_REGEX.test(email) ? email : null;
+}
+
+function formatZoomDateTimeInTimezone(date: Date, timezone: string): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  });
+
+  const parts = formatter.formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes): string => (
+    parts.find((part) => part.type === type)?.value ?? ""
+  );
+
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  const hour = get("hour");
+  const minute = get("minute");
+  const second = get("second");
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+}
+
+function normalizeRecurrenceForTimezone(
+  recurrence: ZoomRecurrencePayload | undefined,
+  timezone: string
+): ZoomRecurrencePayload | undefined {
+  if (!recurrence) return recurrence;
+  if (!recurrence.end_date_time) return recurrence;
+
+  const parsed = new Date(recurrence.end_date_time);
+  if (Number.isNaN(parsed.getTime())) return recurrence;
+
+  return {
+    ...recurrence,
+    end_date_time: formatZoomDateTimeInTimezone(parsed, timezone)
+  };
+}
+
+function formatDateTimeForEmail(date: Date, timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat("es-UY", {
+      weekday: "long",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: timezone
+    }).format(date);
+  } catch {
+    return date.toISOString();
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function extractMeetingPasswordFromJoinUrl(joinUrl?: string | null): string | null {
+  if (!joinUrl) return null;
+
+  try {
+    const parsed = new URL(joinUrl);
+    const raw = parsed.searchParams.get("pwd");
+    if (!raw) return null;
+    const normalized = raw.trim();
+    return normalized || null;
+  } catch {
+    const match = joinUrl.match(/[?&]pwd=([^&]+)/i);
+    if (!match?.[1]) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+}
+
+function extractMeetingPasswordFromZoomPayload(rawPayload?: Prisma.InputJsonValue): string | null {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return null;
+
+  const source = rawPayload as Record<string, unknown>;
+  const candidates = [source.password, source.passcode, source.h323_password];
+  for (const value of candidates) {
+    if (typeof value === "string") {
+      const normalized = value.trim();
+      if (normalized) return normalized;
+    }
+  }
+
+  return null;
+}
+
+async function getAccountPasswordFromWebhook(hostAccount?: string | null): Promise<string | null> {
+  const account = (hostAccount ?? "").trim();
+  const webhookUrl = env.PASSWORD_WEBHOOK_URL;
+  if (!account || !webhookUrl) return null;
+
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cuenta: account })
+    });
+
+    const raw = await response.text();
+    let data: Record<string, unknown> = {};
+    if (raw) {
+      try {
+        data = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        data = {};
+      }
+    }
+
+    const success = data.success === true;
+    const passwordValue =
+      typeof data.contrasena === "string"
+        ? data.contrasena
+        : typeof data.password === "string"
+          ? data.password
+          : null;
+
+    if (response.ok && success && passwordValue) {
+      const normalized = passwordValue.trim();
+      return normalized || null;
+    }
+
+    return null;
+  } catch (error) {
+    logger.warn("No se pudo obtener contrasena desde webhook de cuentas Zoom.", {
+      hostAccount: account,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+
+async function resolveMeetingPassword(input: {
+  hostAccount?: string | null;
+  joinUrl?: string | null;
+  rawPayload?: Prisma.InputJsonValue;
+}): Promise<string | null> {
+  const webhookPassword = await getAccountPasswordFromWebhook(input.hostAccount);
+  if (webhookPassword) return webhookPassword;
+
+  const payloadPassword = extractMeetingPasswordFromZoomPayload(input.rawPayload);
+  if (payloadPassword) return payloadPassword;
+
+  return extractMeetingPasswordFromJoinUrl(input.joinUrl);
+}
+
+function buildProvisionedSolicitudEmailHtml(input: {
+  solicitudId: string;
+  titulo: string;
+  modalidad: ModalidadReunion;
+  meetingId: string | null;
+  joinUrl: string | null;
+  meetingPassword: string | null;
+  hostAccount: string | null;
+  timezone: string;
+  instanceStarts: Date[];
+}): string {
+  const {
+    solicitudId,
+    titulo,
+    modalidad,
+    meetingId,
+    joinUrl,
+    meetingPassword,
+    hostAccount,
+    timezone,
+    instanceStarts
+  } = input;
+
+  const previewCount = Math.min(instanceStarts.length, 30);
+  const previewRows = instanceStarts
+    .slice(0, previewCount)
+    .map((date, index) => `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(date, timezone))}</li>`)
+    .join("");
+  const extraCount = instanceStarts.length - previewCount;
+  const meetingLabel = escapeHtml(meetingId ?? "-");
+  const passwordLabel = escapeHtml(meetingPassword ?? "No disponible");
+  const hostLabel = escapeHtml(hostAccount ?? "-");
+  const modalidadLabel = escapeHtml(modalidad);
+  const titleLabel = escapeHtml(titulo);
+  const solicitudLabel = escapeHtml(solicitudId);
+  const hasManyInstances = instanceStarts.length > 1;
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
+      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
+      <h2 style="margin: 0 0 6px;">Tu reunion esta lista</h2>
+      <p style="margin: 0 0 16px; color: #334155;">
+        ${hasManyInstances ? "Tu serie fue confirmada y ya esta disponible en Zoom." : "Tu reunion fue confirmada y ya esta disponible en Zoom."}
+      </p>
+
+      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
+        <p style="margin: 0 0 8px;"><strong>${titleLabel}</strong></p>
+        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>ID de reunion:</strong> ${meetingLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Contrasena de la reunion:</strong> ${passwordLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
+        <p style="margin: 0;"><strong>Instancias:</strong> ${instanceStarts.length}</p>
+      </div>
+
+      ${
+        joinUrl
+          ? `<p style="margin: 0 0 16px;"><a href="${escapeHtml(joinUrl)}" target="_blank" rel="noreferrer" style="display: inline-block; padding: 10px 14px; border-radius: 8px; background: #1f4b8f; color: #ffffff; text-decoration: none; font-weight: 700;">Abrir reunion en Zoom</a></p>`
+          : ""
+      }
+
+      <p style="margin: 0 0 8px;"><strong>Fechas programadas</strong></p>
+      <ol style="margin: 0 0 12px; padding-left: 20px;">
+        ${previewRows}
+      </ol>
+      ${
+        extraCount > 0
+          ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
+          : ""
+      }
+      <p style="margin: 16px 0 0; color: #64748b; font-size: 12px;">
+        Si necesitas cambios, responde a este correo o contacta al equipo de coordinacion.
+      </p>
+      <p style="margin: 8px 0 0; color: #94a3b8; font-size: 12px;">
+        Este es un correo automatico de la herramienta de coordinacion de salas Zoom de FLACSO Uruguay.
+      </p>
+    </div>
+  `;
+}
+
+async function sendProvisionedSolicitudEmail(input: {
+  to: string;
+  cc: string[];
+  solicitudId: string;
+  titulo: string;
+  modalidad: ModalidadReunion;
+  meetingId: string | null;
+  joinUrl: string | null;
+  hostAccount: string | null;
+  rawPayload?: Prisma.InputJsonValue;
+  timezone: string;
+  instanceStarts: Date[];
+}): Promise<void> {
+  const to = input.to.trim().toLowerCase();
+  if (!to || !EMAIL_LINE_REGEX.test(to)) return;
+
+  // Buscar todos los administradores activos y agregar sus correos a la copia
+  const adminUsers = await db.user.findMany({
+    where: {
+      role: "ADMINISTRADOR",
+      emailVerified: { not: null },
+      email: { not: null }
+    },
+    select: { email: true }
+  });
+  const adminEmails = adminUsers
+    .map((u) => (u.email ?? "").trim().toLowerCase())
+    .filter((email) => EMAIL_LINE_REGEX.test(email) && email !== to);
+
+  const ccUnique = Array.from(
+    new Set([
+      ...input.cc.map((email) => email.trim().toLowerCase()),
+      ...adminEmails
+    ].filter((email) => EMAIL_LINE_REGEX.test(email) && email !== to))
+  );
+
+  const client = new EmailClient();
+  const subject = `${input.titulo} - Tu reunion esta lista`;
+  const meetingPassword = await resolveMeetingPassword({
+    hostAccount: input.hostAccount,
+    joinUrl: input.joinUrl,
+    rawPayload: input.rawPayload
+  });
+  const html = buildProvisionedSolicitudEmailHtml({
+    solicitudId: input.solicitudId,
+    titulo: input.titulo,
+    modalidad: input.modalidad,
+    meetingId: input.meetingId,
+    joinUrl: input.joinUrl,
+    meetingPassword,
+    hostAccount: input.hostAccount,
+    timezone: input.timezone,
+    instanceStarts: input.instanceStarts
+  });
+
+  await client.send({
+    to,
+    cc: ccUnique.length > 0 ? ccUnique : undefined,
+    subject,
+    html
+  });
+}
+
 function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSnapshot {
   const rawId = data.id;
   const meetingId = normalizeZoomMeetingId(rawId != null ? String(rawId) : null);
@@ -147,6 +570,7 @@ function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSna
   const joinUrl = typeof data.join_url === "string" ? data.join_url : null;
   const startUrl = typeof data.start_url === "string" ? data.start_url : null;
   const timezone = typeof data.timezone === "string" ? data.timezone : null;
+  const hostEmail = typeof data.host_email === "string" ? data.host_email : null;
   const defaultDuration = Math.max(1, numberFromUnknown(data.duration) ?? 60);
   const occurrencesRaw = Array.isArray(data.occurrences) ? data.occurrences : [];
 
@@ -162,6 +586,7 @@ function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSna
     const occurrenceId = occurrence.occurrence_id != null ? String(occurrence.occurrence_id) : null;
     const durationMinutes = Math.max(1, numberFromUnknown(occurrence.duration) ?? defaultDuration);
     const status = typeof occurrence.status === "string" ? occurrence.status : null;
+    const endTime = new Date(parsedStart.getTime() + durationMinutes * 60_000).toISOString();
     const joinUrlForOccurrence =
       joinUrl && occurrenceId
         ? `${joinUrl}${joinUrl.includes("?") ? "&" : "?"}occurrence_id=${encodeURIComponent(occurrenceId)}`
@@ -170,6 +595,7 @@ function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSna
     instances.push({
       occurrenceId,
       startTime: parsedStart.toISOString(),
+      endTime,
       durationMinutes,
       status,
       joinUrl: joinUrlForOccurrence
@@ -184,6 +610,7 @@ function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSna
         instances.push({
           occurrenceId: null,
           startTime: parsedStart.toISOString(),
+          endTime: new Date(parsedStart.getTime() + defaultDuration * 60_000).toISOString(),
           durationMinutes: defaultDuration,
           status: typeof data.status === "string" ? data.status : null,
           joinUrl
@@ -197,6 +624,7 @@ function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSna
     joinUrl,
     startUrl,
     timezone,
+    hostEmail,
     instances,
     rawPayload: data as unknown as Prisma.InputJsonValue
   };
@@ -256,8 +684,9 @@ function buildZoomRecurrencePayload(input: CreateSolicitudInput): ZoomRecurrence
   const monthlyWeekDay = numberFromUnknown(zoomRecurrence.monthly_week_day);
   if (monthlyWeekDay != null) payload.monthly_week_day = monthlyWeekDay as 1 | 2 | 3 | 4 | 5 | 6 | 7;
   const endTimes = numberFromUnknown(zoomRecurrence.end_times);
-  if (endTimes != null) payload.end_times = endTimes;
-  if (typeof zoomRecurrence.end_date_time === "string" && zoomRecurrence.end_date_time.trim()) {
+  if (endTimes != null) {
+    payload.end_times = endTimes;
+  } else if (typeof zoomRecurrence.end_date_time === "string" && zoomRecurrence.end_date_time.trim()) {
     payload.end_date_time = zoomRecurrence.end_date_time;
   }
 
@@ -276,12 +705,12 @@ async function createZoomMeetingForSolicitud(params: {
   const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
   const hostEmail = await resolveZoomHostEmail(accountOwnerEmail, zoomClient);
   const meetingType = input.tipoInstancias === TipoInstancias.UNICA ? 2 : 8;
-  const recurrence = buildZoomRecurrencePayload(input);
+  const recurrence = normalizeRecurrenceForTimezone(buildZoomRecurrencePayload(input), timezone);
 
   const payload: Record<string, unknown> = {
     topic: input.titulo,
     type: meetingType,
-    start_time: start.toISOString(),
+    start_time: formatZoomDateTimeInTimezone(start, timezone),
     duration: durationMinutes,
     timezone,
     agenda: input.descripcion ?? undefined,
@@ -511,6 +940,11 @@ function zoomSnapshotSupportsAllRequestedInstances(
 ): boolean {
   if (requestedPlans.length <= 1) return true;
 
+  const instanceCountFromSnapshot = zoomSnapshot.instances?.length ?? 0;
+  if (instanceCountFromSnapshot > 0 && instanceCountFromSnapshot < requestedPlans.length) {
+    return false;
+  }
+
   const rawPayload =
     zoomSnapshot.rawPayload && typeof zoomSnapshot.rawPayload === "object" && !Array.isArray(zoomSnapshot.rawPayload)
       ? (zoomSnapshot.rawPayload as Record<string, unknown>)
@@ -522,20 +956,22 @@ function zoomSnapshotSupportsAllRequestedInstances(
 
   if (recurrenceRaw) {
     const endTimes = numberFromUnknown(recurrenceRaw.end_times);
-    if (endTimes !== null && Number.isInteger(endTimes) && endTimes < requestedPlans.length) {
-      return false;
-    }
-
-    const endDateText =
-      typeof recurrenceRaw.end_date_time === "string" && recurrenceRaw.end_date_time.trim()
-        ? recurrenceRaw.end_date_time
-        : null;
-    if (endDateText) {
-      const endDate = new Date(endDateText);
-      if (!Number.isNaN(endDate.getTime())) {
-        const lastRequested = requestedPlans[requestedPlans.length - 1]?.inicio;
-        if (lastRequested && endDate < lastRequested) {
-          return false;
+    if (endTimes !== null && Number.isInteger(endTimes)) {
+      if (endTimes < requestedPlans.length) {
+        return false;
+      }
+    } else {
+      const endDateText =
+        typeof recurrenceRaw.end_date_time === "string" && recurrenceRaw.end_date_time.trim()
+          ? recurrenceRaw.end_date_time
+          : null;
+      if (endDateText) {
+        const endDate = new Date(endDateText);
+        if (!Number.isNaN(endDate.getTime())) {
+          const lastRequested = requestedPlans[requestedPlans.length - 1]?.inicio;
+          if (lastRequested && endDate < lastRequested) {
+            return false;
+          }
         }
       }
     }
@@ -644,7 +1080,9 @@ function validateZoomRecurrenceRestrictions(input: CreateSolicitudInput) {
   const repeatInterval = repeatIntervalRaw as number;
 
   const hasEndTimes = zoomRecurrence.end_times !== undefined && zoomRecurrence.end_times !== null;
-  const hasEndDateTime = zoomRecurrence.end_date_time !== undefined && zoomRecurrence.end_date_time !== null;
+  const hasEndDateTime =
+    typeof zoomRecurrence.end_date_time === "string" && zoomRecurrence.end_date_time.trim() !== "";
+
   if (hasEndTimes && hasEndDateTime) {
     throw new Error("Recurrencia Zoom invalida: end_times y end_date_time no pueden coexistir.");
   }
@@ -707,6 +1145,42 @@ function validateZoomRecurrenceRestrictions(input: CreateSolicitudInput) {
   }
 }
 
+function buildInputWithZoomEndTimes(
+  input: CreateSolicitudInput,
+  instanceCount: number
+): CreateSolicitudInput {
+  if (input.tipoInstancias !== TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM) return input;
+  if (!Number.isInteger(instanceCount) || instanceCount < 1) return input;
+
+  const recurrenceRaw =
+    input.patronRecurrencia && typeof input.patronRecurrencia === "object" && !Array.isArray(input.patronRecurrencia)
+      ? (input.patronRecurrencia as Record<string, unknown>)
+      : null;
+  if (!recurrenceRaw) return input;
+
+  const zoomRecurrenceRaw =
+    recurrenceRaw.zoomRecurrence &&
+    typeof recurrenceRaw.zoomRecurrence === "object" &&
+    !Array.isArray(recurrenceRaw.zoomRecurrence)
+      ? (recurrenceRaw.zoomRecurrence as Record<string, unknown>)
+      : null;
+  if (!zoomRecurrenceRaw) return input;
+
+  const resolvedEndTimes = Math.max(1, Math.min(50, instanceCount));
+  const { end_date_time: _removedEndDateTime, ...zoomRecurrenceWithoutEndDateTime } = zoomRecurrenceRaw;
+
+  return {
+    ...input,
+    patronRecurrencia: {
+      ...recurrenceRaw,
+      zoomRecurrence: {
+        ...zoomRecurrenceWithoutEndDateTime,
+        end_times: resolvedEndTimes
+      }
+    }
+  };
+}
+
 export class SalasService {
   async getDashboardSummary(user: SessionUser) {
     const canSeeAll = user.role === UserRole.ADMINISTRADOR || user.role === UserRole.CONTADURIA;
@@ -764,6 +1238,7 @@ export class SalasService {
             id: true,
             inicioProgramadoAt: true,
             finProgramadoAt: true,
+            estadoEvento: true,
             estadoCobertura: true,
             zoomMeetingId: true,
             zoomJoinUrl: true
@@ -818,12 +1293,15 @@ export class SalasService {
       const snapshot = meetingId ? snapshotsByMeetingId.get(meetingId) : undefined;
 
       let fallbackInstances: ZoomOccurrenceSnapshot[] = solicitud.eventos.map((event) => ({
+        eventId: event.id,
         occurrenceId: null,
         startTime: event.inicioProgramadoAt.toISOString(),
+        endTime: event.finProgramadoAt.toISOString(),
         durationMinutes: Math.max(
           1,
           Math.floor((event.finProgramadoAt.getTime() - event.inicioProgramadoAt.getTime()) / 60000)
         ),
+        estadoEvento: event.estadoEvento,
         status: null,
         joinUrl: event.zoomJoinUrl ?? null
       }));
@@ -835,12 +1313,21 @@ export class SalasService {
             const date = new Date(item);
             if (Number.isNaN(date.getTime())) return undefined;
             return {
+              eventId: null,
               occurrenceId: null,
               startTime: date.toISOString(),
+              endTime: new Date(
+                date.getTime() +
+                Math.max(
+                  1,
+                  Math.floor((solicitud.fechaFinSolicitada.getTime() - solicitud.fechaInicioSolicitada.getTime()) / 60000)
+                ) * 60_000
+              ).toISOString(),
               durationMinutes: Math.max(
                 1,
                 Math.floor((solicitud.fechaFinSolicitada.getTime() - solicitud.fechaInicioSolicitada.getTime()) / 60000)
               ),
+              estadoEvento: null,
               status: null,
               joinUrl: null
             } as ZoomOccurrenceSnapshot;
@@ -849,22 +1336,72 @@ export class SalasService {
       }
 
       const snapshotInstances = snapshot?.instances ?? [];
-      const fallbackInstancesEnriched = fallbackInstances.map((instance, index) => ({
-        ...instance,
-        joinUrl:
-          instance.joinUrl ??
-          snapshotInstances[index]?.joinUrl ??
-          snapshot?.joinUrl ??
-          null
-      }));
+      const zoomInstancesByMinute = new Map<number, ZoomOccurrenceSnapshot>();
+      for (const fallback of fallbackInstances) {
+        const parsed = new Date(fallback.startTime);
+        if (Number.isNaN(parsed.getTime())) continue;
+        const minuteKey = Math.floor(parsed.getTime() / 60_000);
+        zoomInstancesByMinute.set(minuteKey, {
+          ...fallback,
+          joinUrl: fallback.joinUrl ?? snapshot?.joinUrl ?? null
+        });
+      }
 
-      const zoomInstances =
-        fallbackInstancesEnriched.length >= snapshotInstances.length && fallbackInstancesEnriched.length > 0
-          ? fallbackInstancesEnriched
-          : snapshotInstances;
+      const canUseApproximateFallbackMatch =
+        fallbackInstances.length > 0 &&
+        snapshotInstances.length > 0 &&
+        snapshotInstances.length === fallbackInstances.length;
+      const consumedFallbackMinuteKeys = new Set<number>();
+
+      for (const snapshotInstance of snapshotInstances) {
+        const parsed = new Date(snapshotInstance.startTime);
+        if (Number.isNaN(parsed.getTime())) continue;
+        const match = resolveFallbackMinuteMatch(
+          parsed,
+          zoomInstancesByMinute,
+          consumedFallbackMinuteKeys,
+          canUseApproximateFallbackMatch
+        );
+        const minuteKey = match.minuteKey;
+        const matchedFallback = match.matchedFallback ?? zoomInstancesByMinute.get(minuteKey);
+        if (matchedFallback) {
+          consumedFallbackMinuteKeys.add(minuteKey);
+        }
+
+        zoomInstancesByMinute.set(minuteKey, {
+          eventId: matchedFallback?.eventId ?? null,
+          occurrenceId: snapshotInstance.occurrenceId ?? matchedFallback?.occurrenceId ?? null,
+          startTime: matchedFallback?.startTime ?? snapshotInstance.startTime,
+          endTime:
+            snapshotInstance.endTime ??
+            matchedFallback?.endTime ??
+            new Date(
+              parsed.getTime() +
+              Math.max(1, snapshotInstance.durationMinutes || matchedFallback?.durationMinutes || 60) *
+              60_000
+            ).toISOString(),
+          durationMinutes: Math.max(1, snapshotInstance.durationMinutes || matchedFallback?.durationMinutes || 60),
+          estadoEvento: matchedFallback?.estadoEvento ?? null,
+          status: snapshotInstance.status ?? matchedFallback?.status ?? null,
+          joinUrl:
+            snapshotInstance.joinUrl ??
+            matchedFallback?.joinUrl ??
+            snapshot?.joinUrl ??
+            null
+        });
+      }
+
+      const zoomInstances = Array.from(zoomInstancesByMinute.values()).sort((a, b) => (
+        new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+      ));
       const zoomJoinUrl =
         snapshot?.joinUrl ??
-        fallbackInstancesEnriched.find((event) => event.joinUrl)?.joinUrl ??
+        zoomInstances.find((event) => event.joinUrl)?.joinUrl ??
+        null;
+      const zoomHostAccount =
+        snapshot?.hostEmail ??
+        solicitud.cuentaZoomAsignada?.ownerEmail ??
+        solicitud.cuentaZoomAsignada?.nombreCuenta ??
         null;
 
       return {
@@ -878,6 +1415,7 @@ export class SalasService {
             solicitud.createdBy.email
         },
         zoomJoinUrl,
+        zoomHostAccount,
         zoomInstanceCount: zoomInstances.length || solicitud.cantidadInstancias || 1,
         zoomInstances,
         zoomReadFromApi: Boolean(snapshot)
@@ -992,6 +1530,8 @@ export class SalasService {
 
   async createSolicitud(user: SessionUser, input: CreateSolicitudInput) {
     validateZoomRecurrenceRestrictions(input);
+    const docentesCopyEmails = parseDocentesEmailsByLine(input.docentesCorreos);
+    const normalizedDocentesCorreos = normalizeDocentesCorreosForStorage(input.docentesCorreos);
     const docente = await getOrCreateDocente(user);
     const start = toDate(input.fechaInicioSolicitada, "fechaInicioSolicitada");
     const end = toDate(input.fechaFinSolicitada, "fechaFinSolicitada");
@@ -1008,6 +1548,8 @@ export class SalasService {
 
     const durationMinutes = Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
     const instancePlans = buildInstancePlans(input, durationMinutes);
+    const inputForProvisioning = buildInputWithZoomEndTimes(input, instancePlans.length);
+    validateZoomRecurrenceRestrictions(inputForProvisioning);
     const resolvedFechasInstancias =
       input.fechasInstancias ?? input.instanciasDetalle?.map((item) => item.inicioProgramadoAt);
     const availableAccounts = await listAvailableCuentaZoomCandidatesForAllInstances(instancePlans);
@@ -1030,14 +1572,14 @@ export class SalasService {
           timezone: input.timezone ?? "America/Montevideo",
           capacidadEstimada: input.capacidadEstimada,
           controlAsistencia: input.controlAsistencia ?? false,
-          docentesCorreos: input.docentesCorreos,
+          docentesCorreos: normalizedDocentesCorreos,
           grabacionPreferencia,
           requiereGrabacion,
           requiereAsistencia: input.requiereAsistencia ?? false,
           motivoAsistencia: input.motivoAsistencia,
           regimenEncuentros: input.regimenEncuentros,
           fechaFinRecurrencia: recurrenceEnd,
-          patronRecurrencia: input.patronRecurrencia as Prisma.InputJsonValue | undefined,
+          patronRecurrencia: inputForProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
           fechasInstancias: resolvedFechasInstancias,
           cantidadInstancias: instancePlans.length,
           estadoSolicitud: EstadoSolicitudSala.SIN_CAPACIDAD_ZOOM,
@@ -1085,7 +1627,7 @@ export class SalasService {
         try {
           const candidateSnapshot = await createZoomMeetingForSolicitud({
             accountOwnerEmail: candidate.ownerEmail,
-            input,
+            input: inputForProvisioning,
             start: instancePlans[0]?.inicio ?? start,
             durationMinutes,
             timezone
@@ -1135,14 +1677,14 @@ export class SalasService {
             timezone,
             capacidadEstimada: input.capacidadEstimada,
             controlAsistencia: input.controlAsistencia ?? false,
-            docentesCorreos: input.docentesCorreos,
+            docentesCorreos: normalizedDocentesCorreos,
             grabacionPreferencia,
             requiereGrabacion,
             requiereAsistencia: input.requiereAsistencia ?? false,
             motivoAsistencia: input.motivoAsistencia,
             regimenEncuentros: input.regimenEncuentros,
             fechaFinRecurrencia: recurrenceEnd,
-            patronRecurrencia: input.patronRecurrencia as Prisma.InputJsonValue | undefined,
+            patronRecurrencia: inputForProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
             fechasInstancias: resolvedFechasInstancias,
             cantidadInstancias: instancePlans.length,
             estadoSolicitud: EstadoSolicitudSala.SIN_CAPACIDAD_ZOOM,
@@ -1204,14 +1746,14 @@ export class SalasService {
           timezone,
           capacidadEstimada: input.capacidadEstimada,
           controlAsistencia: input.controlAsistencia ?? false,
-          docentesCorreos: input.docentesCorreos,
+          docentesCorreos: normalizedDocentesCorreos,
           grabacionPreferencia,
           requiereGrabacion,
           requiereAsistencia: input.requiereAsistencia ?? false,
           motivoAsistencia: input.motivoAsistencia,
           regimenEncuentros: input.regimenEncuentros,
           fechaFinRecurrencia: recurrenceEnd,
-          patronRecurrencia: input.patronRecurrencia as Prisma.InputJsonValue | undefined,
+          patronRecurrencia: inputForProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
           fechasInstancias: requireManualResolution ? resolvedFechasInstancias : provisionedFechasInstancias,
           cantidadInstancias: requireManualResolution ? instancePlans.length : provisionedPlans.length,
           estadoSolicitud: status
@@ -1324,7 +1866,329 @@ export class SalasService {
       }
     });
 
+    if (!requireManualResolution && status === EstadoSolicitudSala.PROVISIONADA) {
+      const joinUrl =
+        zoomSnapshot?.joinUrl ??
+        provisionedPlans.find((plan) => typeof plan.joinUrl === "string" && plan.joinUrl)?.joinUrl ??
+        null;
+      const hostAccount = zoomSnapshot?.hostEmail ?? assignedAccount.ownerEmail ?? assignedAccount.nombreCuenta ?? null;
+      const responsibleEmail = await resolveResponsibleNotificationEmail(input.responsableNombre);
+      const confirmationCc = [
+        ...docentesCopyEmails,
+        ...(responsibleEmail ? [responsibleEmail] : [])
+      ];
+
+      await sendProvisionedSolicitudEmail({
+        to: user.email,
+        cc: confirmationCc,
+        solicitudId: result.id,
+        titulo: input.titulo,
+        modalidad: input.modalidadReunion,
+        meetingId: meetingPrincipalId,
+        joinUrl,
+        hostAccount,
+        rawPayload: zoomSnapshot?.rawPayload,
+        timezone,
+        instanceStarts: provisionedPlans.map((plan) => plan.inicio)
+      }).catch((error) => {
+        logger.warn("No se pudo enviar correo de confirmacion de solicitud provisionada.", {
+          solicitudId: result.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
+
     return result;
+  }
+
+  async cancelSolicitud(
+    user: SessionUser,
+    solicitudId: string,
+    input: {
+      scope: "SERIE" | "INSTANCIA";
+      eventoId?: string;
+      occurrenceId?: string;
+      inicioProgramadoAt?: string;
+      motivo?: string;
+    }
+  ) {
+    const solicitud = await db.solicitudSala.findUnique({
+      where: { id: solicitudId },
+      select: {
+        id: true,
+        titulo: true,
+        createdByUserId: true,
+        meetingPrincipalId: true,
+        tipoInstancias: true,
+        estadoSolicitud: true,
+        docente: {
+          select: {
+            usuarioId: true
+          }
+        },
+        eventos: {
+          select: {
+            id: true,
+            inicioProgramadoAt: true,
+            estadoEvento: true,
+            zoomMeetingId: true
+          },
+          orderBy: { inicioProgramadoAt: "asc" }
+        }
+      }
+    });
+
+    if (!solicitud) {
+      throw new Error("Solicitud no encontrada.");
+    }
+
+    const canManageAsAdmin = user.role === UserRole.ADMINISTRADOR;
+    const ownsSolicitud =
+      solicitud.createdByUserId === user.id || solicitud.docente.usuarioId === user.id;
+
+    if (!canManageAsAdmin && !ownsSolicitud) {
+      throw new Error("No tienes permisos para cancelar esta solicitud.");
+    }
+
+    const meetingCandidates = [
+      solicitud.meetingPrincipalId,
+      ...solicitud.eventos.map((item) => item.zoomMeetingId)
+    ];
+    const zoomMeetingId =
+      meetingCandidates
+        .map((raw) => normalizeZoomMeetingId(raw))
+        .find((value): value is string => Boolean(value)) ?? null;
+
+    const cancelledStatus =
+      user.role === UserRole.ADMINISTRADOR
+        ? EstadoSolicitudSala.CANCELADA_ADMIN
+        : EstadoSolicitudSala.CANCELADA_DOCENTE;
+
+    if (input.scope === "SERIE") {
+      let cancelledInZoom = false;
+      if (zoomMeetingId) {
+        try {
+          const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+          await zoomClient.deleteMeeting(zoomMeetingId, {
+            schedule_for_reminder: false,
+            cancel_meeting_reminder: false
+          });
+          cancelledInZoom = true;
+        } catch (error) {
+          if (error instanceof ZoomApiError && (error.status === 404 || error.code === 3001)) {
+            cancelledInZoom = false;
+          } else {
+            throw new Error(
+              error instanceof Error
+                ? `No se pudo cancelar la serie en Zoom: ${error.message}`
+                : "No se pudo cancelar la serie en Zoom."
+            );
+          }
+        }
+      }
+
+      const updatedEvents = await db.$transaction(async (tx) => {
+        const eventsResult = await tx.eventoZoom.updateMany({
+          where: {
+            solicitudSalaId: solicitud.id,
+            estadoEvento: { in: [EstadoEventoZoom.PENDIENTE_CREACION, EstadoEventoZoom.CREADO_ZOOM, EstadoEventoZoom.ERROR_INTEGRACION, EstadoEventoZoom.PROGRAMADO] }
+          },
+          data: {
+            estadoEvento: EstadoEventoZoom.CANCELADO,
+            estadoCobertura: EstadoCoberturaSoporte.CANCELADO
+          }
+        });
+
+        await tx.solicitudSala.update({
+          where: { id: solicitud.id },
+          data: {
+            estadoSolicitud: cancelledStatus,
+            canceladaPorDocenteAt: new Date(),
+            canceladaMotivo: input.motivo ?? "Serie cancelada desde la plataforma."
+          }
+        });
+
+        await tx.auditoria.create({
+          data: {
+            actorUsuarioId: user.id,
+            accion: "SOLICITUD_CANCELADA_SERIE",
+            entidadTipo: "SolicitudSala",
+            entidadId: solicitud.id,
+            valorNuevo: {
+              zoomMeetingId,
+              cancelledInZoom,
+              updatedEvents: eventsResult.count
+            }
+          }
+        });
+
+        return eventsResult.count;
+      });
+
+      await notifyAdminTelegramMovement({
+        action: "SOLICITUD_CANCELADA_SERIE",
+        actorEmail: user.email,
+        actorRole: user.role,
+        entityType: "SolicitudSala",
+        entityId: solicitud.id,
+        summary: solicitud.titulo,
+        details: {
+          zoomMeetingId,
+          cancelledInZoom,
+          updatedEvents
+        }
+      });
+
+      return {
+        scope: "SERIE" as const,
+        solicitudId: solicitud.id,
+        zoomMeetingId,
+        cancelledInZoom,
+        updatedEvents
+      };
+    }
+
+    const targetEventById = input.eventoId
+      ? solicitud.eventos.find((event) => event.id === input.eventoId)
+      : null;
+    const targetStartMs = input.inicioProgramadoAt ? new Date(input.inicioProgramadoAt).getTime() : NaN;
+    const targetEventByStart = !targetEventById && Number.isFinite(targetStartMs)
+      ? solicitud.eventos.find(
+          (event) => Math.abs(event.inicioProgramadoAt.getTime() - targetStartMs) <= 60_000
+        )
+      : null;
+    const targetEvent = targetEventById ?? targetEventByStart ?? null;
+
+    if (!targetEvent) {
+      throw new Error("No se encontro la instancia a cancelar.");
+    }
+    if (targetEvent.estadoEvento === EstadoEventoZoom.CANCELADO) {
+      throw new Error("La instancia ya estaba cancelada.");
+    }
+    if (targetEvent.estadoEvento === EstadoEventoZoom.FINALIZADO) {
+      throw new Error("No se puede cancelar una instancia finalizada.");
+    }
+
+    let occurrenceId = input.occurrenceId?.trim() || null;
+    let cancelledInZoom = false;
+
+    if (zoomMeetingId) {
+      try {
+        const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+
+        if (solicitud.tipoInstancias === TipoInstancias.UNICA || solicitud.eventos.length <= 1) {
+          await zoomClient.deleteMeeting(zoomMeetingId, {
+            schedule_for_reminder: false,
+            cancel_meeting_reminder: false
+          });
+          cancelledInZoom = true;
+        } else {
+          if (!occurrenceId) {
+            const snapshot = await fetchZoomMeetingSnapshot(zoomClient, zoomMeetingId);
+            const matched = snapshot?.instances.find((instance) => {
+              const instanceStart = new Date(instance.startTime);
+              return Math.abs(instanceStart.getTime() - targetEvent.inicioProgramadoAt.getTime()) <= 60_000;
+            });
+            occurrenceId = matched?.occurrenceId ?? null;
+          }
+
+          if (!occurrenceId) {
+            throw new Error(
+              "No se pudo resolver el occurrence_id de Zoom para cancelar la instancia."
+            );
+          }
+
+          await zoomClient.deleteMeeting(zoomMeetingId, {
+            occurrence_id: occurrenceId,
+            schedule_for_reminder: false,
+            cancel_meeting_reminder: false
+          });
+          cancelledInZoom = true;
+        }
+      } catch (error) {
+        if (error instanceof ZoomApiError && (error.status === 404 || error.code === 3001)) {
+          cancelledInZoom = false;
+        } else {
+          throw new Error(
+            error instanceof Error
+              ? `No se pudo cancelar la instancia en Zoom: ${error.message}`
+              : "No se pudo cancelar la instancia en Zoom."
+          );
+        }
+      }
+    }
+
+    const result = await db.$transaction(async (tx) => {
+      await tx.eventoZoom.update({
+        where: { id: targetEvent.id },
+        data: {
+          estadoEvento: EstadoEventoZoom.CANCELADO,
+          estadoCobertura: EstadoCoberturaSoporte.CANCELADO
+        }
+      });
+
+      const activeEvents = await tx.eventoZoom.count({
+        where: {
+          solicitudSalaId: solicitud.id,
+          estadoEvento: { notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO] }
+        }
+      });
+
+      if (activeEvents === 0) {
+        await tx.solicitudSala.update({
+          where: { id: solicitud.id },
+          data: {
+            estadoSolicitud: cancelledStatus,
+            canceladaPorDocenteAt: new Date(),
+            canceladaMotivo: input.motivo ?? "Todas las instancias fueron canceladas."
+          }
+        });
+      }
+
+      await tx.auditoria.create({
+        data: {
+          actorUsuarioId: user.id,
+          accion: "SOLICITUD_CANCELADA_INSTANCIA",
+          entidadTipo: "EventoZoom",
+          entidadId: targetEvent.id,
+          valorNuevo: {
+            solicitudId: solicitud.id,
+            occurrenceId,
+            zoomMeetingId,
+            cancelledInZoom
+          }
+        }
+      });
+
+      return {
+        activeEvents
+      };
+    });
+
+    await notifyAdminTelegramMovement({
+      action: "SOLICITUD_CANCELADA_INSTANCIA",
+      actorEmail: user.email,
+      actorRole: user.role,
+      entityType: "EventoZoom",
+      entityId: targetEvent.id,
+      summary: solicitud.titulo,
+      details: {
+        solicitudId: solicitud.id,
+        occurrenceId,
+        zoomMeetingId,
+        cancelledInZoom
+      }
+    });
+
+    return {
+      scope: "INSTANCIA" as const,
+      solicitudId: solicitud.id,
+      eventoId: targetEvent.id,
+      occurrenceId,
+      zoomMeetingId,
+      cancelledInZoom,
+      activeEvents: result.activeEvents
+    };
   }
 
   async deleteSolicitud(user: SessionUser, solicitudId: string) {
@@ -1575,6 +2439,47 @@ export class SalasService {
         accionTomada: input.accionTomada
       }
     });
+
+    const creator = await db.user.findUnique({
+      where: { id: solicitud.createdByUserId },
+      select: { email: true }
+    });
+    let docentesCopyEmails: string[] = [];
+    try {
+      docentesCopyEmails = parseDocentesEmailsByLine(solicitud.docentesCorreos);
+    } catch (error) {
+      logger.warn("No se pudieron interpretar correos de docentes para copia en resolucion manual.", {
+        solicitudId: result.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      docentesCopyEmails = [];
+    }
+    const manualInstanceStarts = [new Date(solicitud.fechaInicioSolicitada)];
+    const responsibleEmail = await resolveResponsibleNotificationEmail(solicitud.responsableNombre);
+    const confirmationCc = [
+      ...docentesCopyEmails,
+      ...(responsibleEmail ? [responsibleEmail] : [])
+    ];
+
+    if (creator?.email) {
+      await sendProvisionedSolicitudEmail({
+        to: creator.email,
+        cc: confirmationCc,
+        solicitudId: result.id,
+        titulo: solicitud.titulo,
+        modalidad: solicitud.modalidadReunion,
+        meetingId: input.zoomMeetingIdManual,
+        joinUrl: input.zoomJoinUrlManual ?? `https://zoom.us/j/${input.zoomMeetingIdManual}`,
+        hostAccount: account.ownerEmail ?? account.nombreCuenta ?? null,
+        timezone: solicitud.timezone,
+        instanceStarts: manualInstanceStarts
+      }).catch((error) => {
+        logger.warn("No se pudo enviar correo de confirmacion tras resolucion manual.", {
+          solicitudId: result.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
 
     return result;
   }

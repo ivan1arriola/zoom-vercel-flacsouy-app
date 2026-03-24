@@ -2,6 +2,24 @@
 
 import { signIn } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+  Stack,
+  Tab,
+  Tabs,
+  TextField,
+  Typography
+} from "@mui/material";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
+import GoogleIcon from "@mui/icons-material/Google";
 
 type InlineLoginProps = {
   initialError?: string;
@@ -43,6 +61,8 @@ export function InlineLogin({
   const [isVerifying, setIsVerifying] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [showResetPasswordConfirm, setShowResetPasswordConfirm] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [error, setError] = useState(mapAuthError(initialError));
   const [info, setInfo] = useState("");
 
@@ -210,7 +230,7 @@ export function InlineLogin({
   }
 
   async function onResetPassword(formData: FormData) {
-    const email = String(formData.get("resetEmail") ?? "").trim().toLowerCase();
+    const email = (verificationEmail ?? "").trim().toLowerCase();
     const password = String(formData.get("resetPassword") ?? "");
     const confirmPassword = String(formData.get("resetPasswordConfirm") ?? "");
 
@@ -260,241 +280,238 @@ export function InlineLogin({
     if (!verificationEmail) return null;
 
     return (
-      <article className="card auth-card auth-card-wide">
-        <h2 className="auth-card-title">{options.title}</h2>
-        <p className="muted auth-help">Cuenta: {verificationEmail}</p>
-        <p className="muted auth-help" style={{ marginTop: 0 }}>{options.helper}</p>
-        <form action={onResetPassword} className="auth-form" aria-busy={isResetSubmitting}>
-          <input type="hidden" name="resetEmail" value={verificationEmail} />
-          <label>
-            Nueva contrasena
-            <div className="auth-password-field">
-              <input
+      <Card variant="outlined" sx={{ borderRadius: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+            {options.title}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Cuenta: {verificationEmail}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {options.helper}
+          </Typography>
+          <Box component="form" action={onResetPassword}>
+            <Stack spacing={1.2}>
+              <TextField
                 name="resetPassword"
+                label="Nueva contrasena"
                 type={showResetPassword ? "text" : "password"}
                 required
-                minLength={8}
                 autoComplete="new-password"
+                inputProps={{ minLength: 8 }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setShowResetPassword((prev) => !prev)} edge="end">
+                        {showResetPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  )
+                }}
               />
-              <button
-                type="button"
-                className="auth-password-toggle"
-                onClick={() => setShowResetPassword((prev) => !prev)}
-              >
-                {showResetPassword ? "Ocultar" : "Mostrar"}
-              </button>
-            </div>
-          </label>
-          <label>
-            Repetir nueva contrasena
-            <div className="auth-password-field">
-              <input
+              <TextField
                 name="resetPasswordConfirm"
+                label="Repetir nueva contrasena"
                 type={showResetPasswordConfirm ? "text" : "password"}
                 required
-                minLength={8}
                 autoComplete="new-password"
+                inputProps={{ minLength: 8 }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setShowResetPasswordConfirm((prev) => !prev)} edge="end">
+                        {showResetPasswordConfirm ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  )
+                }}
               />
-              <button
-                type="button"
-                className="auth-password-toggle"
-                onClick={() => setShowResetPasswordConfirm((prev) => !prev)}
-              >
-                {showResetPasswordConfirm ? "Ocultar" : "Mostrar"}
-              </button>
-            </div>
-          </label>
-          <button className="btn success" type="submit" disabled={isResetSubmitting}>
-            {isResetSubmitting ? "Actualizando contrasena..." : options.submitLabel}
-          </button>
-          {isResetSubmitting ? <p className="muted auth-help">Actualizando contrasena, espera un momento...</p> : null}
-        </form>
-      </article>
+              <Button type="submit" variant="contained" color="secondary" disabled={isResetSubmitting}>
+                {isResetSubmitting ? "Actualizando contrasena..." : options.submitLabel}
+              </Button>
+            </Stack>
+          </Box>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <section className="auth-shell">
-      <header className="auth-header">
-        <p className="auth-kicker">FLACSO Uruguay</p>
-        <h1 className="title">Herramienta para coordinar salas Zoom</h1>
-        <p className="muted">Inicia sesion para continuar. Google solo para @flacso.edu.uy; el resto por correo y contrasena.</p>
-      </header>
+    <Box component="section">
+      <Box sx={{ maxWidth: 980, mx: "auto" }}>
+        <Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>
+          FLACSO Uruguay
+        </Typography>
+        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
+          Herramienta para coordinar salas Zoom
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Inicia sesion para continuar. Google solo para @flacso.edu.uy; el resto por correo y contrasena.
+        </Typography>
 
-      <nav className="auth-tabs" aria-label="Opciones de autenticacion">
-        <button
-          type="button"
-          className={`auth-tab ${activePanel === "login" ? "is-active" : ""}`}
-          onClick={() => setActivePanel("login")}
+        <Tabs
+          value={activePanel}
+          onChange={(_event, value) => setActivePanel(value as AuthPanel)}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+          sx={{ mb: 2 }}
         >
-          Acceder
-        </button>
-        <button
-          type="button"
-          className={`auth-tab ${activePanel === "register" ? "is-active" : ""}`}
-          onClick={() => setActivePanel("register")}
-        >
-          Registrarse
-        </button>
-        <button
-          type="button"
-          className={`auth-tab ${activePanel === "recovery" ? "is-active" : ""}`}
-          onClick={() => setActivePanel("recovery")}
-        >
-          Recuperar
-        </button>
-        {isActivationFlow ? (
-          <button
-            type="button"
-            className={`auth-tab ${activePanel === "activation" ? "is-active" : ""}`}
-            onClick={() => setActivePanel("activation")}
-          >
-            Activar cuenta
-          </button>
-        ) : null}
-      </nav>
+          <Tab value="login" label="Acceder" />
+          <Tab value="register" label="Registrarse" />
+          <Tab value="recovery" label="Recuperar" />
+          {isActivationFlow ? <Tab value="activation" label="Activar cuenta" /> : null}
+        </Tabs>
 
-      <div className="auth-grid">
-        {activePanel === "login" ? (
-          <article className="card auth-card auth-card-wide">
-            <h2 className="auth-card-title">Acceso</h2>
-            <form action={onSubmit} className="auth-form">
-              <label>
-                Email
-                <input
-                  name="email"
-                  type="email"
-                  required
-                  placeholder="usuario@dominio.com"
-                  autoComplete="email"
-                />
-              </label>
-              <label>
-                Contrasena
-                <input name="password" type="password" required autoComplete="current-password" />
-              </label>
-              <button className="btn primary" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Ingresando..." : "Ingresar"}
-              </button>
-            </form>
+        <Stack spacing={1.5}>
+          {activePanel === "login" ? (
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                  Acceso
+                </Typography>
+                <Box component="form" action={onSubmit}>
+                  <Stack spacing={1.2}>
+                    <TextField name="email" label="Email" type="email" required autoComplete="email" />
+                    <TextField
+                      name="password"
+                      label="Contrasena"
+                      type={showLoginPassword ? "text" : "password"}
+                      required
+                      autoComplete="current-password"
+                      InputProps={{
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton onClick={() => setShowLoginPassword((prev) => !prev)} edge="end">
+                              {showLoginPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                            </IconButton>
+                          </InputAdornment>
+                        )
+                      }}
+                    />
+                    <Button type="submit" variant="contained" disabled={isSubmitting}>
+                      {isSubmitting ? "Ingresando..." : "Ingresar"}
+                    </Button>
+                  </Stack>
+                </Box>
+                <Button
+                  sx={{ mt: 1.2 }}
+                  fullWidth
+                  variant="outlined"
+                  onClick={onGoogleSignIn}
+                  disabled={isGoogleSubmitting}
+                  startIcon={<GoogleIcon />}
+                >
+                  {isGoogleSubmitting ? "Redirigiendo..." : "Ingresar con Google"}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
-            <button
-              className="btn auth-google-btn"
-              type="button"
-              onClick={onGoogleSignIn}
-              disabled={isGoogleSubmitting}
-            >
-              <span className="google-mark" aria-hidden="true">
-                <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" focusable="false">
-                  <path d="M17.64 9.2c0-.64-.06-1.26-.16-1.86H9v3.52h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.56 2.68-3.86 2.68-6.64z" fill="#4285F4" />
-                  <path d="M9 18c2.43 0 4.46-.8 5.95-2.16l-2.92-2.26c-.8.54-1.84.86-3.03.86-2.33 0-4.3-1.58-5-3.7H.98V13.1A9 9 0 0 0 9 18z" fill="#34A853" />
-                  <path d="M4 10.74A5.4 5.4 0 0 1 3.72 9c0-.6.1-1.18.28-1.74V4.9H.98A9 9 0 0 0 0 9c0 1.45.35 2.83.98 4.1L4 10.74z" fill="#FBBC05" />
-                  <path d="M9 3.58c1.32 0 2.5.46 3.43 1.34l2.56-2.56C13.45.92 11.42 0 9 0A9 9 0 0 0 .98 4.9L4 7.26c.7-2.12 2.67-3.68 5-3.68z" fill="#EA4335" />
-                </svg>
-              </span>
-              <span>{isGoogleSubmitting ? "Redirigiendo..." : "Ingresar con Google"}</span>
-            </button>
-            <p className="muted auth-help">Google solo disponible para cuentas @flacso.edu.uy.</p>
-          </article>
-        ) : null}
+          {activePanel === "register" ? (
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                  Autoregistro por correo
+                </Typography>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={onGoogleSignIn}
+                  disabled={isGoogleSubmitting}
+                  startIcon={<GoogleIcon />}
+                  sx={{ mb: 1.2 }}
+                >
+                  {isGoogleSubmitting ? "Redirigiendo..." : "Registrarme con Google"}
+                </Button>
+                <Box component="form" action={onRegister}>
+                  <Stack spacing={1.2}>
+                    <Stack direction={{ xs: "column", md: "row" }} spacing={1.2}>
+                      <TextField name="firstName" label="Nombre" fullWidth autoComplete="given-name" />
+                      <TextField name="lastName" label="Apellido" fullWidth autoComplete="family-name" />
+                    </Stack>
+                    <TextField name="regEmail" label="Correo electronico" type="email" required autoComplete="email" />
+                    <TextField
+                      name="regPassword"
+                      label="Contrasena inicial"
+                      type={showRegisterPassword ? "text" : "password"}
+                      required
+                      autoComplete="new-password"
+                      inputProps={{ minLength: 8 }}
+                      InputProps={{
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton onClick={() => setShowRegisterPassword((prev) => !prev)} edge="end">
+                              {showRegisterPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                            </IconButton>
+                          </InputAdornment>
+                        )
+                      }}
+                    />
+                    <Button type="submit" variant="contained" color="secondary" disabled={isRegisterSubmitting}>
+                      {isRegisterSubmitting ? "Enviando verificacion..." : "Registrarme"}
+                    </Button>
+                  </Stack>
+                </Box>
+              </CardContent>
+            </Card>
+          ) : null}
 
-        {activePanel === "register" ? (
-          <article className="card auth-card auth-card-wide">
-            <h2 className="auth-card-title">Autoregistro por correo</h2>
-            <button
-              className="btn auth-google-btn"
-              type="button"
-              onClick={onGoogleSignIn}
-              disabled={isGoogleSubmitting}
-            >
-              <span className="google-mark" aria-hidden="true">
-                <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" focusable="false">
-                  <path d="M17.64 9.2c0-.64-.06-1.26-.16-1.86H9v3.52h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.56 2.68-3.86 2.68-6.64z" fill="#4285F4" />
-                  <path d="M9 18c2.43 0 4.46-.8 5.95-2.16l-2.92-2.26c-.8.54-1.84.86-3.03.86-2.33 0-4.3-1.58-5-3.7H.98V13.1A9 9 0 0 0 9 18z" fill="#34A853" />
-                  <path d="M4 10.74A5.4 5.4 0 0 1 3.72 9c0-.6.1-1.18.28-1.74V4.9H.98A9 9 0 0 0 0 9c0 1.45.35 2.83.98 4.1L4 10.74z" fill="#FBBC05" />
-                  <path d="M9 3.58c1.32 0 2.5.46 3.43 1.34l2.56-2.56C13.45.92 11.42 0 9 0A9 9 0 0 0 .98 4.9L4 7.26c.7-2.12 2.67-3.68 5-3.68z" fill="#EA4335" />
-                </svg>
-              </span>
-              <span>{isGoogleSubmitting ? "Redirigiendo..." : "Registrarme con Google"}</span>
-            </button>
-            <p className="muted auth-help">Google crea cuenta automaticamente solo para correos @flacso.edu.uy.</p>
-            <form action={onRegister} className="auth-form">
-              <div className="auth-row-2">
-                <label>
-                  Nombre
-                  <input name="firstName" type="text" autoComplete="given-name" placeholder="Nombre" />
-                </label>
-                <label>
-                  Apellido
-                  <input name="lastName" type="text" autoComplete="family-name" placeholder="Apellido" />
-                </label>
-              </div>
-              <label>
-                Correo electronico
-                <input
-                  name="regEmail"
-                  type="email"
-                  required
-                  placeholder="nombre@dominio.com"
-                  autoComplete="email"
-                />
-              </label>
-              <label>
-                Contrasena inicial
-                <input name="regPassword" type="password" required minLength={8} autoComplete="new-password" />
-              </label>
-              <button className="btn success" type="submit" disabled={isRegisterSubmitting}>
-                {isRegisterSubmitting ? "Enviando verificacion..." : "Registrarme"}
-              </button>
-            </form>
-            <p className="muted auth-help">Te enviaremos un enlace para demostrar que eres dueno de la cuenta.</p>
-          </article>
-        ) : null}
+          {activePanel === "recovery" ? (
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                  Recuperar contrasena
+                </Typography>
+                <Box component="form" action={onRequestRecovery}>
+                  <Stack spacing={1.2}>
+                    <TextField
+                      name="recoveryEmail"
+                      label="Correo de la cuenta"
+                      type="email"
+                      required
+                      autoComplete="email"
+                    />
+                    <Button type="submit" variant="outlined" disabled={isRecoverySubmitting}>
+                      {isRecoverySubmitting ? "Enviando enlace..." : "Enviar enlace de recuperacion"}
+                    </Button>
+                  </Stack>
+                </Box>
+              </CardContent>
+            </Card>
+          ) : null}
 
-        {activePanel === "recovery" ? (
-          <article className="card auth-card auth-card-wide">
-            <h2 className="auth-card-title">Recuperar contrasena</h2>
-            <form action={onRequestRecovery} className="auth-form">
-              <label>
-                Correo de la cuenta
-                <input
-                  name="recoveryEmail"
-                  type="email"
-                  required
-                  placeholder="nombre@dominio.com"
-                  autoComplete="email"
-                />
-              </label>
-              <button className="btn ghost" type="submit" disabled={isRecoverySubmitting}>
-                {isRecoverySubmitting ? "Enviando enlace..." : "Enviar enlace de recuperacion"}
-              </button>
-            </form>
-          </article>
-        ) : null}
+          {!isActivationFlow && hasResetPayload && activePanel === "recovery"
+            ? renderResetForm({
+                title: "Restablecer contrasena",
+                submitLabel: "Actualizar contrasena",
+                helper: "Define una nueva contrasena para recuperar tu acceso."
+              })
+            : null}
 
-        {!isActivationFlow && hasResetPayload && activePanel === "recovery"
-          ? renderResetForm({
-              title: "Restablecer contrasena",
-              submitLabel: "Actualizar contrasena",
-              helper: "Define una nueva contrasena para recuperar tu acceso."
-            })
-          : null}
+          {isActivationFlow && hasResetPayload && activePanel === "activation"
+            ? renderResetForm({
+                title: "Activar cuenta",
+                submitLabel: "Activar cuenta",
+                helper: "Este paso completa la creacion de tu cuenta."
+              })
+            : null}
+        </Stack>
 
-        {isActivationFlow && hasResetPayload && activePanel === "activation"
-          ? renderResetForm({
-              title: "Activar cuenta",
-              submitLabel: "Activar cuenta",
-              helper: "Este paso completa la creacion de tu cuenta."
-            })
-          : null}
-      </div>
-
-      <div className="auth-feedback" aria-live="polite">
-        {isVerifying ? <p className="muted">Verificando correo...</p> : null}
-        {info ? <p className="auth-feedback-ok">{info}</p> : null}
-        {error ? <p className="auth-feedback-error">{error}</p> : null}
-      </div>
-    </section>
+        <Box sx={{ mt: 2 }} aria-live="polite">
+          {isVerifying ? (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="text.secondary">
+                Verificando correo...
+              </Typography>
+            </Stack>
+          ) : null}
+          {info ? <Alert severity="success" sx={{ mt: 1 }}>{info}</Alert> : null}
+          {error ? <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert> : null}
+        </Box>
+      </Box>
+    </Box>
   );
 }
-

@@ -1,7 +1,29 @@
 "use client";
 
+import {
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+  Paper
+} from "@mui/material";
 import { formatDuration } from "@/src/lib/spa-home/recurrence";
-import { formatModalidad, isMeetingStartingSoon, getPreparacionDisplay, getEncargado, resolveZoomJoinUrl, formatZoomDateTime } from "./spa-tabs-utils";
+import {
+  formatModalidad,
+  isMeetingStartingSoon,
+  getPreparacionDisplay,
+  getEncargado,
+  resolveZoomJoinUrl,
+  formatZoomDateTime
+} from "./spa-tabs-utils";
 import type { AgendaEvent } from "@/src/services/agendaApi";
 
 interface SpaTabAgendaLibreProps {
@@ -16,97 +38,104 @@ export function SpaTabAgendaLibre({
   onSetInterest
 }: SpaTabAgendaLibreProps) {
   return (
-    <article className="card">
-      <h3 style={{ marginTop: 0 }}>Agenda Libre</h3>
-      <p className="muted" style={{ marginTop: 0 }}>
-        Vista para asistentes Zoom. Aqui solo se muestran instancias sin persona asignada.
-      </p>
-      {agendaLibre.length === 0 && <p className="muted">No hay eventos abiertos para interes.</p>}
-      {agendaLibre.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>Modalidad</th>
-              <th>Nombre actividad</th>
-              <th>Dia y hora</th>
-              <th>Duracion</th>
-              <th>Preparacion</th>
-              <th>Cuenta Zoom a manejar</th>
-              <th>Programa</th>
-              <th>Encargado</th>
-              <th>Link</th>
-              <th>Interes</th>
-              <th>Accion</th>
-            </tr>
-          </thead>
-          <tbody>
-            {agendaLibre.map((item) => {
-              const joinUrl = resolveZoomJoinUrl(item.zoomJoinUrl, item.zoomMeetingId);
-              const currentInterest = item.intereses[0]?.estadoInteres || "SIN_RESPUESTA";
+    <Card variant="outlined" sx={{ borderRadius: 3 }}>
+      <CardContent>
+        <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
+          Agenda libre
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Vista para asistentes Zoom. Aqui solo se muestran instancias sin persona asignada.
+        </Typography>
 
-              return (
-                <tr
-                  key={item.id}
-                  style={isMeetingStartingSoon(item.inicioProgramadoAt) ? { backgroundColor: "#fff6cc" } : undefined}
-                >
-                  <td>{formatModalidad(item.solicitud.modalidadReunion)}</td>
-                  <td>{item.solicitud.titulo}</td>
-                  <td>{formatZoomDateTime(item.inicioProgramadoAt)} a {formatZoomDateTime(item.finProgramadoAt)}</td>
-                  <td className="mono">{formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)}</td>
-                  <td className="mono">{getPreparacionDisplay(item)}</td>
-                  <td>{item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || ""}</td>
-                  <td>{item.solicitud.programaNombre || ""}</td>
-                  <td>{getEncargado(item) || item.solicitud.responsableNombre || ""}</td>
-                  <td>
-                    {joinUrl ? (
-                      <a
-                        href={joinUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn success"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: "6px 10px",
-                          borderRadius: 8,
-                          fontSize: "0.85rem",
-                          lineHeight: 1.1
-                        }}
-                      >
-                        Abrir link
-                      </a>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                  <td>{currentInterest}</td>
-                  <td>
-                    <div style={{ display: "inline-flex", gap: 8 }}>
-                      <button
-                        className={currentInterest === "ME_INTERESA" ? "btn primary" : "btn ghost"}
-                        onClick={() => onSetInterest(item.id, "ME_INTERESA")}
-                        type="button"
-                        disabled={updatingInterestId === item.id}
-                      >
-                        Me interesa
-                      </button>
-                      <button
-                        className={currentInterest === "NO_ME_INTERESA" ? "btn primary" : "btn ghost"}
-                        onClick={() => onSetInterest(item.id, "NO_ME_INTERESA")}
-                        type="button"
-                        disabled={updatingInterestId === item.id}
-                      >
-                        No me interesa
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </article>
+        {agendaLibre.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No hay eventos abiertos para interes.
+          </Typography>
+        ) : (
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Modalidad</TableCell>
+                  <TableCell>Nombre actividad</TableCell>
+                  <TableCell>Dia y hora</TableCell>
+                  <TableCell>Duracion</TableCell>
+                  <TableCell>Preparacion</TableCell>
+                  <TableCell>Cuenta Zoom</TableCell>
+                  <TableCell>Programa</TableCell>
+                  <TableCell>Encargado</TableCell>
+                  <TableCell>Link</TableCell>
+                  <TableCell>Interes</TableCell>
+                  <TableCell>Accion</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {agendaLibre.map((item) => {
+                  const joinUrl = resolveZoomJoinUrl(item.zoomJoinUrl, item.zoomMeetingId);
+                  const currentInterest = item.intereses[0]?.estadoInteres || "SIN_RESPUESTA";
+
+                  return (
+                    <TableRow
+                      key={item.id}
+                      hover
+                      sx={isMeetingStartingSoon(item.inicioProgramadoAt) ? { backgroundColor: "warning.50" } : undefined}
+                    >
+                      <TableCell>{formatModalidad(item.solicitud.modalidadReunion)}</TableCell>
+                      <TableCell>{item.solicitud.titulo}</TableCell>
+                      <TableCell>
+                        {formatZoomDateTime(item.inicioProgramadoAt)} a {formatZoomDateTime(item.finProgramadoAt)}
+                      </TableCell>
+                      <TableCell sx={{ fontFamily: "monospace" }}>
+                        {formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)}
+                      </TableCell>
+                      <TableCell sx={{ fontFamily: "monospace" }}>{getPreparacionDisplay(item)}</TableCell>
+                      <TableCell>{item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || ""}</TableCell>
+                      <TableCell>{item.solicitud.programaNombre || ""}</TableCell>
+                      <TableCell>{getEncargado(item) || item.solicitud.responsableNombre || ""}</TableCell>
+                      <TableCell>
+                        {joinUrl ? (
+                          <Button size="small" variant="contained" color="secondary" href={joinUrl} target="_blank" rel="noreferrer">
+                            Abrir
+                          </Button>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          color={currentInterest === "ME_INTERESA" ? "success" : currentInterest === "NO_ME_INTERESA" ? "default" : "warning"}
+                          label={currentInterest}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1}>
+                          <Button
+                            size="small"
+                            variant={currentInterest === "ME_INTERESA" ? "contained" : "outlined"}
+                            onClick={() => onSetInterest(item.id, "ME_INTERESA")}
+                            disabled={updatingInterestId === item.id}
+                          >
+                            Me interesa
+                          </Button>
+                          <Button
+                            size="small"
+                            variant={currentInterest === "NO_ME_INTERESA" ? "contained" : "outlined"}
+                            onClick={() => onSetInterest(item.id, "NO_ME_INTERESA")}
+                            disabled={updatingInterestId === item.id}
+                          >
+                            No me interesa
+                          </Button>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </CardContent>
+    </Card>
   );
 }

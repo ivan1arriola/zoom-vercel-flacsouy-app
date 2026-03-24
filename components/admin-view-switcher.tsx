@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { FormControl, InputLabel, MenuItem, Select } from "@mui/material";
 
 const SUPPORT_VIEW_ROLE = "SOPORTE_ZOOM";
 
@@ -8,7 +9,7 @@ const viewOptions = [
   { value: "ADMINISTRADOR", label: "Administrador" },
   { value: "DOCENTE", label: "Docente" },
   { value: SUPPORT_VIEW_ROLE, label: "Asistente / Soporte Zoom" },
-  { value: "CONTADURIA", label: "Contaduría" }
+  { value: "CONTADURIA", label: "Contaduria" }
 ] as const;
 
 function normalizeViewRole(raw: string): string {
@@ -39,17 +40,20 @@ export function AdminViewSwitcher() {
   }
 
   return (
-    <label style={{ display: "inline-block", minWidth: 210, textAlign: "left" }}>
-      <span className="muted" style={{ fontWeight: 700, fontSize: "0.85rem" }}>
-        Modo de vista
-      </span>
-      <select value={currentValue} onChange={(e) => onChange(e.target.value)} style={{ marginTop: 6 }}>
+    <FormControl size="small" sx={{ minWidth: 230 }}>
+      <InputLabel id="view-mode-label">Modo de vista</InputLabel>
+      <Select
+        labelId="view-mode-label"
+        value={currentValue}
+        label="Modo de vista"
+        onChange={(e) => onChange(String(e.target.value))}
+      >
         {viewOptions.map((option) => (
-          <option key={option.value} value={option.value}>
+          <MenuItem key={option.value} value={option.value}>
             {option.label}
-          </option>
+          </MenuItem>
         ))}
-      </select>
-    </label>
+      </Select>
+    </FormControl>
   );
 }

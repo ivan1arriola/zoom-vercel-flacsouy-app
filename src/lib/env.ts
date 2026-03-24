@@ -25,6 +25,7 @@ const envSchema = z.object({
   ZOOM_ACCOUNT_ID: z.string().optional(),
   ZOOM_GROUP_ID: z.string().optional(),
   ZOOM_WEBHOOK_SECRET_TOKEN: z.string().optional(),
+  PASSWORD_WEBHOOK_URL: z.string().url().optional(),
   ZOOM_API_BASE: z.string().default("https://api.zoom.us/v2"),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
   GOOGLE_PRIVATE_KEY: z.string().optional(),
