@@ -9,12 +9,12 @@ export function usePastMeetings() {
     titulo: "",
     modalidadReunion: "VIRTUAL",
     docenteEmail: "",
+    responsableEmail: "",
     monitorEmail: "",
     zoomMeetingId: "",
     inicioRealAt: "",
     finRealAt: "",
     programaNombre: "",
-    responsableNombre: "",
     descripcion: "",
     zoomJoinUrl: ""
   });

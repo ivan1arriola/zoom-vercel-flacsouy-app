@@ -13,12 +13,27 @@ import {
 import { ZoomMeetingsClient } from "@/src/lib/zoom-meetings.client";
 
 export const runtime = "nodejs";
+const DEFAULT_MONTHS_BACK = 1;
+const MAX_MONTHS_BACK = 12;
 
 function getString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-export async function GET() {
+function parseMonthsBack(raw: string | null): number {
+  if (!raw) return DEFAULT_MONTHS_BACK;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_MONTHS_BACK;
+  const rounded = Math.floor(parsed);
+  if (rounded < 1) return DEFAULT_MONTHS_BACK;
+  return Math.min(rounded, MAX_MONTHS_BACK);
+}
+
+function toDateOnly(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+export async function GET(request: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -32,6 +47,14 @@ export async function GET() {
       { status: 400 }
     );
   }
+
+  const { searchParams } = new URL(request.url);
+  const monthsBack = parseMonthsBack(searchParams.get("monthsBack"));
+  const toDate = new Date();
+  const fromDate = new Date(toDate);
+  fromDate.setUTCMonth(fromDate.getUTCMonth() - monthsBack);
+  const from = toDateOnly(fromDate);
+  const to = toDateOnly(toDate);
 
   try {
     const zoom = await ZoomMeetingsClient.fromAccountCredentials();
@@ -50,7 +73,12 @@ export async function GET() {
 
         const previousMeetings = memberId
           ? await zoom
-              .listUserMeetings(memberId, { type: "previous_meetings", page_size: 300 })
+              .listUserMeetings(memberId, {
+                type: "previous_meetings",
+                page_size: 300,
+                from,
+                to
+              })
               .catch(() => ({} as Record<string, unknown>))
           : ({} as Record<string, unknown>);
 
@@ -90,6 +118,10 @@ export async function GET() {
       groupName,
       total: events.length,
       events,
+      monthsBack,
+      canLoadMoreBack: monthsBack < MAX_MONTHS_BACK,
+      windowStart: from,
+      windowEnd: to,
       generatedAt: new Date().toISOString()
     });
   } catch (error) {
@@ -99,4 +131,3 @@ export async function GET() {
     );
   }
 }
-

@@ -9,6 +9,9 @@ interface SpaTabPasadasReunionesZoomProps {
   isLoading: boolean;
   onRefresh: () => void;
   onCreatePostMeetingRecord?: (meeting: ZoomPastMeeting) => void;
+  onLoadMoreBack?: () => void;
+  canLoadMoreBack?: boolean;
+  isLoadingMoreBack?: boolean;
 }
 
 export function SpaTabPasadasReunionesZoom({
@@ -16,7 +19,10 @@ export function SpaTabPasadasReunionesZoom({
   meetings,
   isLoading,
   onRefresh,
-  onCreatePostMeetingRecord
+  onCreatePostMeetingRecord,
+  onLoadMoreBack,
+  canLoadMoreBack,
+  isLoadingMoreBack
 }: SpaTabPasadasReunionesZoomProps) {
   return (
     <SpaTabProximasReuniones
@@ -27,7 +33,11 @@ export function SpaTabPasadasReunionesZoom({
       isLoading={isLoading}
       onRefresh={onRefresh}
       onCreatePostMeetingRecord={onCreatePostMeetingRecord}
+      enablePastMeetingDetails
+      defaultDetailsExpanded
+      onLoadMoreBack={onLoadMoreBack}
+      canLoadMoreBack={canLoadMoreBack}
+      isLoadingMoreBack={isLoadingMoreBack}
     />
   );
 }
-

@@ -92,7 +92,6 @@ export function SpaTabUsuarios({
               onChange={(e) => setCreateUserForm((prev) => ({ ...prev, role: e.target.value }))}
             >
               <MenuItem value="DOCENTE">Docente</MenuItem>
-              <MenuItem value="SOPORTE_ZOOM">Soporte Zoom</MenuItem>
               <MenuItem value="ASISTENTE_ZOOM">Asistente Zoom</MenuItem>
               <MenuItem value="CONTADURIA">Contaduria</MenuItem>
               <MenuItem value="ADMINISTRADOR">Administrador</MenuItem>

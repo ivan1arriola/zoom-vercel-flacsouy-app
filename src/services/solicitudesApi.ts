@@ -25,6 +25,9 @@ export type Solicitud = {
     estadoEvento?: string | null;
     status?: string | null;
     joinUrl?: string | null;
+    requiereAsistencia?: boolean | null;
+    monitorNombre?: string | null;
+    monitorEmail?: string | null;
   }>;
   cuentaZoomAsignada?: {
     id: string;

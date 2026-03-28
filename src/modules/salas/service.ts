@@ -1,5 +1,6 @@
 import {
   CuentaZoom,
+  EstadoEjecucionEvento,
   EstadoCoberturaSoporte,
   EstadoEventoZoom,
   EstadoInteresAsistente,
@@ -51,6 +52,9 @@ type ZoomOccurrenceSnapshot = {
   estadoEvento?: string | null;
   status: string | null;
   joinUrl: string | null;
+  requiereAsistencia?: boolean | null;
+  monitorNombre?: string | null;
+  monitorEmail?: string | null;
 };
 
 type ZoomMeetingSnapshot = {
@@ -111,6 +115,30 @@ function toDate(value: string, field: string): Date {
     throw new Error(`${field} inválida.`);
   }
   return d;
+}
+
+function getUserDisplayName(user: {
+  email: string;
+  name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+}) {
+  return (
+    user.name ||
+    [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+    user.email
+  );
+}
+
+function toMonthKey(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    timeZone
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  return `${year}-${month}`;
 }
 
 function normalizeZoomMeetingId(raw?: string | null): string | null {
@@ -598,7 +626,10 @@ function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSna
       endTime,
       durationMinutes,
       status,
-      joinUrl: joinUrlForOccurrence
+      joinUrl: joinUrlForOccurrence,
+      requiereAsistencia: null,
+      monitorNombre: null,
+      monitorEmail: null
     });
   }
 
@@ -613,7 +644,10 @@ function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSna
           endTime: new Date(parsedStart.getTime() + defaultDuration * 60_000).toISOString(),
           durationMinutes: defaultDuration,
           status: typeof data.status === "string" ? data.status : null,
-          joinUrl
+          joinUrl,
+          requiereAsistencia: null,
+          monitorNombre: null,
+          monitorEmail: null
         });
       }
     }
@@ -1386,8 +1420,31 @@ export class SalasService {
             finProgramadoAt: true,
             estadoEvento: true,
             estadoCobertura: true,
+            requiereAsistencia: true,
             zoomMeetingId: true,
-            zoomJoinUrl: true
+            zoomJoinUrl: true,
+            asignaciones: {
+              where: {
+                tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+                estadoAsignacion: { in: ["ASIGNADO", "ACEPTADO"] }
+              },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                asistente: {
+                  select: {
+                    usuario: {
+                      select: {
+                        email: true,
+                        name: true,
+                        firstName: true,
+                        lastName: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         cuentaZoomAsignada: {
@@ -1438,19 +1495,31 @@ export class SalasService {
       const meetingId = normalizeZoomMeetingId(solicitud.meetingPrincipalId);
       const snapshot = meetingId ? snapshotsByMeetingId.get(meetingId) : undefined;
 
-      let fallbackInstances: ZoomOccurrenceSnapshot[] = solicitud.eventos.map((event) => ({
-        eventId: event.id,
-        occurrenceId: null,
-        startTime: event.inicioProgramadoAt.toISOString(),
-        endTime: event.finProgramadoAt.toISOString(),
-        durationMinutes: Math.max(
-          1,
-          Math.floor((event.finProgramadoAt.getTime() - event.inicioProgramadoAt.getTime()) / 60000)
-        ),
-        estadoEvento: event.estadoEvento,
-        status: null,
-        joinUrl: event.zoomJoinUrl ?? null
-      }));
+      let fallbackInstances: ZoomOccurrenceSnapshot[] = solicitud.eventos.map((event) => {
+        const monitor = event.asignaciones[0]?.asistente.usuario ?? null;
+        const monitorNombre = monitor
+          ? monitor.name ||
+            [monitor.firstName, monitor.lastName].filter(Boolean).join(" ").trim() ||
+            monitor.email
+          : null;
+
+        return {
+          eventId: event.id,
+          occurrenceId: null,
+          startTime: event.inicioProgramadoAt.toISOString(),
+          endTime: event.finProgramadoAt.toISOString(),
+          durationMinutes: Math.max(
+            1,
+            Math.floor((event.finProgramadoAt.getTime() - event.inicioProgramadoAt.getTime()) / 60000)
+          ),
+          estadoEvento: event.estadoEvento,
+          status: null,
+          joinUrl: event.zoomJoinUrl ?? null,
+          requiereAsistencia: event.requiereAsistencia,
+          monitorNombre,
+          monitorEmail: monitor?.email ?? null
+        };
+      });
 
       if (fallbackInstances.length === 0 && Array.isArray(solicitud.fechasInstancias)) {
         fallbackInstances = solicitud.fechasInstancias
@@ -1475,7 +1544,10 @@ export class SalasService {
               ),
               estadoEvento: null,
               status: null,
-              joinUrl: null
+              joinUrl: null,
+              requiereAsistencia: solicitud.requiereAsistencia,
+              monitorNombre: null,
+              monitorEmail: null
             } as ZoomOccurrenceSnapshot;
           })
           .filter((item): item is ZoomOccurrenceSnapshot => item !== undefined);
@@ -1533,7 +1605,10 @@ export class SalasService {
             snapshotInstance.joinUrl ??
             matchedFallback?.joinUrl ??
             snapshot?.joinUrl ??
-            null
+            null,
+          requiereAsistencia: matchedFallback?.requiereAsistencia ?? solicitud.requiereAsistencia,
+          monitorNombre: matchedFallback?.monitorNombre ?? null,
+          monitorEmail: matchedFallback?.monitorEmail ?? null
         });
       }
 
@@ -2710,8 +2785,15 @@ export class SalasService {
       db.eventoZoom.findMany({
         where: {
           requiereAsistencia: true,
-          estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR,
-          agendaCierraAt: { gt: new Date() }
+          estadoCobertura: {
+            in: [
+              EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR,
+              EstadoCoberturaSoporte.ASIGNADO,
+              EstadoCoberturaSoporte.CONFIRMADO
+            ]
+          },
+          estadoEvento: { in: [EstadoEventoZoom.CREADO_ZOOM, EstadoEventoZoom.PROGRAMADO] },
+          inicioProgramadoAt: { gt: new Date() }
         },
         include: {
           cuentaZoom: {
@@ -2747,6 +2829,25 @@ export class SalasService {
                 }
               }
             }
+          },
+          asignaciones: {
+            where: {
+              tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+              estadoAsignacion: { in: ["ASIGNADO", "ACEPTADO"] }
+            },
+            select: {
+              estadoAsignacion: true,
+              asistenteZoomId: true,
+              asistente: {
+                select: {
+                  usuario: {
+                    select: { email: true, name: true, firstName: true, lastName: true }
+                  }
+                }
+              }
+            },
+            orderBy: { createdAt: "desc" },
+            take: 1
           }
         },
         orderBy: { inicioProgramadoAt: "asc" }
@@ -2772,28 +2873,48 @@ export class SalasService {
     ]);
 
     return {
-      events: events.map((event) => ({
-        id: event.id,
-        inicioProgramadoAt: event.inicioProgramadoAt,
-        finProgramadoAt: event.finProgramadoAt,
-        modalidadReunion: event.modalidadReunion,
-        zoomMeetingId: event.zoomMeetingId,
-        zoomJoinUrl: event.zoomJoinUrl,
-        cuentaZoom: event.cuentaZoom,
-        solicitud: event.solicitud,
-        interesados: event.intereses.map((interest) => {
-          const user = interest.asistente?.usuario;
-          return {
-            asistenteZoomId: interest.asistenteZoomId,
-            email: user?.email ?? "",
-            nombre:
-              user?.name ||
-              [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
-              user?.email ||
-              interest.asistenteZoomId
-          };
-        })
-      })),
+      events: events.map((event) => {
+        const currentAssignment = event.asignaciones[0] ?? null;
+        const currentAssignmentUser = currentAssignment?.asistente?.usuario ?? null;
+
+        return {
+          id: event.id,
+          inicioProgramadoAt: event.inicioProgramadoAt,
+          finProgramadoAt: event.finProgramadoAt,
+          modalidadReunion: event.modalidadReunion,
+          estadoCobertura: event.estadoCobertura,
+          zoomMeetingId: event.zoomMeetingId,
+          zoomJoinUrl: event.zoomJoinUrl,
+          cuentaZoom: event.cuentaZoom,
+          solicitud: event.solicitud,
+          currentAssignment: currentAssignment
+            ? {
+                asistenteZoomId: currentAssignment.asistenteZoomId,
+                estadoAsignacion: currentAssignment.estadoAsignacion,
+                email: currentAssignmentUser?.email ?? "",
+                nombre:
+                  currentAssignmentUser?.name ||
+                  [currentAssignmentUser?.firstName, currentAssignmentUser?.lastName]
+                    .filter(Boolean)
+                    .join(" ") ||
+                  currentAssignmentUser?.email ||
+                  currentAssignment.asistenteZoomId
+              }
+            : null,
+          interesados: event.intereses.map((interest) => {
+            const user = interest.asistente?.usuario;
+            return {
+              asistenteZoomId: interest.asistenteZoomId,
+              email: user?.email ?? "",
+              nombre:
+                user?.name ||
+                [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+                user?.email ||
+                interest.asistenteZoomId
+            };
+          })
+        };
+      }),
       assistants: assistants.map((assistant) => ({
         id: assistant.id,
         email: assistant.usuario.email,
@@ -2979,7 +3100,8 @@ export class SalasService {
 
   async registerPastMeeting(admin: SessionUser, input: {
     docenteEmail: string;
-    monitorEmail?: string;
+    responsableEmail: string;
+    monitorEmail: string;
     zoomMeetingId?: string;
     titulo: string;
     modalidadReunion: ModalidadReunion;
@@ -2987,7 +3109,6 @@ export class SalasService {
     finRealAt: string;
     timezone?: string;
     programaNombre?: string;
-    responsableNombre?: string;
     descripcion?: string;
     zoomJoinUrl?: string;
   }) {
@@ -2996,7 +3117,16 @@ export class SalasService {
       throw new Error("docenteEmail es requerido.");
     }
 
-    const monitorEmail = input.monitorEmail?.trim().toLowerCase() || null;
+    const responsableEmail = input.responsableEmail.trim().toLowerCase();
+    if (!responsableEmail) {
+      throw new Error("responsableEmail es requerido.");
+    }
+
+    const monitorEmail = input.monitorEmail.trim().toLowerCase();
+    if (!monitorEmail) {
+      throw new Error("monitorEmail es requerido.");
+    }
+
     const start = toDate(input.inicioRealAt, "inicioRealAt");
     const end = toDate(input.finRealAt, "finRealAt");
     if (end <= start) {
@@ -3006,35 +3136,44 @@ export class SalasService {
       throw new Error("Solo se pueden registrar reuniones que ya finalizaron.");
     }
 
-    const docenteUser = await db.user.findUnique({ where: { email: docenteEmail } });
+    const docenteUser = await db.user.findUnique({
+      where: { email: docenteEmail },
+      select: { id: true, role: true }
+    });
     if (!docenteUser) {
       throw new Error("No existe un usuario docente con ese email.");
     }
+    const validDocenteRoles: UserRole[] = [UserRole.DOCENTE, UserRole.ADMINISTRADOR];
+    if (!validDocenteRoles.includes(docenteUser.role)) {
+      throw new Error("El docente debe tener rol DOCENTE o ADMINISTRADOR.");
+    }
 
-    let monitorUser:
-      | {
-          id: string;
-          email: string;
-          role: UserRole;
-        }
-      | null = null;
+    const responsableUser = await db.user.findUnique({
+      where: { email: responsableEmail },
+      select: { email: true, firstName: true, lastName: true, role: true }
+    });
+    if (!responsableUser) {
+      throw new Error("No existe un usuario responsable con ese email.");
+    }
+    const validResponsibleRoles: UserRole[] = [UserRole.DOCENTE, UserRole.ADMINISTRADOR];
+    if (!validResponsibleRoles.includes(responsableUser.role)) {
+      throw new Error("La persona responsable debe tener rol DOCENTE o ADMINISTRADOR.");
+    }
 
-    if (monitorEmail) {
-      monitorUser = await db.user.findUnique({
-        where: { email: monitorEmail },
-        select: { id: true, email: true, role: true }
-      });
-      if (!monitorUser) {
-        throw new Error("No existe un usuario de monitoreo con ese email.");
-      }
-      const validMonitorRoles: UserRole[] = [
-        UserRole.ASISTENTE_ZOOM,
-        UserRole.SOPORTE_ZOOM,
-        UserRole.ADMINISTRADOR
-      ];
-      if (!validMonitorRoles.includes(monitorUser.role)) {
-        throw new Error("El usuario de monitoreo debe tener rol ASISTENTE_ZOOM o SOPORTE_ZOOM.");
-      }
+    const monitorUser = await db.user.findUnique({
+      where: { email: monitorEmail },
+      select: { id: true, email: true, role: true }
+    });
+    if (!monitorUser) {
+      throw new Error("No existe un usuario de monitoreo con ese email.");
+    }
+    const validMonitorRoles: UserRole[] = [
+      UserRole.ASISTENTE_ZOOM,
+      UserRole.SOPORTE_ZOOM,
+      UserRole.ADMINISTRADOR
+    ];
+    if (!validMonitorRoles.includes(monitorUser.role)) {
+      throw new Error("El usuario de monitoreo debe tener rol ASISTENTE_ZOOM, SOPORTE_ZOOM o ADMINISTRADOR.");
     }
 
     const account = await getOrCreateCuentaZoomDefault();
@@ -3043,7 +3182,7 @@ export class SalasService {
     }
 
     const rate = await getActiveRate(input.modalidadReunion);
-    if (monitorUser && !rate) {
+    if (!rate) {
       throw new Error("No hay tarifa activa para registrar pagos de monitoreo.");
     }
 
@@ -3069,6 +3208,9 @@ export class SalasService {
     const meetingId = normalizedMeetingId;
     const timezone = input.timezone ?? "America/Montevideo";
     const joinUrl = buildZoomJoinUrlFromMeetingId(meetingId);
+    const responsableNombre =
+      [responsableUser.firstName, responsableUser.lastName].filter(Boolean).join(" ").trim() ||
+      responsableUser.email;
     let zoomPastMeetingId: string | null = null;
     let zoomPastParticipantsCount: number | null = null;
     let zoomPastInstancesCount: number | null = null;
@@ -3144,7 +3286,7 @@ export class SalasService {
           createdByUserId: admin.id,
           cuentaZoomAsignadaId: account.id,
           titulo: input.titulo,
-          responsableNombre: input.responsableNombre,
+          responsableNombre,
           programaNombre: input.programaNombre,
           descripcion: input.descripcion ?? "Registro administrativo de reunion ya ejecutada.",
           modalidadReunion: input.modalidadReunion,
@@ -3154,8 +3296,8 @@ export class SalasService {
           fechaInicioSolicitada: start,
           fechaFinSolicitada: end,
           timezone,
-          requiereAsistencia: Boolean(monitorUser),
-          motivoAsistencia: monitorUser ? "Registro manual para pago de monitoreo." : null,
+          requiereAsistencia: true,
+          motivoAsistencia: "Registro manual para pago de monitoreo.",
           estadoSolicitud: EstadoSolicitudSala.PROVISIONADA
         }
       });
@@ -3169,10 +3311,8 @@ export class SalasService {
           inicioProgramadoAt: start,
           finProgramadoAt: end,
           timezone,
-          requiereAsistencia: Boolean(monitorUser),
-          estadoCobertura: monitorUser
-            ? EstadoCoberturaSoporte.CONFIRMADO
-            : EstadoCoberturaSoporte.NO_REQUIERE,
+          requiereAsistencia: true,
+          estadoCobertura: EstadoCoberturaSoporte.CONFIRMADO,
           estadoEvento: "FINALIZADO",
           estadoEjecucion: "EJECUTADO",
           zoomMeetingId: meetingId,
@@ -3186,33 +3326,29 @@ export class SalasService {
         }
       });
 
-      let assignment: { id: string } | null = null;
+      const assistant = await tx.asistenteZoom.upsert({
+        where: { usuarioId: monitorUser.id },
+        create: { usuarioId: monitorUser.id },
+        update: {}
+      });
 
-      if (monitorUser) {
-        const assistant = await tx.asistenteZoom.upsert({
-          where: { usuarioId: monitorUser.id },
-          create: { usuarioId: monitorUser.id },
-          update: {}
-        });
-
-        assignment = await tx.asignacionAsistente.create({
-          data: {
-            eventoZoomId: event.id,
-            asistenteZoomId: assistant.id,
-            tipoAsignacion: "PRINCIPAL",
-            estadoAsignacion: "ACEPTADO",
-            asignadoPorUsuarioId: admin.id,
-            motivoAsignacion: "Registro manual de reunion ya ejecutada.",
-            fechaRespuestaAt: new Date(),
-            modalidadSnapshot: input.modalidadReunion,
-            tarifaAplicadaHora: rate?.valorHora ?? new Prisma.Decimal(0),
-            moneda: rate?.moneda ?? "UYU",
-            montoEstimado: amount,
-            montoConfirmado: amount
-          },
-          select: { id: true }
-        });
-      }
+      const assignment = await tx.asignacionAsistente.create({
+        data: {
+          eventoZoomId: event.id,
+          asistenteZoomId: assistant.id,
+          tipoAsignacion: "PRINCIPAL",
+          estadoAsignacion: "ACEPTADO",
+          asignadoPorUsuarioId: admin.id,
+          motivoAsignacion: "Registro manual de reunion ya ejecutada.",
+          fechaRespuestaAt: new Date(),
+          modalidadSnapshot: input.modalidadReunion,
+          tarifaAplicadaHora: rate.valorHora,
+          moneda: rate.moneda,
+          montoEstimado: amount,
+          montoConfirmado: amount
+        },
+        select: { id: true }
+      });
 
       await tx.auditoria.create({
         data: {
@@ -3223,8 +3359,9 @@ export class SalasService {
           valorNuevo: {
             solicitudId: solicitud.id,
             eventoId: event.id,
-            asignacionId: assignment?.id ?? null,
+            asignacionId: assignment.id,
             docenteEmail,
+            responsableEmail,
             monitorEmail,
             zoomPastMeetingId,
             zoomPastParticipantsCount,
@@ -3237,7 +3374,7 @@ export class SalasService {
       return {
         solicitudId: solicitud.id,
         eventoId: event.id,
-        asignacionId: assignment?.id ?? null
+        asignacionId: assignment.id
       };
     });
 
@@ -3250,7 +3387,8 @@ export class SalasService {
       summary: input.titulo,
       details: {
         docenteEmail,
-        monitorEmail: monitorEmail ?? "",
+        responsableEmail,
+        monitorEmail,
         modalidadReunion: input.modalidadReunion
       }
     });
@@ -3272,6 +3410,207 @@ export class SalasService {
     }
 
     return Array.from(uniqueByModalidad.values());
+  }
+
+  async listPersonMeetingHours(input: { userId?: string | null }) {
+    const peopleRows = await db.user.findMany({
+      where: {
+        role: { in: [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM, UserRole.ADMINISTRADOR] }
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        asistenteProfile: {
+          select: { id: true }
+        }
+      },
+      orderBy: [{ email: "asc" }]
+    });
+
+    const people = peopleRows.map((user) => ({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      nombre: getUserDisplayName(user),
+      hasAssistantProfile: Boolean(user.asistenteProfile?.id)
+    }));
+
+    const requestedUserId = (input.userId ?? "").trim();
+    const selectedUserId = people.some((item) => item.userId === requestedUserId)
+      ? requestedUserId
+      : (people[0]?.userId ?? null);
+    const selectedPerson = selectedUserId
+      ? people.find((item) => item.userId === selectedUserId) ?? null
+      : null;
+
+    if (!selectedUserId || !selectedPerson?.hasAssistantProfile) {
+      return {
+        people,
+        selectedUserId,
+        selectedPerson,
+        totals: {
+          meetingsTotal: 0,
+          completedMeetingsTotal: 0,
+          completedMinutesTotal: 0,
+          completedHoursTotal: 0
+        },
+        monthSummaries: [] as Array<{
+          monthKey: string;
+          year: number;
+          month: number;
+          meetingsCount: number;
+          totalMinutes: number;
+          totalHours: number;
+        }>,
+        meetings: [] as Array<{
+          assignmentId: string;
+          eventId: string;
+          solicitudId: string;
+          titulo: string;
+          programaNombre: string | null;
+          modalidadReunion: ModalidadReunion;
+          inicioAt: string;
+          finAt: string;
+          minutos: number;
+          estadoEvento: EstadoEventoZoom;
+          estadoEjecucion: EstadoEjecucionEvento;
+          estadoAsignacion: string;
+          zoomMeetingId: string | null;
+          zoomJoinUrl: string | null;
+          isCompleted: boolean;
+        }>
+      };
+    }
+
+    const assignments = await db.asignacionAsistente.findMany({
+      where: {
+        tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+        estadoAsignacion: { in: ["ASIGNADO", "ACEPTADO"] },
+        asistente: { usuarioId: selectedUserId }
+      },
+      select: {
+        id: true,
+        estadoAsignacion: true,
+        evento: {
+          select: {
+            id: true,
+            solicitudSalaId: true,
+            modalidadReunion: true,
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            inicioRealAt: true,
+            finRealAt: true,
+            minutosReales: true,
+            estadoEvento: true,
+            estadoEjecucion: true,
+            timezone: true,
+            zoomMeetingId: true,
+            zoomJoinUrl: true,
+            solicitud: {
+              select: {
+                titulo: true,
+                programaNombre: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        evento: {
+          inicioProgramadoAt: "desc"
+        }
+      }
+    });
+
+    const now = new Date();
+    const meetings = assignments.map((assignment) => {
+      const event = assignment.evento;
+      const start = event.inicioRealAt ?? event.inicioProgramadoAt;
+      const end = event.finRealAt ?? event.finProgramadoAt;
+      const durationMinutes =
+        event.minutosReales ??
+        Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
+
+      const isCompleted =
+        event.estadoEjecucion === EstadoEjecucionEvento.EJECUTADO ||
+        (
+          end <= now &&
+          event.estadoEvento !== EstadoEventoZoom.CANCELADO &&
+          event.estadoEjecucion !== EstadoEjecucionEvento.NO_REALIZADO
+        );
+
+      return {
+        assignmentId: assignment.id,
+        eventId: event.id,
+        solicitudId: event.solicitudSalaId,
+        titulo: event.solicitud.titulo,
+        programaNombre: event.solicitud.programaNombre ?? null,
+        modalidadReunion: event.modalidadReunion,
+        inicioAt: start.toISOString(),
+        finAt: end.toISOString(),
+        minutos: durationMinutes,
+        estadoEvento: event.estadoEvento,
+        estadoEjecucion: event.estadoEjecucion,
+        estadoAsignacion: assignment.estadoAsignacion,
+        zoomMeetingId: event.zoomMeetingId,
+        zoomJoinUrl: event.zoomJoinUrl,
+        isCompleted,
+        timezone: event.timezone || "America/Montevideo"
+      };
+    });
+
+    const completedMeetings = meetings.filter((meeting) => meeting.isCompleted);
+    const monthAccumulator = new Map<string, {
+      monthKey: string;
+      year: number;
+      month: number;
+      meetingsCount: number;
+      totalMinutes: number;
+    }>();
+
+    for (const meeting of completedMeetings) {
+      const monthKey = toMonthKey(new Date(meeting.inicioAt), meeting.timezone);
+      const [yearRaw = "0", monthRaw = "0"] = monthKey.split("-");
+      const year = Number(yearRaw);
+      const month = Number(monthRaw);
+      const current = monthAccumulator.get(monthKey) ?? {
+        monthKey,
+        year,
+        month,
+        meetingsCount: 0,
+        totalMinutes: 0
+      };
+      current.meetingsCount += 1;
+      current.totalMinutes += meeting.minutos;
+      monthAccumulator.set(monthKey, current);
+    }
+
+    const monthSummaries = Array.from(monthAccumulator.values())
+      .sort((a, b) => b.monthKey.localeCompare(a.monthKey))
+      .map((item) => ({
+        ...item,
+        totalHours: Math.round((item.totalMinutes / 60) * 100) / 100
+      }));
+
+    const completedMinutesTotal = completedMeetings.reduce((acc, meeting) => acc + meeting.minutos, 0);
+
+    return {
+      people,
+      selectedUserId,
+      selectedPerson,
+      totals: {
+        meetingsTotal: meetings.length,
+        completedMeetingsTotal: completedMeetings.length,
+        completedMinutesTotal,
+        completedHoursTotal: Math.round((completedMinutesTotal / 60) * 100) / 100
+      },
+      monthSummaries,
+      meetings: meetings.map(({ timezone: _timezone, ...meeting }) => meeting)
+    };
   }
 
   async createTarifa(user: SessionUser, input: {

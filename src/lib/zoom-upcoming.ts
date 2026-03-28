@@ -5,6 +5,7 @@ export type ZoomMeetingKind = "UNICA" | "RECURRENTE";
 export type ZoomUpcomingEvent = {
   id: string;
   meetingId: string | null;
+  meetingUuid: string | null;
   occurrenceId: string | null;
   topic: string;
   startTime: string;
@@ -60,6 +61,15 @@ function resolveOccurrenceId(meeting: ZoomUnknownRecord): string | null {
   return asString || null;
 }
 
+function resolveMeetingUuid(meeting: ZoomUnknownRecord): string | null {
+  const direct = getString(meeting.uuid);
+  if (direct) return direct;
+  const nested = meeting.meetingUuid;
+  if (nested === undefined || nested === null) return null;
+  const asString = String(nested).trim();
+  return asString || null;
+}
+
 function getMeetingKindByType(meetingType: number | null): ZoomMeetingKind {
   if (meetingType === 3 || meetingType === 8) return "RECURRENTE";
   return "UNICA";
@@ -92,12 +102,14 @@ export function normalizeZoomUpcomingEvents(
     const meetingType = resolveMeetingType(meeting.type);
     const endDate = new Date(startDate.getTime() + durationMinutes * 60_000);
     const meetingId = normalizeMeetingId(meeting.id);
+    const meetingUuid = resolveMeetingUuid(meeting);
     const occurrenceId = resolveOccurrenceId(meeting);
     const uniqueRowId = [meetingId ?? `${startDate.getTime()}`, occurrenceId ?? startDate.toISOString()].join(":");
 
     result.push({
       id: uniqueRowId,
       meetingId,
+      meetingUuid,
       occurrenceId,
       topic: getString(meeting.topic) || "Sin titulo",
       startTime: startDate.toISOString(),

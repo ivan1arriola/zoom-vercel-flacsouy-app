@@ -7,6 +7,55 @@ export type Tarifa = {
   vigenteDesde?: string;
 };
 
+export type PersonHoursPerson = {
+  userId: string;
+  email: string;
+  role: string;
+  nombre: string;
+  hasAssistantProfile: boolean;
+};
+
+export type PersonHoursMonthSummary = {
+  monthKey: string;
+  year: number;
+  month: number;
+  meetingsCount: number;
+  totalMinutes: number;
+  totalHours: number;
+};
+
+export type PersonHoursMeeting = {
+  assignmentId: string;
+  eventId: string;
+  solicitudId: string;
+  titulo: string;
+  programaNombre: string | null;
+  modalidadReunion: string;
+  inicioAt: string;
+  finAt: string;
+  minutos: number;
+  estadoEvento: string;
+  estadoEjecucion: string;
+  estadoAsignacion: string;
+  zoomMeetingId: string | null;
+  zoomJoinUrl: string | null;
+  isCompleted: boolean;
+};
+
+export type PersonHoursResponse = {
+  people: PersonHoursPerson[];
+  selectedUserId: string | null;
+  selectedPerson: PersonHoursPerson | null;
+  totals: {
+    meetingsTotal: number;
+    completedMeetingsTotal: number;
+    completedMinutesTotal: number;
+    completedHoursTotal: number;
+  };
+  monthSummaries: PersonHoursMonthSummary[];
+  meetings: PersonHoursMeeting[];
+};
+
 export async function loadTarifas(): Promise<Tarifa[] | null> {
   const res = await fetch("/api/v1/tarifas-asistencia", { cache: "no-store" });
   if (!res.ok) return null;
@@ -40,4 +89,12 @@ export async function submitTarifaUpdate(payload: Record<string, unknown>): Prom
     };
   }
   return { success: true };
+}
+
+export async function loadPersonHours(userId?: string): Promise<PersonHoursResponse | null> {
+  const query = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  const res = await fetch(`/api/v1/tarifas-asistencia/personas${query}`, { cache: "no-store" });
+  if (!res.ok) return null;
+  const json = (await res.json()) as PersonHoursResponse;
+  return json;
 }

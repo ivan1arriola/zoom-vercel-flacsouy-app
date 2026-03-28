@@ -117,8 +117,7 @@ export function formatZoomDateTime(value: string): string {
 export function formatManagedUserRole(role: string): string {
   if (role === "ADMINISTRADOR") return "Administrador";
   if (role === "CONTADURIA") return "Contaduria";
-  if (role === "SOPORTE_ZOOM") return "Soporte Zoom";
-  if (role === "ASISTENTE_ZOOM") return "Asistente Zoom";
+  if (role === "SOPORTE_ZOOM" || role === "ASISTENTE_ZOOM") return "Asistente Zoom";
   if (role === "DOCENTE") return "Docente";
   return role;
 }

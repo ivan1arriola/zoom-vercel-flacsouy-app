@@ -17,11 +17,18 @@ export type AssignmentBoardEvent = {
   inicioProgramadoAt: string;
   finProgramadoAt: string;
   modalidadReunion: string;
+  estadoCobertura?: string;
   zoomMeetingId?: string | null;
   zoomJoinUrl?: string | null;
   cuentaZoom?: {
     nombreCuenta?: string | null;
     ownerEmail?: string | null;
+  } | null;
+  currentAssignment?: {
+    asistenteZoomId: string;
+    estadoAsignacion: string;
+    email: string;
+    nombre: string;
   } | null;
   solicitud: {
     titulo: string;

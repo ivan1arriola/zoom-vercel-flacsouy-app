@@ -387,6 +387,18 @@ export function SpaTabSolicitudes({
     return { label: "Activa", color: "info", cancellable: true };
   }
 
+  function mapInstanciaAsistencia(instance: NonNullable<Solicitud["zoomInstances"]>[number]): {
+    label: string;
+    color: "default" | "success";
+  } {
+    const monitorLabel = instance.monitorNombre?.trim() || instance.monitorEmail?.trim() || "";
+    if (monitorLabel) {
+      return { label: `Asistencia: ${monitorLabel}`, color: "success" };
+    }
+
+    return { label: "Asistencia: no requerida", color: "default" };
+  }
+
   function renderInstanceList(
     item: Solicitud,
     instances: NonNullable<Solicitud["zoomInstances"]>,
@@ -404,6 +416,7 @@ export function SpaTabSolicitudes({
       <Stack spacing={1.2}>
         {instances.map((instance, index) => {
           const status = mapInstanciaStatus(instance.estadoEvento, instance.status);
+          const asistencia = mapInstanciaAsistencia(instance);
           const isInstanceCancelled = isSolicitudCancelled || !status.cancellable;
           const instanceKey = `${item.id}:${instance.eventId ?? instance.occurrenceId ?? instance.startTime}`;
 
@@ -426,6 +439,9 @@ export function SpaTabSolicitudes({
                 </Typography>
                 <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                   <Chip size="small" color={status.color} label={status.label} />
+                  {status.label === "Finalizada" ? (
+                    <Chip size="small" color={asistencia.color} label={asistencia.label} />
+                  ) : null}
                   {instance.occurrenceId ? (
                     <Chip size="small" variant="outlined" label={`occurrence_id ${instance.occurrenceId}`} />
                   ) : null}

@@ -22,12 +22,12 @@ interface PastMeetingForm {
   titulo: string;
   modalidadReunion: string;
   docenteEmail: string;
+  responsableEmail: string;
   monitorEmail: string;
   zoomMeetingId: string;
   inicioRealAt: string;
   finRealAt: string;
   programaNombre: string;
-  responsableNombre: string;
   zoomJoinUrl: string;
   descripcion: string;
 }
@@ -38,6 +38,9 @@ interface SpaTabHistoricoProps {
   onRefreshPastMeetings: () => void;
   pastMeetingForm: PastMeetingForm;
   setPastMeetingForm: (form: PastMeetingForm | ((prev: PastMeetingForm) => PastMeetingForm)) => void;
+  docenteOptions: Array<{ value: string; label: string; nombre: string }>;
+  monitorOptions: Array<{ value: string; label: string; nombre: string }>;
+  programaOptions: string[];
   zoomSeed: {
     meetingId: string;
     topic: string;
@@ -57,6 +60,9 @@ export function SpaTabHistorico({
   onRefreshPastMeetings,
   pastMeetingForm,
   setPastMeetingForm,
+  docenteOptions,
+  monitorOptions,
+  programaOptions,
   zoomSeed,
   onClearZoomSeed,
   isSubmittingPastMeeting,
@@ -236,7 +242,7 @@ export function SpaTabHistorico({
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                 {isZoomSeedMode
                   ? "Datos base sincronizados con Zoom y bloqueados para evitar inconsistencias. Completa solo los datos faltantes."
-                  : "Este registro exige un Meeting ID de Zoom con instancias ya pasadas y crea la solicitud base para liquidacion."}
+                  : "Este registro exige un Meeting ID de Zoom con instancias ya pasadas y una persona de monitoreo asignada."}
               </Typography>
 
               {zoomSeed ? (
@@ -320,6 +326,7 @@ export function SpaTabHistorico({
                   <TextField
                     label="Modalidad"
                     select
+                    required
                     value={pastMeetingForm.modalidadReunion}
                     onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, modalidadReunion: e.target.value }))}
                   >
@@ -327,18 +334,71 @@ export function SpaTabHistorico({
                     <MenuItem value="HIBRIDA">Hibrida</MenuItem>
                   </TextField>
                   <TextField
-                    label="Email docente"
-                    type="email"
+                    label="Docente"
+                    select
                     required
                     value={pastMeetingForm.docenteEmail}
-                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, docenteEmail: e.target.value }))}
-                  />
+                    disabled={docenteOptions.length === 0}
+                    helperText={
+                      docenteOptions.length === 0
+                        ? "No hay docentes/admin disponibles."
+                        : undefined
+                    }
+                    onChange={(e) => {
+                      const selectedEmail = e.target.value;
+                      setPastMeetingForm((prev) => ({
+                        ...prev,
+                        docenteEmail: selectedEmail,
+                        responsableEmail: prev.responsableEmail || selectedEmail
+                      }));
+                    }}
+                  >
+                    {docenteOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
                   <TextField
-                    label="Email monitoreo (opcional)"
-                    type="email"
+                    label="Responsable"
+                    select
+                    required
+                    value={pastMeetingForm.responsableEmail}
+                    disabled={docenteOptions.length === 0}
+                    helperText={
+                      docenteOptions.length === 0
+                        ? "No hay docentes/admin disponibles."
+                        : undefined
+                    }
+                    onChange={(e) =>
+                      setPastMeetingForm((prev) => ({ ...prev, responsableEmail: e.target.value }))
+                    }
+                  >
+                    {docenteOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    label="Asistente Zoom"
+                    select
+                    required
                     value={pastMeetingForm.monitorEmail}
+                    disabled={monitorOptions.length === 0}
+                    helperText={
+                      monitorOptions.length === 0
+                        ? "No hay asistentes/admin disponibles."
+                        : undefined
+                    }
                     onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, monitorEmail: e.target.value }))}
-                  />
+                  >
+                    {monitorOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
                   {!isZoomSeedMode ? (
                     <TextField
                       label="Zoom Meeting ID"
@@ -366,16 +426,28 @@ export function SpaTabHistorico({
                       onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, finRealAt: e.target.value }))}
                     />
                   ) : null}
-                  <TextField
-                    label="Programa (opcional)"
-                    value={pastMeetingForm.programaNombre}
-                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, programaNombre: e.target.value }))}
-                  />
-                  <TextField
-                    label="Responsable (opcional)"
-                    value={pastMeetingForm.responsableNombre}
-                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, responsableNombre: e.target.value }))}
-                  />
+                  {programaOptions.length > 0 ? (
+                    <TextField
+                      label="Programa"
+                      select
+                      required
+                      value={pastMeetingForm.programaNombre}
+                      onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, programaNombre: e.target.value }))}
+                    >
+                      {programaOptions.map((programa) => (
+                        <MenuItem key={programa} value={programa}>
+                          {programa}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  ) : (
+                    <TextField
+                      label="Programa"
+                      required
+                      value={pastMeetingForm.programaNombre}
+                      onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, programaNombre: e.target.value }))}
+                    />
+                  )}
                 </Box>
                 {!isZoomSeedMode ? (
                   <TextField

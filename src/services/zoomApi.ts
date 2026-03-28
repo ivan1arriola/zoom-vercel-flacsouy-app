@@ -35,6 +35,7 @@ export type ZoomAccount = {
 export type ZoomUpcomingMeeting = {
   id: string;
   meetingId: string | null;
+  meetingUuid: string | null;
   occurrenceId: string | null;
   topic: string;
   startTime: string;
@@ -62,6 +63,19 @@ export type ZoomUpcomingMeeting = {
 };
 
 export type ZoomPastMeeting = ZoomUpcomingMeeting;
+
+export type ZoomPastMeetingDetails = {
+  meetingId: string;
+  meetingUuid: string | null;
+  participantsCount: number | null;
+  uniqueParticipantsCount: number | null;
+  qaQuestionsCount: number | null;
+  pastInstancesCount: number | null;
+  durationMinutes: number | null;
+  status: string | null;
+  startTime: string | null;
+  endTime: string | null;
+};
 
 export async function loadZoomAccounts(): Promise<{
   accounts: ZoomAccount[];
@@ -150,6 +164,7 @@ export async function loadZoomUpcomingMeetings(): Promise<{
     .map((meeting): ZoomUpcomingMeeting => ({
       ...meeting,
       meetingId: typeof meeting.meetingId === "string" ? meeting.meetingId : null,
+      meetingUuid: typeof meeting.meetingUuid === "string" ? meeting.meetingUuid : null,
       occurrenceId: typeof meeting.occurrenceId === "string" ? meeting.occurrenceId : null,
       meetingType:
         typeof meeting.meetingType === "number" && Number.isFinite(meeting.meetingType)
@@ -187,22 +202,41 @@ export async function loadZoomUpcomingMeetings(): Promise<{
   };
 }
 
-export async function loadZoomPastMeetings(): Promise<{
+export async function loadZoomPastMeetings(input?: {
+  monthsBack?: number;
+}): Promise<{
   groupName: string;
   meetings: ZoomPastMeeting[];
+  monthsBack: number;
+  canLoadMoreBack: boolean;
   error?: string;
 }> {
-  const res = await fetch("/api/v1/zoom/reuniones-pasadas", { cache: "no-store" });
+  const params = new URLSearchParams();
+  if (input?.monthsBack && Number.isFinite(input.monthsBack)) {
+    params.set("monthsBack", String(Math.max(1, Math.floor(input.monthsBack))));
+  }
+  const query = params.toString();
+  const res = await fetch(
+    `/api/v1/zoom/reuniones-pasadas${query ? `?${query}` : ""}`,
+    { cache: "no-store" }
+  );
   const json = (await res.json()) as {
     error?: string;
     groupName?: string;
     events?: ZoomPastMeeting[];
+    monthsBack?: number;
+    canLoadMoreBack?: boolean;
   };
 
   if (!res.ok) {
     return {
       groupName: "",
       meetings: [],
+      monthsBack:
+        typeof json.monthsBack === "number" && Number.isFinite(json.monthsBack)
+          ? Math.max(1, Math.floor(json.monthsBack))
+          : 1,
+      canLoadMoreBack: false,
       error: json.error ?? "No se pudieron cargar las reuniones pasadas de Zoom."
     };
   }
@@ -211,6 +245,7 @@ export async function loadZoomPastMeetings(): Promise<{
     .map((meeting): ZoomPastMeeting => ({
       ...meeting,
       meetingId: typeof meeting.meetingId === "string" ? meeting.meetingId : null,
+      meetingUuid: typeof meeting.meetingUuid === "string" ? meeting.meetingUuid : null,
       occurrenceId: typeof meeting.occurrenceId === "string" ? meeting.occurrenceId : null,
       meetingType:
         typeof meeting.meetingType === "number" && Number.isFinite(meeting.meetingType)
@@ -244,6 +279,40 @@ export async function loadZoomPastMeetings(): Promise<{
   return {
     groupName: json.groupName ?? "",
     meetings,
+    monthsBack:
+      typeof json.monthsBack === "number" && Number.isFinite(json.monthsBack)
+        ? Math.max(1, Math.floor(json.monthsBack))
+        : 1,
+    canLoadMoreBack: Boolean(json.canLoadMoreBack),
+    error: undefined
+  };
+}
+
+export async function loadZoomPastMeetingDetails(input: {
+  meetingId: string;
+  meetingUuid?: string | null;
+}): Promise<{ details: ZoomPastMeetingDetails | null; error?: string }> {
+  const params = new URLSearchParams();
+  params.set("meetingId", input.meetingId);
+  if (input.meetingUuid) params.set("meetingUuid", input.meetingUuid);
+
+  const res = await fetch(`/api/v1/zoom/reuniones-pasadas/detalle?${params.toString()}`, {
+    cache: "no-store"
+  });
+  const json = (await res.json()) as {
+    error?: string;
+    details?: ZoomPastMeetingDetails;
+  };
+
+  if (!res.ok) {
+    return {
+      details: null,
+      error: json.error ?? "No se pudieron cargar detalles de la reunion."
+    };
+  }
+
+  return {
+    details: json.details ?? null,
     error: undefined
   };
 }

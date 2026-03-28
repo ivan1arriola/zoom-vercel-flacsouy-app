@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 
 const bodySchema = z.object({
   docenteEmail: z.string().trim().email("Email docente invalido."),
-  monitorEmail: z.string().trim().email("Email monitoreo invalido.").optional().or(z.literal("")),
+  responsableEmail: z.string().trim().email("Email responsable invalido."),
+  monitorEmail: z.string().trim().email("Email monitoreo invalido."),
   zoomMeetingId: z.string().trim().optional().or(z.literal("")),
   titulo: z.string().trim().min(3).max(180),
   modalidadReunion: z.nativeEnum(ModalidadReunion),
@@ -16,7 +17,6 @@ const bodySchema = z.object({
   finRealAt: z.string().trim().min(1),
   timezone: z.string().trim().min(1).optional().or(z.literal("")),
   programaNombre: z.string().trim().max(120).optional().or(z.literal("")),
-  responsableNombre: z.string().trim().max(120).optional().or(z.literal("")),
   descripcion: z.string().trim().max(2000).optional().or(z.literal("")),
   zoomJoinUrl: z.string().trim().url("zoomJoinUrl invalida.").optional().or(z.literal(""))
 }).refine(
@@ -53,7 +53,8 @@ export async function POST(request: Request) {
   try {
     const result = await service.registerPastMeeting(user, {
       docenteEmail: parsed.data.docenteEmail,
-      monitorEmail: parsed.data.monitorEmail || undefined,
+      responsableEmail: parsed.data.responsableEmail,
+      monitorEmail: parsed.data.monitorEmail,
       zoomMeetingId: parsed.data.zoomMeetingId || undefined,
       titulo: parsed.data.titulo,
       modalidadReunion: parsed.data.modalidadReunion,
@@ -61,7 +62,6 @@ export async function POST(request: Request) {
       finRealAt: parsed.data.finRealAt,
       timezone: parsed.data.timezone || undefined,
       programaNombre: parsed.data.programaNombre || undefined,
-      responsableNombre: parsed.data.responsableNombre || undefined,
       descripcion: parsed.data.descripcion || undefined,
       zoomJoinUrl: parsed.data.zoomJoinUrl || undefined
     });
