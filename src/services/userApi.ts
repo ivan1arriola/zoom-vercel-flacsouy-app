@@ -47,6 +47,53 @@ export async function submitCreateUser(payload: Record<string, unknown>): Promis
   return { success: true };
 }
 
+export async function submitUpdateUserRole(payload: {
+  userId: string;
+  role: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const response = await fetch("/api/v1/usuarios", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  const data = (await response.json()) as { error?: string };
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo actualizar el rol."
+    };
+  }
+
+  return { success: true };
+}
+
+export async function submitResendUserActivationLink(payload: {
+  userId: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const response = await fetch("/api/v1/usuarios/activation-link", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  const data = (await response.json()) as { error?: string };
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo reenviar el enlace de activacion."
+    };
+  }
+
+  return { success: true };
+}
+
 export async function loadGoogleAccountStatus(): Promise<{
   linked: boolean;
   hasPassword: boolean;

@@ -69,6 +69,7 @@ interface SpaTabSolicitudesProps {
 }
 
 const CREATE_PROGRAMA_VALUE = "__create_programa__";
+type SolicitudesListScope = "ACTIVAS" | "FINALIZADAS";
 
 const zoomWeekdayOptionsFull: Array<{ value: string; label: string }> = [
   { value: "1", label: "Domingo" },
@@ -172,6 +173,7 @@ export function SpaTabSolicitudes({
   const [expandedSolicitudId, setExpandedSolicitudId] = useState<string | null>(null);
   const [createProgramaOpen, setCreateProgramaOpen] = useState(false);
   const [newProgramaNombre, setNewProgramaNombre] = useState("");
+  const [solicitudesListScope, setSolicitudesListScope] = useState<SolicitudesListScope>("ACTIVAS");
 
   function syncDurationFromTimes(startTime: string, endTime: string): string {
     const startMinutes = parseTimeToMinutes(startTime);
@@ -353,9 +355,83 @@ export function SpaTabSolicitudes({
     return { label: estado, color: "default" };
   }
 
+  function isSolicitudCancelledStatus(estadoSolicitud: string): boolean {
+    return estadoSolicitud === "CANCELADA_ADMIN" || estadoSolicitud === "CANCELADA_DOCENTE";
+  }
+
+  function isInstanceCancelledOrFinalizada(instance: NonNullable<Solicitud["zoomInstances"]>[number]): boolean {
+    return instance.estadoEvento === "CANCELADO" || instance.estadoEvento === "FINALIZADO" || instance.status === "deleted";
+  }
+
+  function resolveInstanceEndMs(instance: NonNullable<Solicitud["zoomInstances"]>[number]): number | null {
+    const parsedEnd = instance.endTime ? new Date(instance.endTime).getTime() : Number.NaN;
+    if (Number.isFinite(parsedEnd)) return parsedEnd;
+
+    const parsedStart = new Date(instance.startTime).getTime();
+    if (!Number.isFinite(parsedStart)) return null;
+
+    const durationMinutes = Number(instance.durationMinutes);
+    if (Number.isFinite(durationMinutes) && durationMinutes > 0) {
+      return parsedStart + durationMinutes * 60_000;
+    }
+
+    return parsedStart;
+  }
+
+  function isInstanceActiveOrUpcoming(
+    instance: NonNullable<Solicitud["zoomInstances"]>[number],
+    nowMs: number
+  ): boolean {
+    if (isInstanceCancelledOrFinalizada(instance)) {
+      return false;
+    }
+
+    const endMs = resolveInstanceEndMs(instance);
+    if (endMs === null) {
+      return true;
+    }
+
+    return endMs >= nowMs;
+  }
+
+  const solicitudesByLifecycle = useMemo(() => {
+    const nowMs = Date.now();
+    const activas: Solicitud[] = [];
+    const finalizadas: Solicitud[] = [];
+
+    for (const solicitud of solicitudes) {
+      const instances = solicitud.zoomInstances ?? [];
+      if (instances.length === 0) {
+        if (isSolicitudCancelledStatus(solicitud.estadoSolicitud)) {
+          finalizadas.push(solicitud);
+        } else {
+          activas.push(solicitud);
+        }
+        continue;
+      }
+
+      const hasActiveOrUpcoming = instances.some((instance) => isInstanceActiveOrUpcoming(instance, nowMs));
+      if (hasActiveOrUpcoming) {
+        activas.push(solicitud);
+      } else {
+        finalizadas.push(solicitud);
+      }
+    }
+
+    return { activas, finalizadas };
+  }, [solicitudes]);
+
+  const visibleSolicitudes = useMemo(
+    () =>
+      solicitudesListScope === "ACTIVAS"
+        ? solicitudesByLifecycle.activas
+        : solicitudesByLifecycle.finalizadas,
+    [solicitudesByLifecycle, solicitudesListScope]
+  );
+
   const statusSummary = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const item of solicitudes) {
+    for (const item of visibleSolicitudes) {
       counts.set(item.estadoSolicitud, (counts.get(item.estadoSolicitud) ?? 0) + 1);
     }
 
@@ -366,7 +442,7 @@ export function SpaTabSolicitudes({
         ...mapSolicitudStatus(estado)
       }))
       .sort((left, right) => right.count - left.count);
-  }, [solicitudes]);
+  }, [visibleSolicitudes]);
 
   function mapInstanciaStatus(
     estadoEvento: string | null | undefined,
@@ -1035,12 +1111,43 @@ export function SpaTabSolicitudes({
           <Typography variant="h6" sx={{ mb: 1.5 }}>
             Listado de solicitudes
           </Typography>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 1.5 }}>
+            <Button
+              type="button"
+              size="small"
+              variant={solicitudesListScope === "ACTIVAS" ? "contained" : "outlined"}
+              onClick={() => {
+                setSolicitudesListScope("ACTIVAS");
+                setExpandedSolicitudId(null);
+              }}
+            >
+              Activas / por ocurrir ({solicitudesByLifecycle.activas.length})
+            </Button>
+            <Button
+              type="button"
+              size="small"
+              variant={solicitudesListScope === "FINALIZADAS" ? "contained" : "outlined"}
+              onClick={() => {
+                setSolicitudesListScope("FINALIZADAS");
+                setExpandedSolicitudId(null);
+              }}
+            >
+              Finalizadas ({solicitudesByLifecycle.finalizadas.length})
+            </Button>
+          </Stack>
           {solicitudes.length === 0 && (
             <Typography variant="body2" color="text.secondary">
               No hay solicitudes registradas.
             </Typography>
           )}
-          {solicitudes.length > 0 && (
+          {solicitudes.length > 0 && visibleSolicitudes.length === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              {solicitudesListScope === "ACTIVAS"
+                ? "No hay solicitudes activas o pendientes de ocurrir."
+                : "No hay solicitudes con todas sus instancias finalizadas."}
+            </Typography>
+          )}
+          {visibleSolicitudes.length > 0 && (
             <Stack spacing={1.4}>
               <Box
                 sx={{
@@ -1055,10 +1162,10 @@ export function SpaTabSolicitudes({
               >
                 <Paper variant="outlined" sx={{ p: 1.2 }}>
                   <Typography variant="caption" color="text.secondary">
-                    Total
+                    Total (vista)
                   </Typography>
                   <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
-                    {solicitudes.length}
+                    {visibleSolicitudes.length}
                   </Typography>
                 </Paper>
                 {statusSummary.map((summary) => (
@@ -1074,7 +1181,7 @@ export function SpaTabSolicitudes({
               </Box>
 
               <Stack spacing={1.2}>
-                {solicitudes.map((item) => {
+                {visibleSolicitudes.map((item) => {
                   const joinUrl =
                     item.zoomJoinUrl ??
                     item.zoomInstances?.find((instance) => instance.joinUrl)?.joinUrl ??
@@ -1095,8 +1202,7 @@ export function SpaTabSolicitudes({
                       ? "Pendiente"
                       : item.meetingPrincipalId || "-";
                   const solicitudStatus = mapSolicitudStatus(item.estadoSolicitud);
-                  const isSolicitudCancelled =
-                    item.estadoSolicitud === "CANCELADA_ADMIN" || item.estadoSolicitud === "CANCELADA_DOCENTE";
+                  const isSolicitudCancelled = isSolicitudCancelledStatus(item.estadoSolicitud);
                   const statusAccent =
                     solicitudStatus.color === "success"
                       ? "success.main"
@@ -1110,9 +1216,13 @@ export function SpaTabSolicitudes({
                   const sortedInstances = [...instances].sort(
                     (left, right) => new Date(left.startTime).getTime() - new Date(right.startTime).getTime()
                   );
-                  const upcomingInstance =
-                    sortedInstances.find((instance) => new Date(instance.startTime).getTime() >= Date.now()) ??
-                    sortedInstances[0];
+                  const highlightedInstance =
+                    solicitudesListScope === "ACTIVAS"
+                      ? sortedInstances.find((instance) => new Date(instance.startTime).getTime() >= Date.now()) ??
+                        sortedInstances[0]
+                      : sortedInstances[sortedInstances.length - 1];
+                  const instanceTimeLabel =
+                    solicitudesListScope === "ACTIVAS" ? "Proxima instancia" : "Ultima instancia";
 
                   return (
                     <Paper
@@ -1216,10 +1326,10 @@ export function SpaTabSolicitudes({
                           </Box>
                           <Box>
                             <Typography variant="caption" color="text.secondary">
-                              Proxima instancia
+                              {instanceTimeLabel}
                             </Typography>
                             <Typography variant="body2">
-                              {upcomingInstance ? formatDateTime(upcomingInstance.startTime) : "Sin instancias"}
+                              {highlightedInstance ? formatDateTime(highlightedInstance.startTime) : "Sin instancias"}
                             </Typography>
                           </Box>
                           <Box>

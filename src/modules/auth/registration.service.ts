@@ -10,7 +10,8 @@ import { logger } from "@/src/lib/logger";
 const ADMIN_EMAIL = "web@flacso.edu.uy";
 const PENDING_KEY_PREFIX = "auth:registration:pending:";
 const TOKEN_TTL_MINUTES = 30;
-const PASSWORD_LINK_TTL_MINUTES = 30;
+const PASSWORD_RECOVERY_LINK_TTL_MINUTES = 30;
+const ACCOUNT_ACTIVATION_LINK_TTL_MINUTES = 60 * 24 * 7;
 
 const pendingRegistrationSchema = z.object({
   token: z.string().min(1),
@@ -80,6 +81,24 @@ function getDisplayName(firstName?: string, lastName?: string): string | undefin
   const normalizedLastName = lastName?.trim() || "";
   const fullName = [normalizedFirstName, normalizedLastName].filter(Boolean).join(" ").trim();
   return fullName || undefined;
+}
+
+function getPasswordLinkTtlMinutes(purpose: PasswordLinkPurpose): number {
+  return purpose === "activation"
+    ? ACCOUNT_ACTIVATION_LINK_TTL_MINUTES
+    : PASSWORD_RECOVERY_LINK_TTL_MINUTES;
+}
+
+function formatTtlLabel(ttlMinutes: number): string {
+  if (ttlMinutes % (60 * 24) === 0) {
+    const days = ttlMinutes / (60 * 24);
+    return `${days} dia${days === 1 ? "" : "s"}`;
+  }
+  if (ttlMinutes % 60 === 0) {
+    const hours = ttlMinutes / 60;
+    return `${hours} hora${hours === 1 ? "" : "s"}`;
+  }
+  return `${ttlMinutes} minutos`;
 }
 
 function escapeHtml(value: string): string {
@@ -174,9 +193,9 @@ function buildEmailLayout(input: EmailTemplateInput): string {
   `.trim();
 }
 
-async function createPasswordLinkToken(email: string): Promise<string> {
+async function createPasswordLinkToken(email: string, ttlMinutes: number): Promise<string> {
   const token = crypto.randomBytes(24).toString("hex");
-  const expires = new Date(Date.now() + PASSWORD_LINK_TTL_MINUTES * 60_000);
+  const expires = new Date(Date.now() + ttlMinutes * 60_000);
 
   await db.verificationToken.deleteMany({ where: { identifier: email } });
   await db.verificationToken.create({
@@ -194,6 +213,7 @@ function buildPasswordLinkEmail(input: {
   baseUrl: string;
   purpose: PasswordLinkPurpose;
   resetUrl: string;
+  ttlMinutes: number;
   firstName?: string;
   lastName?: string;
   invitedBy?: string;
@@ -219,7 +239,7 @@ function buildPasswordLinkEmail(input: {
         actionLabel: "Activar cuenta y definir contrasena",
         actionUrl: input.resetUrl,
         metaLines: [
-          `Este enlace vence en ${PASSWORD_LINK_TTL_MINUTES} minutos.`,
+          `Este enlace vence en ${formatTtlLabel(input.ttlMinutes)}.`,
           "Una vez activada tu cuenta, podras iniciar sesion normalmente."
         ]
       })
@@ -240,7 +260,7 @@ function buildPasswordLinkEmail(input: {
       actionLabel: "Restablecer contrasena",
       actionUrl: input.resetUrl,
       metaLines: [
-        `Este enlace vence en ${PASSWORD_LINK_TTL_MINUTES} minutos.`,
+        `Este enlace vence en ${formatTtlLabel(input.ttlMinutes)}.`,
         "Si no hiciste esta solicitud, ignora este mensaje."
       ]
     })
@@ -309,7 +329,8 @@ async function requestPasswordLink(input: RequestPasswordLinkInput): Promise<{ r
     return {};
   }
 
-  const token = await createPasswordLinkToken(email);
+  const ttlMinutes = getPasswordLinkTtlMinutes(input.purpose);
+  const token = await createPasswordLinkToken(email, ttlMinutes);
   const baseUrl = getPublicBaseUrl(input.origin);
   const resetUrl = `${baseUrl}/?resetToken=${token}&email=${encodeURIComponent(email)}&mode=${input.purpose}`;
 
@@ -318,6 +339,7 @@ async function requestPasswordLink(input: RequestPasswordLinkInput): Promise<{ r
     baseUrl,
     purpose: input.purpose,
     resetUrl,
+    ttlMinutes,
     firstName: input.firstName ?? user.firstName ?? undefined,
     lastName: input.lastName ?? user.lastName ?? undefined,
     invitedBy: input.invitedBy
@@ -519,6 +541,9 @@ export async function confirmPasswordRecovery(
 
   if (recovery.expires.getTime() < Date.now()) {
     await db.verificationToken.deleteMany({ where: { identifier: email } });
+    if (mode === "activation") {
+      throw new Error("El enlace de activacion esta vencido. Solicita a un administrador uno nuevo.");
+    }
     throw new Error("El token de recuperacion esta vencido.");
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
   Box,
   Button,
@@ -28,9 +28,29 @@ interface SpaTabUsuariosProps {
   createUserForm: CreateUserForm;
   setCreateUserForm: (form: CreateUserForm | ((prev: CreateUserForm) => CreateUserForm)) => void;
   isCreatingUser: boolean;
+  updatingUserId: string | null;
+  resendingActivationUserId: string | null;
   isLoadingUsers: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onUpdateUserRole: (userId: string, role: string) => void | Promise<void>;
+  onResendActivationLink: (userId: string) => void | Promise<void>;
   onRefresh: () => void;
+}
+
+type EditableRole = "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA" | "ADMINISTRADOR";
+
+const ROLE_OPTIONS: Array<{ value: EditableRole; label: string }> = [
+  { value: "DOCENTE", label: "Docente" },
+  { value: "ASISTENTE_ZOOM", label: "Asistente Zoom" },
+  { value: "CONTADURIA", label: "Contaduria" },
+  { value: "ADMINISTRADOR", label: "Administrador" }
+];
+
+function normalizeEditableRole(role: string): EditableRole {
+  if (role === "ADMINISTRADOR") return "ADMINISTRADOR";
+  if (role === "CONTADURIA") return "CONTADURIA";
+  if (role === "ASISTENTE_ZOOM" || role === "SOPORTE_ZOOM") return "ASISTENTE_ZOOM";
+  return "DOCENTE";
 }
 
 export function SpaTabUsuarios({
@@ -38,10 +58,24 @@ export function SpaTabUsuarios({
   createUserForm,
   setCreateUserForm,
   isCreatingUser,
+  updatingUserId,
+  resendingActivationUserId,
   isLoadingUsers,
   onSubmit,
+  onUpdateUserRole,
+  onResendActivationLink,
   onRefresh
 }: SpaTabUsuariosProps) {
+  const [selectedRoleByUser, setSelectedRoleByUser] = useState<Record<string, EditableRole>>({});
+
+  useEffect(() => {
+    const nextState: Record<string, EditableRole> = {};
+    for (const managedUser of users) {
+      nextState[managedUser.id] = normalizeEditableRole(managedUser.role);
+    }
+    setSelectedRoleByUser(nextState);
+  }, [users]);
+
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
       <CardContent>
@@ -91,14 +125,15 @@ export function SpaTabUsuarios({
               value={createUserForm.role}
               onChange={(e) => setCreateUserForm((prev) => ({ ...prev, role: e.target.value }))}
             >
-              <MenuItem value="DOCENTE">Docente</MenuItem>
-              <MenuItem value="ASISTENTE_ZOOM">Asistente Zoom</MenuItem>
-              <MenuItem value="CONTADURIA">Contaduria</MenuItem>
-              <MenuItem value="ADMINISTRADOR">Administrador</MenuItem>
+              {ROLE_OPTIONS.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
             </TextField>
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-            El usuario se crea sin contrasena y recibe un enlace magico para activar su acceso.
+            El usuario se crea sin contrasena y recibe un enlace de activacion para definir su contrasena.
           </Typography>
           <Button sx={{ mt: 1.5 }} type="submit" variant="contained" disabled={isCreatingUser}>
             {isCreatingUser ? "Creando usuario..." : "Crear usuario y enviar enlace"}
@@ -118,6 +153,13 @@ export function SpaTabUsuarios({
             {users.map((managedUser) => {
               const fullName =
                 [managedUser.firstName, managedUser.lastName].filter(Boolean).join(" ") || "-";
+              const currentRole = normalizeEditableRole(managedUser.role);
+              const selectedRole = selectedRoleByUser[managedUser.id] ?? currentRole;
+              const isUpdatingRole = updatingUserId === managedUser.id;
+              const isResendingActivation = resendingActivationUserId === managedUser.id;
+              const canSaveRole = !isUpdatingRole && selectedRole !== currentRole;
+              const canResendActivation = !managedUser.emailVerified;
+
               return (
                 <Paper key={managedUser.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
                   <Stack
@@ -149,6 +191,53 @@ export function SpaTabUsuarios({
                     </Typography>
                     <Typography variant="body2">{fullName}</Typography>
                   </Box>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1}
+                    alignItems={{ xs: "stretch", sm: "center" }}
+                    sx={{ mt: 1.2 }}
+                  >
+                    <TextField
+                      label="Rol"
+                      select
+                      size="small"
+                      value={selectedRole}
+                      onChange={(event) =>
+                        setSelectedRoleByUser((prev) => ({
+                          ...prev,
+                          [managedUser.id]: event.target.value as EditableRole
+                        }))
+                      }
+                      sx={{ minWidth: 220 }}
+                    >
+                      {ROLE_OPTIONS.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <Button
+                      variant="outlined"
+                      disabled={!canSaveRole}
+                      onClick={() => {
+                        void onUpdateUserRole(managedUser.id, selectedRole);
+                      }}
+                    >
+                      {isUpdatingRole ? "Guardando..." : "Guardar rol"}
+                    </Button>
+                    {canResendActivation ? (
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        disabled={isResendingActivation}
+                        onClick={() => {
+                          void onResendActivationLink(managedUser.id);
+                        }}
+                      >
+                        {isResendingActivation ? "Enviando..." : "Reenviar activacion"}
+                      </Button>
+                    ) : null}
+                  </Stack>
                 </Paper>
               );
             })}

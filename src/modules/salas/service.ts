@@ -588,6 +588,403 @@ async function sendProvisionedSolicitudEmail(input: {
   });
 }
 
+function buildMonitoringRequiredEmailHtml(input: {
+  solicitudId: string;
+  titulo: string;
+  modalidad: ModalidadReunion;
+  programaNombre?: string | null;
+  responsableNombre?: string | null;
+  timezone: string;
+  instanceStarts: Date[];
+  estadoSolicitud: EstadoSolicitudSala;
+}): string {
+  const titleLabel = escapeHtml(input.titulo);
+  const solicitudLabel = escapeHtml(input.solicitudId);
+  const modalidadLabel = escapeHtml(input.modalidad);
+  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
+  const responsableLabel = escapeHtml(input.responsableNombre?.trim() || "-");
+  const statusLabel = escapeHtml(input.estadoSolicitud);
+  const previewCount = Math.min(input.instanceStarts.length, 20);
+  const previewRows = input.instanceStarts
+    .slice(0, previewCount)
+    .map((date, index) => `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(date, input.timezone))}</li>`)
+    .join("");
+  const extraCount = input.instanceStarts.length - previewCount;
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
+      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
+      <h2 style="margin: 0 0 6px;">Nueva solicitud con monitoreo requerido</h2>
+      <p style="margin: 0 0 16px; color: #334155;">
+        Se registro una nueva solicitud que requiere asistencia Zoom.
+      </p>
+
+      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
+        <p style="margin: 0 0 8px;"><strong>${titleLabel}</strong></p>
+        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Responsable:</strong> ${responsableLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Estado:</strong> ${statusLabel}</p>
+        <p style="margin: 0;"><strong>Instancias:</strong> ${input.instanceStarts.length}</p>
+      </div>
+
+      <p style="margin: 0 0 8px;"><strong>Fechas previstas</strong></p>
+      <ol style="margin: 0 0 12px; padding-left: 20px;">
+        ${previewRows}
+      </ol>
+      ${
+        extraCount > 0
+          ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
+          : ""
+      }
+      <p style="margin: 16px 0 0; color: #64748b; font-size: 12px;">
+        Revisa la agenda libre para marcar interes en las instancias disponibles.
+      </p>
+    </div>
+  `;
+}
+
+async function listAdminNotificationEmails(): Promise<string[]> {
+  const users = await db.user.findMany({
+    where: {
+      emailVerified: { not: null },
+      role: UserRole.ADMINISTRADOR,
+      email: { not: "" }
+    },
+    select: { email: true }
+  });
+
+  const unique = new Set<string>();
+  for (const user of users) {
+    const normalized = (user.email ?? "").trim().toLowerCase();
+    if (!EMAIL_LINE_REGEX.test(normalized)) continue;
+    unique.add(normalized);
+  }
+
+  return Array.from(unique);
+}
+
+async function sendBroadcastEmail(input: {
+  recipients: string[];
+  subject: string;
+  html: string;
+}): Promise<void> {
+  const uniqueRecipients = Array.from(
+    new Set(
+      input.recipients
+        .map((email) => email.trim().toLowerCase())
+        .filter((email) => EMAIL_LINE_REGEX.test(email))
+    )
+  );
+  if (uniqueRecipients.length === 0) return;
+
+  const defaultTo = (env.SMTP_FROM ?? "").trim().toLowerCase();
+  const to = EMAIL_LINE_REGEX.test(defaultTo) ? defaultTo : uniqueRecipients[0];
+  const bcc = uniqueRecipients.filter((email) => email !== to);
+  const client = new EmailClient();
+
+  await client.send({
+    to,
+    bcc: bcc.length > 0 ? bcc : undefined,
+    subject: input.subject,
+    html: input.html
+  });
+}
+
+async function listAssistantPoolEmails(): Promise<string[]> {
+  const users = await db.user.findMany({
+    where: {
+      emailVerified: { not: null },
+      role: { in: [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM] },
+      email: { not: "" }
+    },
+    select: { email: true }
+  });
+
+  const unique = new Set<string>();
+  for (const user of users) {
+    const normalized = (user.email ?? "").trim().toLowerCase();
+    if (!EMAIL_LINE_REGEX.test(normalized)) continue;
+    unique.add(normalized);
+  }
+
+  return Array.from(unique);
+}
+
+async function sendMonitoringRequiredEmailToAssistantPool(input: {
+  solicitudId: string;
+  titulo: string;
+  modalidad: ModalidadReunion;
+  programaNombre?: string | null;
+  responsableNombre?: string | null;
+  timezone: string;
+  instanceStarts: Date[];
+  estadoSolicitud: EstadoSolicitudSala;
+}): Promise<void> {
+  const recipients = await listAssistantPoolEmails();
+  if (recipients.length === 0) return;
+
+  const subject = `Nueva solicitud con monitoreo: ${input.titulo}`;
+  const html = buildMonitoringRequiredEmailHtml(input);
+  await sendBroadcastEmail({
+    recipients,
+    subject,
+    html
+  });
+}
+
+function buildDocenteSolicitudCreatedAdminEmailHtml(input: {
+  actorNombre: string;
+  actorEmail: string;
+  solicitudId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  modalidad: ModalidadReunion;
+  estadoSolicitud: EstadoSolicitudSala;
+  timezone: string;
+  instanceStarts: Date[];
+}): string {
+  const actorNombreLabel = escapeHtml(input.actorNombre);
+  const actorEmailLabel = escapeHtml(input.actorEmail);
+  const solicitudLabel = escapeHtml(input.solicitudId);
+  const tituloLabel = escapeHtml(input.titulo);
+  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
+  const modalidadLabel = escapeHtml(input.modalidad);
+  const estadoLabel = escapeHtml(input.estadoSolicitud);
+  const previewCount = Math.min(input.instanceStarts.length, 20);
+  const previewRows = input.instanceStarts
+    .slice(0, previewCount)
+    .map((date, index) => `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(date, input.timezone))}</li>`)
+    .join("");
+  const extraCount = input.instanceStarts.length - previewCount;
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
+      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
+      <h2 style="margin: 0 0 6px;">Nueva solicitud creada por docente</h2>
+      <p style="margin: 0 0 16px; color: #334155;">
+        Se registro una nueva solicitud en el sistema.
+      </p>
+
+      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
+        <p style="margin: 0 0 8px;"><strong>${tituloLabel}</strong></p>
+        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Creada por:</strong> ${actorNombreLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Email creador:</strong> ${actorEmailLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Estado:</strong> ${estadoLabel}</p>
+        <p style="margin: 0;"><strong>Instancias:</strong> ${input.instanceStarts.length}</p>
+      </div>
+
+      <p style="margin: 0 0 8px;"><strong>Fechas previstas</strong></p>
+      <ol style="margin: 0 0 12px; padding-left: 20px;">
+        ${previewRows}
+      </ol>
+      ${
+        extraCount > 0
+          ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+async function sendDocenteSolicitudCreatedEmailToAdmins(input: {
+  actorNombre: string;
+  actorEmail: string;
+  solicitudId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  modalidad: ModalidadReunion;
+  estadoSolicitud: EstadoSolicitudSala;
+  timezone: string;
+  instanceStarts: Date[];
+}): Promise<void> {
+  const recipients = await listAdminNotificationEmails();
+  if (recipients.length === 0) return;
+
+  const subject = `Solicitud creada por docente: ${input.titulo}`;
+  const html = buildDocenteSolicitudCreatedAdminEmailHtml(input);
+  await sendBroadcastEmail({
+    recipients,
+    subject,
+    html
+  });
+}
+
+function buildAssistantPreferenceAdminEmailHtml(input: {
+  asistenteNombre: string;
+  asistenteEmail: string;
+  estadoInteres: EstadoInteresAsistente;
+  comentario?: string;
+  solicitudId: string;
+  eventoId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  inicio: Date;
+  fin: Date;
+  timezone: string;
+}): string {
+  const asistenteNombreLabel = escapeHtml(input.asistenteNombre);
+  const asistenteEmailLabel = escapeHtml(input.asistenteEmail);
+  const estadoLabel = escapeHtml(input.estadoInteres);
+  const solicitudLabel = escapeHtml(input.solicitudId);
+  const eventoLabel = escapeHtml(input.eventoId);
+  const tituloLabel = escapeHtml(input.titulo);
+  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
+  const inicioLabel = escapeHtml(formatDateTimeForEmail(input.inicio, input.timezone));
+  const finLabel = escapeHtml(formatDateTimeForEmail(input.fin, input.timezone));
+  const comentarioLabel = escapeHtml((input.comentario ?? "").trim() || "Sin comentario");
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
+      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
+      <h2 style="margin: 0 0 6px;">Preferencia de asistencia actualizada</h2>
+      <p style="margin: 0 0 16px; color: #334155;">
+        Un asistente Zoom registro su preferencia para una instancia.
+      </p>
+
+      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
+        <p style="margin: 0 0 8px;"><strong>${tituloLabel}</strong></p>
+        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Evento:</strong> ${eventoLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Asistente:</strong> ${asistenteNombreLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Email asistente:</strong> ${asistenteEmailLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Preferencia:</strong> ${estadoLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Inicio:</strong> ${inicioLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Fin:</strong> ${finLabel}</p>
+        <p style="margin: 0;"><strong>Comentario:</strong> ${comentarioLabel}</p>
+      </div>
+    </div>
+  `;
+}
+
+async function sendAssistantPreferenceEmailToAdmins(input: {
+  asistenteNombre: string;
+  asistenteEmail: string;
+  estadoInteres: EstadoInteresAsistente;
+  comentario?: string;
+  solicitudId: string;
+  eventoId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  inicio: Date;
+  fin: Date;
+  timezone: string;
+}): Promise<void> {
+  const recipients = await listAdminNotificationEmails();
+  if (recipients.length === 0) return;
+
+  const subject = `Preferencia de asistencia: ${input.titulo}`;
+  const html = buildAssistantPreferenceAdminEmailHtml(input);
+  await sendBroadcastEmail({
+    recipients,
+    subject,
+    html
+  });
+}
+
+function buildAssignmentNotificationHtml(input: {
+  solicitudId: string;
+  eventoId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  modalidad: ModalidadReunion;
+  inicio: Date;
+  fin: Date;
+  timezone: string;
+  joinUrl?: string | null;
+  asistenteNombre: string;
+  asistenteEmail: string;
+}): string {
+  const titleLabel = escapeHtml(input.titulo);
+  const solicitudLabel = escapeHtml(input.solicitudId);
+  const eventoLabel = escapeHtml(input.eventoId);
+  const modalidadLabel = escapeHtml(input.modalidad);
+  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
+  const asistenteNombreLabel = escapeHtml(input.asistenteNombre);
+  const asistenteEmailLabel = escapeHtml(input.asistenteEmail);
+  const inicioLabel = escapeHtml(formatDateTimeForEmail(input.inicio, input.timezone));
+  const finLabel = escapeHtml(formatDateTimeForEmail(input.fin, input.timezone));
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
+      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
+      <h2 style="margin: 0 0 6px;">Asignacion de monitoreo confirmada</h2>
+      <p style="margin: 0 0 16px; color: #334155;">
+        Se confirmo la persona de asistencia para esta instancia.
+      </p>
+
+      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
+        <p style="margin: 0 0 8px;"><strong>${titleLabel}</strong></p>
+        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Evento:</strong> ${eventoLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Inicio:</strong> ${inicioLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Fin:</strong> ${finLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Asistente asignado:</strong> ${asistenteNombreLabel}</p>
+        <p style="margin: 0;"><strong>Email asistente:</strong> ${asistenteEmailLabel}</p>
+      </div>
+
+      ${
+        input.joinUrl
+          ? `<p style="margin: 0 0 16px;"><a href="${escapeHtml(input.joinUrl)}" target="_blank" rel="noreferrer" style="display: inline-block; padding: 10px 14px; border-radius: 8px; background: #1f4b8f; color: #ffffff; text-decoration: none; font-weight: 700;">Abrir reunion en Zoom</a></p>`
+          : ""
+      }
+
+      <p style="margin: 16px 0 0; color: #64748b; font-size: 12px;">
+        Este es un correo automatico de la herramienta de coordinacion de salas Zoom de FLACSO Uruguay.
+      </p>
+    </div>
+  `;
+}
+
+async function sendDefinitiveAssignmentEmails(input: {
+  solicitudId: string;
+  eventoId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  modalidad: ModalidadReunion;
+  inicio: Date;
+  fin: Date;
+  timezone: string;
+  joinUrl?: string | null;
+  asistenteNombre: string;
+  asistenteEmail: string;
+  responsableEmail: string | null;
+}): Promise<void> {
+  const recipients = new Set<string>();
+  const assistantEmail = input.asistenteEmail.trim().toLowerCase();
+  if (EMAIL_LINE_REGEX.test(assistantEmail)) {
+    recipients.add(assistantEmail);
+  }
+
+  const responsableEmail = (input.responsableEmail ?? "").trim().toLowerCase();
+  if (EMAIL_LINE_REGEX.test(responsableEmail)) {
+    recipients.add(responsableEmail);
+  }
+
+  if (recipients.size === 0) return;
+
+  const client = new EmailClient();
+  const subject = `Asignacion confirmada: ${input.titulo}`;
+  const html = buildAssignmentNotificationHtml(input);
+
+  await Promise.all(
+    Array.from(recipients).map((to) =>
+      client.send({
+        to,
+        subject,
+        html
+      })
+    )
+  );
+}
+
 function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSnapshot {
   const rawId = data.id;
   const meetingId = normalizeZoomMeetingId(rawId != null ? String(rawId) : null);
@@ -1759,9 +2156,36 @@ export class SalasService {
     const recurrenceEnd = input.fechaFinRecurrencia
       ? toDate(input.fechaFinRecurrencia, "fechaFinRecurrencia")
       : null;
+    const timezone = input.timezone ?? "America/Montevideo";
+    const shouldNotifyAdminsOnDocenteCreate = user.role === UserRole.DOCENTE;
     const grabacionPreferencia = input.grabacionPreferencia ?? "NO";
     const requiereGrabacion =
       input.requiereGrabacion ?? grabacionPreferencia === "SI";
+
+    const notifyAdminsOnDocenteSolicitudCreate = async (
+      solicitudId: string,
+      estadoSolicitud: EstadoSolicitudSala,
+      instanceStarts: Date[]
+    ) => {
+      if (!shouldNotifyAdminsOnDocenteCreate) return;
+
+      await sendDocenteSolicitudCreatedEmailToAdmins({
+        actorNombre: getUserDisplayName(user),
+        actorEmail: user.email,
+        solicitudId,
+        titulo: input.titulo,
+        programaNombre: input.programaNombre ?? null,
+        modalidad: input.modalidadReunion,
+        estadoSolicitud,
+        timezone,
+        instanceStarts
+      }).catch((error) => {
+        logger.warn("No se pudo enviar correo a admins por solicitud creada por docente.", {
+          solicitudId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    };
 
     if (end <= start) {
       throw new Error("fechaFinSolicitada debe ser mayor a fechaInicioSolicitada.");
@@ -1797,7 +2221,7 @@ export class SalasService {
             ? "El sistema no pudo asignar un único meeting ID para la solicitud." : null,
           fechaInicioSolicitada: start,
           fechaFinSolicitada: end,
-          timezone: input.timezone ?? "America/Montevideo",
+          timezone,
           capacidadEstimada: input.capacidadEstimada,
           controlAsistencia: input.controlAsistencia ?? false,
           docentesCorreos: normalizedDocentesCorreos,
@@ -1831,10 +2255,14 @@ export class SalasService {
         }
       });
 
+      await notifyAdminsOnDocenteSolicitudCreate(
+        created.id,
+        EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID,
+        instancePlans.map((plan) => plan.inicio)
+      );
+
       return created;
     }
-
-    const timezone = input.timezone ?? "America/Montevideo";
     let assignedAccount: CuentaZoom | null = requireManualResolution ? availableAccounts[0] : null;
     let zoomSnapshot: ZoomMeetingSnapshot | null = null;
     let lastProvisionError: string | null = null;
@@ -1938,6 +2366,12 @@ export class SalasService {
               "No se encontro una cuenta Zoom que permita provisionar todas las fechas solicitadas."
           }
         });
+
+        await notifyAdminsOnDocenteSolicitudCreate(
+          created.id,
+          EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID,
+          instancePlans.map((plan) => plan.inicio)
+        );
 
         return created;
       }
@@ -2128,6 +2562,37 @@ export class SalasService {
         });
       });
     }
+
+    if (input.requiereAsistencia ?? false) {
+      const startsForAssistantPool =
+        provisionedPlans.length > 0
+          ? provisionedPlans.map((plan) => plan.inicio)
+          : instancePlans.map((plan) => plan.inicio);
+
+      await sendMonitoringRequiredEmailToAssistantPool({
+        solicitudId: result.id,
+        titulo: input.titulo,
+        modalidad: input.modalidadReunion,
+        programaNombre: input.programaNombre ?? null,
+        responsableNombre: input.responsableNombre ?? null,
+        timezone,
+        instanceStarts: startsForAssistantPool,
+        estadoSolicitud: status
+      }).catch((error) => {
+        logger.warn("No se pudo enviar correo al pool de asistentes Zoom.", {
+          solicitudId: result.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
+
+    await notifyAdminsOnDocenteSolicitudCreate(
+      result.id,
+      status,
+      provisionedPlans.length > 0
+        ? provisionedPlans.map((plan) => plan.inicio)
+        : instancePlans.map((plan) => plan.inicio)
+    );
 
     return result;
   }
@@ -2933,7 +3398,23 @@ export class SalasService {
   ) {
     const assistant = await getOrCreateAsistente(user);
 
-    const event = await db.eventoZoom.findUnique({ where: { id: eventoId } });
+    const event = await db.eventoZoom.findUnique({
+      where: { id: eventoId },
+      select: {
+        id: true,
+        inicioProgramadoAt: true,
+        finProgramadoAt: true,
+        timezone: true,
+        agendaCierraAt: true,
+        solicitud: {
+          select: {
+            id: true,
+            titulo: true,
+            programaNombre: true
+          }
+        }
+      }
+    });
     if (!event) throw new Error("Evento no encontrado.");
     if (!event.agendaCierraAt || event.agendaCierraAt <= new Date()) {
       throw new Error("La agenda de interés está cerrada para este evento.");
@@ -2971,6 +3452,26 @@ export class SalasService {
       }
     });
 
+    await sendAssistantPreferenceEmailToAdmins({
+      asistenteNombre: getUserDisplayName(user),
+      asistenteEmail: user.email,
+      estadoInteres: input.estadoInteres,
+      comentario: input.comentario,
+      solicitudId: event.solicitud.id,
+      eventoId: event.id,
+      titulo: event.solicitud.titulo,
+      programaNombre: event.solicitud.programaNombre ?? null,
+      inicio: event.inicioProgramadoAt,
+      fin: event.finProgramadoAt,
+      timezone: event.timezone || "America/Montevideo"
+    }).catch((error) => {
+      logger.warn("No se pudo enviar correo a admins por preferencia de asistente.", {
+        eventoId,
+        asistenteZoomId: assistant.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+
     return interest;
   }
 
@@ -2979,8 +3480,56 @@ export class SalasService {
     eventoId: string,
     input: { asistenteZoomId: string; motivoAsignacion?: string }
   ) {
-    const event = await db.eventoZoom.findUnique({ where: { id: eventoId } });
+    const event = await db.eventoZoom.findUnique({
+      where: { id: eventoId },
+      select: {
+        id: true,
+        modalidadReunion: true,
+        inicioProgramadoAt: true,
+        finProgramadoAt: true,
+        timezone: true,
+        zoomJoinUrl: true,
+        solicitud: {
+          select: {
+            id: true,
+            titulo: true,
+            programaNombre: true,
+            responsableNombre: true,
+            docente: {
+              select: {
+                usuario: {
+                  select: {
+                    email: true,
+                    name: true,
+                    firstName: true,
+                    lastName: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
     if (!event) throw new Error("Evento no encontrado.");
+
+    const selectedAssistant = await db.asistenteZoom.findUnique({
+      where: { id: input.asistenteZoomId },
+      select: {
+        id: true,
+        usuario: {
+          select: {
+            email: true,
+            name: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      }
+    });
+    if (!selectedAssistant?.usuario?.email) {
+      throw new Error("No existe el asistente seleccionado.");
+    }
 
     const rate = await getActiveRate(event.modalidadReunion);
     if (!rate) {
@@ -3093,6 +3642,35 @@ export class SalasService {
         asistenteZoomId: input.asistenteZoomId,
         modalidadReunion: event.modalidadReunion
       }
+    });
+
+    const docenteUser = event.solicitud.docente?.usuario ?? null;
+    const docenteEmail = (docenteUser?.email ?? "").trim().toLowerCase();
+    const resolvedResponsableEmail = await resolveResponsibleNotificationEmail(
+      event.solicitud.responsableNombre
+    );
+    const responsableEmail = resolvedResponsableEmail ?? (EMAIL_LINE_REGEX.test(docenteEmail) ? docenteEmail : null);
+    const assistantName = getUserDisplayName(selectedAssistant.usuario);
+
+    await sendDefinitiveAssignmentEmails({
+      solicitudId: event.solicitud.id,
+      eventoId: event.id,
+      titulo: event.solicitud.titulo,
+      programaNombre: event.solicitud.programaNombre ?? null,
+      modalidad: event.modalidadReunion,
+      inicio: event.inicioProgramadoAt,
+      fin: event.finProgramadoAt,
+      timezone: event.timezone || "America/Montevideo",
+      joinUrl: event.zoomJoinUrl,
+      asistenteNombre: assistantName,
+      asistenteEmail: selectedAssistant.usuario.email,
+      responsableEmail
+    }).catch((error) => {
+      logger.warn("No se pudo enviar correo de asignacion definitiva.", {
+        eventoId,
+        solicitudId: event.solicitud.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
     });
 
     return assignment;

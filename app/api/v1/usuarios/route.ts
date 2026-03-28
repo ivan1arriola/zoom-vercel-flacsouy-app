@@ -15,6 +15,11 @@ const createUserSchema = z.object({
   role: z.nativeEnum(UserRole)
 });
 
+const updateUserRoleSchema = z.object({
+  userId: z.string().trim().min(1, "userId es obligatorio."),
+  role: z.nativeEnum(UserRole)
+});
+
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -132,4 +137,74 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json({ ok: true, user, activationUrl }, { status: 201 });
+}
+
+export async function PATCH(request: Request) {
+  if (!(await isAdminAuthorized())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const adminUser = await getSessionUser();
+  const json = await request.json().catch(() => null);
+  const parsed = updateUserRoleSchema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Datos invalidos." }, { status: 400 });
+  }
+
+  const targetUser = await db.user.findUnique({
+    where: { id: parsed.data.userId },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      emailVerified: true,
+      createdAt: true
+    }
+  });
+  if (!targetUser) {
+    return NextResponse.json({ error: "Usuario no encontrado." }, { status: 404 });
+  }
+
+  if (adminUser?.id === targetUser.id && parsed.data.role !== UserRole.ADMINISTRADOR) {
+    return NextResponse.json(
+      { error: "No puedes quitarte a ti mismo el rol de administrador desde esta vista." },
+      { status: 400 }
+    );
+  }
+
+  if (targetUser.role === parsed.data.role) {
+    return NextResponse.json({ ok: true, user: targetUser });
+  }
+
+  const updatedUser = await db.user.update({
+    where: { id: targetUser.id },
+    data: { role: parsed.data.role },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      emailVerified: true,
+      createdAt: true
+    }
+  });
+
+  await notifyAdminTelegramMovement({
+    action: "USUARIO_ROL_ACTUALIZADO",
+    actorEmail: adminUser?.email,
+    actorRole: adminUser?.role,
+    entityType: "User",
+    entityId: updatedUser.id,
+    summary: updatedUser.email,
+    details: {
+      roleAnterior: targetUser.role,
+      roleNuevo: updatedUser.role,
+      updatedBy: adminUser?.id ?? ""
+    }
+  });
+
+  return NextResponse.json({ ok: true, user: updatedUser });
 }

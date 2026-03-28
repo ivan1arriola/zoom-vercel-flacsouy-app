@@ -61,6 +61,8 @@ import {
 import {
   loadUsers,
   submitCreateUser as submitCreateUserApi,
+  submitUpdateUserRole as submitUpdateUserRoleApi,
+  submitResendUserActivationLink as submitResendUserActivationLinkApi,
   loadGoogleAccountStatus,
   unlinkGoogleAccount as unlinkGoogleAccountApi,
   syncProfileFromGoogle as syncProfileFromGoogleApi
@@ -198,7 +200,20 @@ export function SpaHomeScreen() {
   const [isLoadingMoreZoomPastMeetings, setIsLoadingMoreZoomPastMeetings] = useState(false);
   
   // Managed Users
-  const { users, setUsers, isLoadingUsers, setIsLoadingUsers, isCreatingUser, setIsCreatingUser, createUserForm, setCreateUserForm } = useManagedUsers();
+  const {
+    users,
+    setUsers,
+    isLoadingUsers,
+    setIsLoadingUsers,
+    isCreatingUser,
+    setIsCreatingUser,
+    updatingUserId,
+    setUpdatingUserId,
+    resendingActivationUserId,
+    setResendingActivationUserId,
+    createUserForm,
+    setCreateUserForm
+  } = useManagedUsers();
   
   // Past Meetings
   const {
@@ -927,7 +942,7 @@ export function SpaHomeScreen() {
         lastName: "",
         role: "DOCENTE"
       }));
-      setMessage("Usuario creado. Enviamos un enlace magico de activacion por correo.");
+      setMessage("Usuario creado. Enviamos un enlace de activacion por correo para completar el alta.");
       const users = await loadUsers();
       if (users) setUsers(users);
     } catch (error) {
@@ -965,6 +980,43 @@ export function SpaHomeScreen() {
       setMessage(error instanceof Error ? error.message : "No se pudo actualizar la tarifa.");
     } finally {
       setIsSubmittingTarifa(false);
+    }
+  }
+
+  async function updateUserRole(userId: string, role: string) {
+    setMessage("");
+    setUpdatingUserId(userId);
+    try {
+      const response = await submitUpdateUserRoleApi({ userId, role });
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo actualizar el rol del usuario.");
+        return;
+      }
+
+      const users = await loadUsers();
+      if (users) setUsers(users);
+      setMessage("Rol actualizado correctamente.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar el rol del usuario.");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
+  async function resendUserActivationLink(userId: string) {
+    setMessage("");
+    setResendingActivationUserId(userId);
+    try {
+      const response = await submitResendUserActivationLinkApi({ userId });
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo reenviar el enlace de activacion.");
+        return;
+      }
+      setMessage("Enlace de activacion reenviado correctamente.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo reenviar el enlace de activacion.");
+    } finally {
+      setResendingActivationUserId(null);
     }
   }
 
@@ -1428,8 +1480,12 @@ export function SpaHomeScreen() {
           createUserForm={createUserForm}
           setCreateUserForm={setCreateUserForm}
           isCreatingUser={isCreatingUser}
+          updatingUserId={updatingUserId}
+          resendingActivationUserId={resendingActivationUserId}
           isLoadingUsers={isLoadingUsers}
           onSubmit={submitCreateUser}
+          onUpdateUserRole={updateUserRole}
+          onResendActivationLink={resendUserActivationLink}
           onRefresh={() => {
             setIsLoadingUsers(true);
             (async () => {
