@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Fragment, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -20,20 +20,11 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
-  IconButton,
   MenuItem,
   Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
-  Typography,
-  useMediaQuery,
-  useTheme
+  Typography
 } from "@mui/material";
 import { ToggleButtons } from "@/components/toggle-buttons";
 import {
@@ -45,42 +36,13 @@ import {
   type ZoomMonthlyMode,
   type ZoomRecurrenceType
 } from "@/src/lib/spa-home/recurrence";
+import type { SolicitudFormState } from "@/src/lib/spa-home/solicitud-form";
 import type { Solicitud } from "@/src/services/solicitudesApi";
-
-interface SolicitudForm {
-  tema: string;
-  responsable: string;
-  programa: string;
-  asistenciaZoom: string;
-  modalidad: string;
-  grabacion: string;
-  unaOVarias: string;
-  controlAsistencia: string;
-  descripcionUnica: string;
-  diaUnica: string;
-  horaInicioUnica: string;
-  horaFinUnica: string;
-  duracionUnica: string;
-  descripcionRecurrente: string;
-  primerDiaRecurrente: string;
-  horaInicioRecurrente: string;
-  horaFinRecurrente: string;
-  duracionRecurrente: string;
-  recurrenciaTipoZoom: string;
-  recurrenciaIntervalo: string;
-  recurrenciaDiasSemana: string;
-  recurrenciaMensualModo: string;
-  recurrenciaDiaMes: string;
-  recurrenciaSemanaMes: string;
-  recurrenciaDiaSemanaMes: string;
-  fechaFinal: string;
-  correosDocentes: string;
-}
 
 interface SpaTabSolicitudesProps {
   solicitudes: Solicitud[];
-  form: SolicitudForm;
-  updateForm: (key: keyof SolicitudForm, value: string) => void;
+  form: SolicitudFormState;
+  updateForm: <K extends keyof SolicitudFormState>(key: K, value: SolicitudFormState[K]) => void;
   onDeleteSolicitud: (solicitudId: string) => void;
   deletingSolicitudId: string | null;
   onCancelSolicitudSerie: (solicitudId: string, titulo: string) => void;
@@ -117,6 +79,47 @@ const zoomWeekdayOptionsFull: Array<{ value: string; label: string }> = [
   { value: "6", label: "Viernes" },
   { value: "7", label: "Sabado" }
 ];
+
+const ZOOM_ACCOUNT_COLOR_PALETTE = [
+  "#0D9488",
+  "#0284C7",
+  "#2563EB",
+  "#1D4ED8",
+  "#0F766E",
+  "#15803D",
+  "#65A30D",
+  "#CA8A04",
+  "#EA580C",
+  "#DC2626",
+  "#BE185D",
+  "#C2410C",
+  "#6D28D9",
+  "#5B21B6",
+  "#334155",
+  "#4D7C0F",
+  "#0369A1",
+  "#7C2D12",
+  "#9F1239",
+  "#166534"
+];
+
+function hashLabel(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getZoomAccountColor(accountLabel: string): string {
+  const normalized = accountLabel.trim().toLowerCase();
+  if (!normalized || normalized === "-") {
+    return "#64748B";
+  }
+  const paletteIndex = hashLabel(normalized) % ZOOM_ACCOUNT_COLOR_PALETTE.length;
+  return ZOOM_ACCOUNT_COLOR_PALETTE[paletteIndex];
+}
 
 function parseTimeToMinutes(value: string): number | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
@@ -169,8 +172,6 @@ export function SpaTabSolicitudes({
   const [expandedSolicitudId, setExpandedSolicitudId] = useState<string | null>(null);
   const [createProgramaOpen, setCreateProgramaOpen] = useState(false);
   const [newProgramaNombre, setNewProgramaNombre] = useState("");
-  const theme = useTheme();
-  const isCompactLayout = useMediaQuery(theme.breakpoints.down("md"));
 
   function syncDurationFromTimes(startTime: string, endTime: string): string {
     const startMinutes = parseTimeToMinutes(startTime);
@@ -351,6 +352,21 @@ export function SpaTabSolicitudes({
     if (estado === "REGISTRADA") return { label: "Registrada", color: "default" };
     return { label: estado, color: "default" };
   }
+
+  const statusSummary = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of solicitudes) {
+      counts.set(item.estadoSolicitud, (counts.get(item.estadoSolicitud) ?? 0) + 1);
+    }
+
+    return Array.from(counts.entries())
+      .map(([estado, count]) => ({
+        estado,
+        count,
+        ...mapSolicitudStatus(estado)
+      }))
+      .sort((left, right) => right.count - left.count);
+  }, [solicitudes]);
 
   function mapInstanciaStatus(
     estadoEvento: string | null | undefined,
@@ -576,14 +592,14 @@ export function SpaTabSolicitudes({
           <ToggleButtons
             label="Asistencia Zoom"
             value={form.asistenciaZoom}
-            onChange={(val) => updateForm("asistenciaZoom", val)}
+            onChange={(val) => updateForm("asistenciaZoom", val as SolicitudFormState["asistenciaZoom"])}
           />
 
           <ToggleButtons
             label="Modalidad"
             name="solicitud-modalidad"
             value={form.modalidad}
-            onChange={(val) => updateForm("modalidad", val)}
+            onChange={(val) => updateForm("modalidad", val as SolicitudFormState["modalidad"])}
             options={[
               { value: "VIRTUAL", label: "Virtual" },
               { value: "HIBRIDA", label: "Hibrida" }
@@ -594,7 +610,7 @@ export function SpaTabSolicitudes({
             label="Grabacion"
             name="solicitud-grabacion"
             value={form.grabacion}
-            onChange={(val) => updateForm("grabacion", val)}
+            onChange={(val) => updateForm("grabacion", val as SolicitudFormState["grabacion"])}
             options={[
               { value: "SI", label: "Si" },
               { value: "NO", label: "No" },
@@ -606,17 +622,11 @@ export function SpaTabSolicitudes({
             label="Una o varias reuniones"
             name="solicitud-instancias"
             value={form.unaOVarias}
-            onChange={(val) => updateForm("unaOVarias", val)}
+            onChange={(val) => updateForm("unaOVarias", val as SolicitudFormState["unaOVarias"])}
             options={[
               { value: "UNA", label: "Una sola" },
               { value: "VARIAS", label: "Varias" }
             ]}
-          />
-
-          <ToggleButtons
-            label="Control de asistencia"
-            value={form.controlAsistencia}
-            onChange={(val) => updateForm("controlAsistencia", val)}
           />
 
           {form.unaOVarias === "UNA" ? (
@@ -1015,98 +1025,109 @@ export function SpaTabSolicitudes({
             </Typography>
           )}
           {solicitudes.length > 0 && (
-            <TableContainer
-              component={Paper}
-              variant="outlined"
-              sx={{
-                borderRadius: 2,
-                width: "100%",
-                maxWidth: "100%",
-                overflowX: "auto"
-              }}
-            >
-              <Table size="small" sx={{ minWidth: 1220 }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ width: 56 }} />
-                    <TableCell>Titulo</TableCell>
-                    <TableCell>Solicitado por</TableCell>
-                    <TableCell>Responsable</TableCell>
-                    <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>Modalidad</TableCell>
-                    <TableCell>Estado</TableCell>
-                    <TableCell>ID de reunion</TableCell>
-                    <TableCell sx={{ display: { xs: "none", lg: "table-cell" } }}>
-                      Cuenta anfitriona (Zoom)
-                    </TableCell>
-                    <TableCell>Link</TableCell>
-                    <TableCell>Instancias</TableCell>
-                    {canDeleteSolicitud && <TableCell>Acciones</TableCell>}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {solicitudes.map((item) => {
-                    const joinUrl =
-                      item.zoomJoinUrl ??
-                      item.zoomInstances?.find((instance) => instance.joinUrl)?.joinUrl ??
-                      null;
-                    const instanceCount = item.zoomInstanceCount ?? item.zoomInstances?.length ?? 1;
-                    const instances = item.zoomInstances ?? [];
-                    const isExpanded = expandedSolicitudId === item.id;
-                    const accountLabel =
-                      item.zoomHostAccount ||
-                      item.cuentaZoomAsignada?.ownerEmail ||
-                      item.cuentaZoomAsignada?.nombreCuenta ||
-                      "-";
-                    const requesterLabel = item.requestedBy?.name || item.requestedBy?.email || "-";
-                    const responsableLabel = item.responsableNombre?.trim() || requesterLabel;
-                    const meetingIdDisplay =
-                      item.estadoSolicitud === "PENDIENTE_RESOLUCION_MANUAL_ID"
-                        ? "Pendiente"
-                        : item.meetingPrincipalId || "-";
-                    const solicitudStatus = mapSolicitudStatus(item.estadoSolicitud);
-                    const isSolicitudCancelled =
-                      item.estadoSolicitud === "CANCELADA_ADMIN" || item.estadoSolicitud === "CANCELADA_DOCENTE";
+            <Stack spacing={1.4}>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "repeat(2, minmax(0, 1fr))",
+                    sm: "repeat(3, minmax(0, 1fr))",
+                    lg: "repeat(6, minmax(0, 1fr))"
+                  },
+                  gap: 1
+                }}
+              >
+                <Paper variant="outlined" sx={{ p: 1.2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Total
+                  </Typography>
+                  <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
+                    {solicitudes.length}
+                  </Typography>
+                </Paper>
+                {statusSummary.map((summary) => (
+                  <Paper key={summary.estado} variant="outlined" sx={{ p: 1.2 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {summary.label}
+                    </Typography>
+                    <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
+                      {summary.count}
+                    </Typography>
+                  </Paper>
+                ))}
+              </Box>
 
-                    return (
-                      <Fragment key={item.id}>
-                        <TableRow hover>
-                          <TableCell>
-                            <IconButton
-                              size="small"
-                              onClick={() =>
-                                setExpandedSolicitudId((prev) => (prev === item.id ? null : item.id))
-                              }
-                              disabled={instances.length === 0}
-                              aria-label={isExpanded ? "Ocultar detalle" : "Mostrar detalle"}
-                            >
-                              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                            </IconButton>
-                          </TableCell>
-                          <TableCell sx={{ minWidth: 180 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              <Stack spacing={1.2}>
+                {solicitudes.map((item) => {
+                  const joinUrl =
+                    item.zoomJoinUrl ??
+                    item.zoomInstances?.find((instance) => instance.joinUrl)?.joinUrl ??
+                    null;
+                  const instanceCount = item.zoomInstanceCount ?? item.zoomInstances?.length ?? 1;
+                  const instances = item.zoomInstances ?? [];
+                  const isExpanded = expandedSolicitudId === item.id;
+                  const accountLabel =
+                    item.zoomHostAccount ||
+                    item.cuentaZoomAsignada?.ownerEmail ||
+                    item.cuentaZoomAsignada?.nombreCuenta ||
+                    "-";
+                  const accountColor = getZoomAccountColor(accountLabel);
+                  const requesterLabel = item.requestedBy?.name || item.requestedBy?.email || "-";
+                  const responsableLabel = item.responsableNombre?.trim() || requesterLabel;
+                  const meetingIdDisplay =
+                    item.estadoSolicitud === "PENDIENTE_RESOLUCION_MANUAL_ID"
+                      ? "Pendiente"
+                      : item.meetingPrincipalId || "-";
+                  const solicitudStatus = mapSolicitudStatus(item.estadoSolicitud);
+                  const isSolicitudCancelled =
+                    item.estadoSolicitud === "CANCELADA_ADMIN" || item.estadoSolicitud === "CANCELADA_DOCENTE";
+                  const statusAccent =
+                    solicitudStatus.color === "success"
+                      ? "success.main"
+                      : solicitudStatus.color === "warning"
+                        ? "warning.main"
+                        : solicitudStatus.color === "error"
+                          ? "error.main"
+                          : solicitudStatus.color === "info"
+                            ? "info.main"
+                            : "grey.400";
+                  const sortedInstances = [...instances].sort(
+                    (left, right) => new Date(left.startTime).getTime() - new Date(right.startTime).getTime()
+                  );
+                  const upcomingInstance =
+                    sortedInstances.find((instance) => new Date(instance.startTime).getTime() >= Date.now()) ??
+                    sortedInstances[0];
+
+                  return (
+                    <Paper
+                      key={item.id}
+                      variant="outlined"
+                      sx={{
+                        borderRadius: 2.2,
+                        overflow: "hidden",
+                        borderLeft: "6px solid",
+                        borderLeftColor: statusAccent
+                      }}
+                    >
+                      <Box sx={{ p: { xs: 1.3, sm: 1.7 } }}>
+                        <Stack
+                          direction={{ xs: "column", md: "row" }}
+                          spacing={1}
+                          justifyContent="space-between"
+                          alignItems={{ xs: "flex-start", md: "center" }}
+                          sx={{ mb: 1 }}
+                        >
+                          <Box>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                               {item.titulo}
                             </Typography>
-                          </TableCell>
-                          <TableCell>{requesterLabel}</TableCell>
-                          <TableCell>{responsableLabel}</TableCell>
-                          <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>
-                            {item.modalidadReunion}
-                          </TableCell>
-                          <TableCell>
-                            <Chip size="small" color={solicitudStatus.color} label={solicitudStatus.label} />
-                          </TableCell>
-                          <TableCell sx={{ minWidth: 180 }}>
-                            <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                              {meetingIdDisplay}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Anfitriona: {accountLabel}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ display: { xs: "none", lg: "table-cell" } }}>
-                            {accountLabel}
-                          </TableCell>
-                          <TableCell>
+                            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.7 }}>
+                              <Chip size="small" color={solicitudStatus.color} label={solicitudStatus.label} />
+                              <Chip size="small" variant="outlined" label={`${instanceCount} instancia(s)`} />
+                              <Chip size="small" variant="outlined" label={item.modalidadReunion} />
+                            </Stack>
+                          </Box>
+                          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                             {joinUrl ? (
                               <Button
                                 size="small"
@@ -1119,153 +1140,127 @@ export function SpaTabSolicitudes({
                               >
                                 Abrir
                               </Button>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell sx={{ fontFamily: "monospace" }}>{instanceCount}</TableCell>
-                          {canDeleteSolicitud && (
-                            <TableCell sx={{ minWidth: 250 }}>
-                              <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
-                                <Button
-                                  type="button"
-                                  size="small"
-                                  variant="outlined"
-                                  color="warning"
-                                  startIcon={<CancelScheduleSendOutlinedIcon fontSize="small" />}
-                                  disabled={isSolicitudCancelled || cancellingSerieSolicitudId === item.id}
-                                  onClick={() => onCancelSolicitudSerie(item.id, item.titulo)}
-                                >
-                                  {cancellingSerieSolicitudId === item.id
-                                    ? "Cancelando..."
-                                    : instanceCount > 1
-                                      ? "Cancelar serie"
-                                      : "Cancelar reunion"}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="small"
-                                  variant="outlined"
-                                  color="error"
-                                  startIcon={<DeleteOutlineIcon fontSize="small" />}
-                                  onClick={() => onDeleteSolicitud(item.id)}
-                                  disabled={deletingSolicitudId === item.id}
-                                >
-                                  {deletingSolicitudId === item.id ? "Eliminando..." : "Eliminar"}
-                                </Button>
-                              </Stack>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                        <TableRow>
-                          <TableCell
-                            colSpan={canDeleteSolicitud ? 11 : 10}
-                            sx={{ py: 0, borderBottom: isExpanded ? undefined : 0 }}
-                          >
-                            <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                              <Box sx={{ p: 2, backgroundColor: "grey.50" }}>
-                                <Typography variant="subtitle2" sx={{ mb: 1.2 }}>
-                                  Detalle de instancias ({instances.length}) - anfitriona: {accountLabel}
-                                </Typography>
-                                {instances.length === 0 ? (
-                                  <Typography variant="body2" color="text.secondary">
-                                    Esta solicitud no tiene instancias disponibles.
-                                  </Typography>
-                                ) : (
-                                  <Stack spacing={1.2}>
-                                    {instances.map((instance, index) => {
-                                      const status = mapInstanciaStatus(instance.estadoEvento, instance.status);
-                                      const isInstanceCancelled =
-                                        isSolicitudCancelled || !status.cancellable;
-                                      const instanceKey = `${item.id}:${
-                                        instance.eventId ?? instance.occurrenceId ?? instance.startTime
-                                      }`;
+                            ) : null}
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={() =>
+                                setExpandedSolicitudId((prev) => (prev === item.id ? null : item.id))
+                              }
+                              disabled={instances.length === 0}
+                              endIcon={isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            >
+                              {isExpanded ? "Ocultar detalle" : "Ver detalle"}
+                            </Button>
+                          </Stack>
+                        </Stack>
 
-                                      return (
-                                        <Paper
-                                          key={instanceKey}
-                                          variant="outlined"
-                                          sx={{
-                                            p: 1.2,
-                                            display: "flex",
-                                            flexWrap: "wrap",
-                                            alignItems: "center",
-                                            justifyContent: "space-between",
-                                            gap: 1
-                                          }}
-                                        >
-                                          <Box>
-                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                              {index + 1}. {formatDateTime(instance.startTime)}
-                                            </Typography>
-                                            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
-                                              <Chip size="small" color={status.color} label={status.label} />
-                                              {instance.occurrenceId ? (
-                                                <Chip
-                                                  size="small"
-                                                  variant="outlined"
-                                                  label={`occurrence_id ${instance.occurrenceId}`}
-                                                />
-                                              ) : null}
-                                            </Stack>
-                                          </Box>
-                                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                                            {instance.joinUrl ? (
-                                              <Button
-                                                size="small"
-                                                variant="text"
-                                                href={instance.joinUrl}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                endIcon={<LaunchIcon fontSize="small" />}
-                                              >
-                                                <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                                                  Abrir instancia
-                                                </Box>
-                                                <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                                                  Abrir
-                                                </Box>
-                                              </Button>
-                                            ) : null}
-                                            {canDeleteSolicitud && (
-                                              <Button
-                                                type="button"
-                                                size="small"
-                                                variant="outlined"
-                                                color="warning"
-                                                startIcon={<EventBusyOutlinedIcon fontSize="small" />}
-                                                disabled={isInstanceCancelled || cancellingInstanciaKey === instanceKey}
-                                                onClick={() =>
-                                                  onCancelSolicitudInstancia({
-                                                    solicitudId: item.id,
-                                                    titulo: item.titulo,
-                                                    eventoId: instance.eventId ?? undefined,
-                                                    occurrenceId: instance.occurrenceId ?? undefined,
-                                                    startTime: instance.startTime
-                                                  })
-                                                }
-                                              >
-                                                {cancellingInstanciaKey === instanceKey
-                                                  ? "Cancelando..."
-                                                  : "Cancelar instancia"}
-                                              </Button>
-                                            )}
-                                          </Stack>
-                                        </Paper>
-                                      );
-                                    })}
-                                  </Stack>
-                                )}
-                              </Box>
-                            </Collapse>
-                          </TableCell>
-                        </TableRow>
-                      </Fragment>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                        <Box
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: {
+                              xs: "1fr",
+                              sm: "repeat(2, minmax(0, 1fr))",
+                              lg: "repeat(3, minmax(0, 1fr))"
+                            },
+                            gap: 1
+                          }}
+                        >
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Solicitado por
+                            </Typography>
+                            <Typography variant="body2">{requesterLabel}</Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Responsable
+                            </Typography>
+                            <Typography variant="body2">{responsableLabel}</Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Cuenta anfitriona (Zoom)
+                            </Typography>
+                            <Stack direction="row" spacing={0.8} alignItems="center">
+                              <Box
+                                aria-hidden
+                                sx={{
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: "50%",
+                                  backgroundColor: accountColor,
+                                  border: "1px solid",
+                                  borderColor: "divider",
+                                  flexShrink: 0
+                                }}
+                              />
+                              <Typography variant="body2">{accountLabel}</Typography>
+                            </Stack>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Proxima instancia
+                            </Typography>
+                            <Typography variant="body2">
+                              {upcomingInstance ? formatDateTime(upcomingInstance.startTime) : "Sin instancias"}
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              ID de reunion
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                              {meetingIdDisplay}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {canDeleteSolicitud && (
+                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
+                            <Button
+                              type="button"
+                              size="small"
+                              variant="outlined"
+                              color="warning"
+                              startIcon={<CancelScheduleSendOutlinedIcon fontSize="small" />}
+                              disabled={isSolicitudCancelled || cancellingSerieSolicitudId === item.id}
+                              onClick={() => onCancelSolicitudSerie(item.id, item.titulo)}
+                            >
+                              {cancellingSerieSolicitudId === item.id
+                                ? "Cancelando..."
+                                : instanceCount > 1
+                                  ? "Cancelar serie"
+                                  : "Cancelar reunion"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="small"
+                              variant="outlined"
+                              color="error"
+                              startIcon={<DeleteOutlineIcon fontSize="small" />}
+                              onClick={() => onDeleteSolicitud(item.id)}
+                              disabled={deletingSolicitudId === item.id}
+                            >
+                              {deletingSolicitudId === item.id ? "Eliminando..." : "Eliminar"}
+                            </Button>
+                          </Stack>
+                        )}
+                      </Box>
+
+                      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                        <Box sx={{ p: 2, backgroundColor: "grey.50", borderTop: "1px solid", borderColor: "divider" }}>
+                          <Typography variant="subtitle2" sx={{ mb: 1.2 }}>
+                            Detalle de instancias ({instances.length}) - anfitriona: {accountLabel}
+                          </Typography>
+                          {renderInstanceList(item, instances, isSolicitudCancelled)}
+                        </Box>
+                      </Collapse>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+            </Stack>
           )}
         </Box>
       )}

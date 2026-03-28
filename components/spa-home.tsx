@@ -1,29 +1,14 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { signIn } from "next-auth/react";
 import { Alert, Backdrop, Box, CircularProgress, Tab as MuiTab, Tabs, Typography } from "@mui/material";
-import { UserAvatar } from "@/components/user-avatar";
-import { ToggleButtons } from "@/components/toggle-buttons";
 import {
-  buildRecurringStarts,
-  buildRecurrenceSummary,
-  formatDateTime,
-  formatDuration,
-  getZoomWeekday,
-  parseWeekdaysCsv,
-  type ZoomMonthlyMode,
-  type ZoomRecurrenceType,
-  zoomMonthlyWeekOptions,
-  zoomWeekdayOptions
+  formatDateTime
 } from "@/src/lib/spa-home/recurrence";
 import {
   loadSummary,
-  loadAssignmentBoard,
-  type DashboardSummary,
-  type AssignmentBoardEvent,
-  type AssignableAssistant
+  loadAssignmentBoard
 } from "@/src/services/dashboardApi";
 import {
   loadPastMeetings,
@@ -32,8 +17,7 @@ import {
   deleteSolicitud as deleteSolicitudApi,
   cancelSolicitudSerie as cancelSolicitudSerieApi,
   cancelSolicitudInstancia as cancelSolicitudInstanciaApi,
-  submitPastMeeting as submitPastMeetingApi,
-  type Solicitud
+  submitPastMeeting as submitPastMeetingApi
 } from "@/src/services/solicitudesApi";
 import {
   createPrograma as createProgramaApi,
@@ -43,17 +27,14 @@ import {
 import {
   loadAgendaLibre,
   setInterest as setInterestApi,
-  assignAssistantToEvent as assignAssistantToEventApi,
-  type AgendaEvent
+  assignAssistantToEvent as assignAssistantToEventApi
 } from "@/src/services/agendaApi";
 import {
   loadUsers,
   submitCreateUser as submitCreateUserApi,
   loadGoogleAccountStatus,
   unlinkGoogleAccount as unlinkGoogleAccountApi,
-  syncProfileFromGoogle as syncProfileFromGoogleApi,
-  updateProfile,
-  type ManagedUser
+  syncProfileFromGoogle as syncProfileFromGoogleApi
 } from "@/src/services/userApi";
 import {
   loadTarifas,
@@ -62,7 +43,9 @@ import {
 import {
   loadZoomAccounts,
   loadManualPendings,
-  type ZoomAccount
+  loadZoomUpcomingMeetings,
+  loadZoomPastMeetings,
+  type ZoomUpcomingMeeting
 } from "@/src/services/zoomApi";
 import { useSolicitudes } from "@/src/hooks/useSolicitudes";
 import { useTarifas, type TarifaModalidad } from "@/src/hooks/useTarifas";
@@ -74,6 +57,8 @@ import { useUserProfile } from "@/src/hooks/useUserProfile";
 import { usePastMeetings } from "@/src/hooks/usePastMeetings";
 import { useDashboard } from "@/src/hooks/useDashboard";
 import { useUIState } from "@/src/hooks/useUIState";
+import { useZoomUpcomingMeetings } from "@/src/hooks/useZoomUpcomingMeetings";
+import { useZoomPastMeetings } from "@/src/hooks/useZoomPastMeetings";
 import { SpaTabDashboard } from "@/components/spa-tabs/SpaTabDashboard";
 import { SpaTabSolicitudes } from "@/components/spa-tabs/SpaTabSolicitudes";
 import { SpaTabAgendaLibre } from "@/components/spa-tabs/SpaTabAgendaLibre";
@@ -82,22 +67,11 @@ import { SpaTabManual } from "@/components/spa-tabs/SpaTabManual";
 import { SpaTabHistorico } from "@/components/spa-tabs/SpaTabHistorico";
 import { SpaTabTarifas } from "@/components/spa-tabs/SpaTabTarifas";
 import { SpaTabCuentas } from "@/components/spa-tabs/SpaTabCuentas";
+import { SpaTabProximasReuniones } from "@/components/spa-tabs/SpaTabProximasReuniones";
+import { SpaTabPasadasReunionesZoom } from "@/components/spa-tabs/SpaTabPasadasReunionesZoom";
 import { SpaTabUsuarios } from "@/components/spa-tabs/SpaTabUsuarios";
 import { SpaTabPerfil } from "@/components/spa-tabs/SpaTabPerfil";
-import {
-  formatZoomDateTime as formatZoomDateTimeUtil,
-  formatManagedUserRole as formatManagedUserRoleUtil,
-  formatManagedUserDate as formatManagedUserDateUtil,
-  formatModalidad as formatModalidadUtil,
-  normalizeZoomMeetingId,
-  resolveZoomJoinUrl
-} from "@/components/spa-tabs/spa-tabs-utils";
-import {
-  combineDateAndTimeToIso,
-  resolveEndByTimeOrDuration,
-  validateSolicitudTema,
-  validatePastMeetingRequired
-} from "@/components/spa-tabs/form-validators";
+import { buildDocenteSolicitudPayload } from "@/components/spa-tabs/solicitud-payload-builder";
 
 
 export type CurrentUser = {
@@ -109,6 +83,15 @@ export type CurrentUser = {
   image?: string | null;
 };
 
+type PastMeetingZoomSeed = {
+  meetingId: string;
+  topic: string;
+  startTime: string;
+  endTime: string;
+  joinUrl: string;
+  accountEmail: string;
+};
+
 const tabs = [
   "dashboard",
   "solicitudes",
@@ -117,12 +100,15 @@ const tabs = [
   "manual",
   "historico",
   "cuentas",
+  "proximas_zoom",
+  "pasadas_zoom",
   "tarifas",
   "usuarios",
   "perfil"
 ] as const;
 type Tab = (typeof tabs)[number];
 const EMAIL_LINE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const VIEW_ROLE_COOKIE = "zoom_view_as";
 
 function normalizeSupportRole(role: string): string {
   if (role === "ASISTENTE_ZOOM" || role === "SOPORTE_ZOOM") {
@@ -201,6 +187,18 @@ export function SpaHome() {
   
   // Zoom Accounts
   const { zoomAccounts, setZoomAccounts, zoomGroupName, setZoomGroupName, isLoadingZoomAccounts, setIsLoadingZoomAccounts, expandedZoomAccountId, setExpandedZoomAccountId } = useZoomAccounts();
+  const {
+    zoomUpcomingMeetings,
+    setZoomUpcomingMeetings,
+    isLoadingZoomUpcomingMeetings,
+    setIsLoadingZoomUpcomingMeetings
+  } = useZoomUpcomingMeetings();
+  const {
+    zoomPastMeetings,
+    setZoomPastMeetings,
+    isLoadingZoomPastMeetings,
+    setIsLoadingZoomPastMeetings
+  } = useZoomPastMeetings();
   
   // Managed Users
   const { users, setUsers, isLoadingUsers, setIsLoadingUsers, isCreatingUser, setIsCreatingUser, createUserForm, setCreateUserForm } = useManagedUsers();
@@ -216,11 +214,12 @@ export function SpaHome() {
     pastMeetingForm,
     setPastMeetingForm
   } = usePastMeetings();
+  const [pastMeetingZoomSeed, setPastMeetingZoomSeed] = useState<PastMeetingZoomSeed | null>(null);
   
   // User Profile & Auth
   const { user, setUser, googleLinked, setGoogleLinked, hasPassword, setHasPassword, isLoadingGoogleStatus, setIsLoadingGoogleStatus, isSyncingGoogleProfile, setIsSyncingGoogleProfile, isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount, isUpdatingProfile, setIsUpdatingProfile, profileForm, setProfileForm, showProfileForm, setShowProfileForm } = useUserProfile();
 
-  const { searchParams, tabs: availableTabs } = useUIState();
+  const { searchParams } = useUIState();
   
   const adminViewRole = useMemo(() => {
     const rawRole = normalizeSupportRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
@@ -245,6 +244,10 @@ export function SpaHome() {
   const canSeeAssignmentBoard = useMemo(() => effectiveRole === "ADMINISTRADOR", [effectiveRole]);
   const canSeeTarifas = useMemo(
     () => ["CONTADURIA", "ADMINISTRADOR"].includes(effectiveRole),
+    [effectiveRole]
+  );
+  const canSeeSolicitudes = useMemo(
+    () => ["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(effectiveRole),
     [effectiveRole]
   );
   const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
@@ -317,6 +320,22 @@ export function SpaHome() {
   // requestedTab is already provided by useUIState hook
 
   useEffect(() => {
+    const rawViewAs = normalizeSupportRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
+    if (rawViewAs === "ADMINISTRADOR") {
+      document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
+      return;
+    }
+
+    const allowedViewAs = ["DOCENTE", "SOPORTE_ZOOM", "CONTADURIA"];
+    if (!allowedViewAs.includes(rawViewAs)) {
+      document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
+      return;
+    }
+
+    document.cookie = `${VIEW_ROLE_COOKIE}=${encodeURIComponent(rawViewAs)}; path=/; max-age=604800; samesite=lax`;
+  }, [searchParams]);
+
+  useEffect(() => {
     void bootstrap();
   }, []);
 
@@ -345,10 +364,6 @@ export function SpaHome() {
           if (summary) setSummary(summary);
         })(),
         (async () => {
-          const solicitudes = await loadSolicitudes();
-          if (solicitudes) setSolicitudes(solicitudes);
-        })(),
-        (async () => {
           const pendings = await loadManualPendings();
           if (pendings) setManualPendings(pendings);
         })(),
@@ -361,6 +376,15 @@ export function SpaHome() {
           if (loadedProgramas) setProgramas(loadedProgramas);
         })()
       ];
+
+      if (["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(normalizeSupportRole(meJson.user.role))) {
+        loaders.push(
+          (async () => {
+            const solicitudes = await loadSolicitudes();
+            if (solicitudes) setSolicitudes(solicitudes);
+          })()
+        );
+      }
 
       if (meJson.user.role === "ADMINISTRADOR") {
         loaders.push(
@@ -410,6 +434,10 @@ export function SpaHome() {
       setTab("dashboard");
       return;
     }
+    if (tab === "solicitudes" && !canSeeSolicitudes) {
+      setTab("dashboard");
+      return;
+    }
     if (tab === "asignacion" && !canSeeAssignmentBoard) {
       setTab("dashboard");
       return;
@@ -426,6 +454,14 @@ export function SpaHome() {
       setTab("dashboard");
       return;
     }
+    if (tab === "proximas_zoom" && !canSeeZoomAccounts) {
+      setTab("dashboard");
+      return;
+    }
+    if (tab === "pasadas_zoom" && !canSeeZoomAccounts) {
+      setTab("dashboard");
+      return;
+    }
     if (tab === "usuarios" && !canSeeUsers) {
       setTab("dashboard");
       return;
@@ -437,6 +473,7 @@ export function SpaHome() {
     effectiveRole,
     tab,
     canSeeAgendaLibre,
+    canSeeSolicitudes,
     canSeeAssignmentBoard,
     canSeeManual,
     canSeePastMeetings,
@@ -495,6 +532,16 @@ export function SpaHome() {
   }, [tab, canSeeZoomAccounts]);
 
   useEffect(() => {
+    if (tab !== "proximas_zoom" || !canSeeZoomAccounts) return;
+    void refreshZoomUpcomingMeetings();
+  }, [tab, canSeeZoomAccounts]);
+
+  useEffect(() => {
+    if (tab !== "pasadas_zoom" || !canSeeZoomAccounts) return;
+    void refreshZoomPastMeetings();
+  }, [tab, canSeeZoomAccounts]);
+
+  useEffect(() => {
     if (tab !== "usuarios" || !canSeeUsers) return;
     (async () => {
       setIsLoadingUsers(true);
@@ -550,68 +597,6 @@ export function SpaHome() {
     setTab(requestedTab);
   }, [requestedTab]);
 
-  // Removed: All load* and fetch functions moved to service modules
-  // They are now imported from @/src/services/{dashboardApi,solicitudesApi,agendaApi,userApi,tarifasApi,zoomApi}
-
-  function isLicensedZoomAccount(account: ZoomAccount): boolean {
-    return account.type === 2;
-  }
-
-  function isMeetingStartingSoon(startTime: string): boolean {
-    const startMs = new Date(startTime).getTime();
-    if (Number.isNaN(startMs)) return false;
-    const diff = startMs - Date.now();
-    const hours24 = 24 * 60 * 60 * 1000;
-    return diff >= 0 && diff <= hours24;
-  }
-
-  function formatDurationHoursMinutes(totalMinutes: number): string {
-    const minutes = Math.max(0, Math.floor(totalMinutes));
-    const hours = Math.floor(minutes / 60);
-    const rest = minutes % 60;
-    return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
-  }
-
-  // Using formatZoomDateTime from spa-tabs-utils
-  const formatZoomDateTime = formatZoomDateTimeUtil;
-
-  // Using formatManagedUserRole from spa-tabs-utils
-  const formatManagedUserRole = formatManagedUserRoleUtil;
-
-  // Using formatManagedUserDate from spa-tabs-utils
-  const formatManagedUserDate = formatManagedUserDateUtil;
-
-  // updateForm is now provided by useSolicitudes hook
-
-  // Using form validators from form-validators module
-  const formatModalidad = formatModalidadUtil;
-
-  function getPreparacionDisplay(item: AgendaEvent): string {
-    if (item.solicitud.modalidadReunion !== "HIBRIDA") return "";
-    const prep = item.solicitud.patronRecurrencia?.["preparacionMinutos"];
-    if (typeof prep !== "number" || prep <= 0) return "";
-    const hours = Math.floor(prep / 60);
-    const rest = prep % 60;
-    return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
-  }
-
-  function getAssignedPerson(item: AgendaEvent): string {
-    const assigned = item.asignaciones?.[0]?.asistente?.usuario;
-    if (!assigned) return "";
-    return (
-      assigned.name ||
-      [assigned.firstName, assigned.lastName].filter(Boolean).join(" ") ||
-      assigned.email ||
-      ""
-    );
-  }
-
-  function getEncargado(item: AgendaEvent): string {
-    const docente = item.solicitud.docente?.usuario;
-    if (!docente) return "";
-    return docente.name || [docente.firstName, docente.lastName].filter(Boolean).join(" ") || docente.email || "";
-  }
-
   async function refreshAfterSolicitudMutation() {
     const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
       loadSummary(),
@@ -649,190 +634,13 @@ export function SpaHome() {
         .filter(Boolean)
         .join("\n");
 
-      const requiereAsistencia = form.asistenciaZoom === "SI";
-      const requiereGrabacion = form.grabacion === "SI";
       const normalizedDocentesCorreos = normalizeDocentesCorreosByLine(form.correosDocentes);
-
-      let payload: Record<string, unknown>;
-
-      if (form.unaOVarias === "UNA") {
-        const startIso = combineDateAndTimeToIso(form.diaUnica, form.horaInicioUnica, "dia y hora de inicio");
-        const { endIso } = resolveEndByTimeOrDuration(
-          startIso,
-          form.horaFinUnica,
-          form.duracionUnica,
-          "la reunion unica"
-        );
-
-        payload = {
-          titulo: form.tema.trim(),
-          responsableNombre: form.responsable.trim(),
-          programaNombre: form.programa.trim(),
-          descripcion: [form.descripcionUnica.trim(), metadata].filter(Boolean).join("\n\n"),
-          finalidadAcademica: form.programa.trim() || undefined,
-          modalidadReunion: form.modalidad,
-          tipoInstancias: "UNICA",
-          fechaInicioSolicitada: startIso,
-          fechaFinSolicitada: endIso,
-          timezone: "America/Montevideo",
-          controlAsistencia: form.controlAsistencia === "SI",
-          docentesCorreos: normalizedDocentesCorreos,
-          grabacionPreferencia:
-            form.grabacion === "SI" ? "SI" : form.grabacion === "NO" ? "NO" : "A_DEFINIR",
-          requiereGrabacion,
-          requiereAsistencia,
-          motivoAsistencia: requiereAsistencia ? "Asistencia solicitada desde formulario docente." : undefined
-        };
-      } else {
-        const firstAnchorIso = combineDateAndTimeToIso(
-          form.primerDiaRecurrente,
-          form.horaInicioRecurrente,
-          "primer dia y hora de inicio"
-        );
-        const firstAnchorDate = new Date(firstAnchorIso);
-        const { durationMinutes } = resolveEndByTimeOrDuration(
-          firstAnchorIso,
-          form.horaFinRecurrente,
-          form.duracionRecurrente,
-          "las reuniones periodicas"
-        );
-        if (!form.fechaFinal) {
-          throw new Error("Debes completar la fecha final.");
-        }
-
-        const recurrenceEnd = new Date(`${form.fechaFinal}T${form.horaInicioRecurrente || "00:00"}`);
-        if (Number.isNaN(recurrenceEnd.getTime())) {
-          throw new Error("Fecha final invalida.");
-        }
-        if (recurrenceEnd <= firstAnchorDate) {
-          throw new Error("La fecha final debe ser posterior a la primera fecha.");
-        }
-
-        const recurrenceType = form.recurrenciaTipoZoom as ZoomRecurrenceType;
-        if (!["1", "2", "3"].includes(recurrenceType)) {
-          throw new Error("Tipo de recurrencia invalido.");
-        }
-
-        const repeatInterval = Number(form.recurrenciaIntervalo);
-        if (!Number.isInteger(repeatInterval) || repeatInterval < 1) {
-          throw new Error("Intervalo de recurrencia invalido.");
-        }
-
-        const maxRepeatInterval = recurrenceType === "1" ? 90 : recurrenceType === "2" ? 12 : 3;
-        if (repeatInterval > maxRepeatInterval) {
-          throw new Error(`El intervalo supera el maximo permitido por Zoom (${maxRepeatInterval}).`);
-        }
-
-        const weeklyDays = parseWeekdaysCsv(form.recurrenciaDiasSemana);
-        if (recurrenceType === "2" && weeklyDays.length === 0) {
-          throw new Error("Debes seleccionar al menos un dia para recurrencia semanal.");
-        }
-        const weeklyDaysForRule =
-          recurrenceType === "2"
-            ? [...new Set([...weeklyDays, getZoomWeekday(firstAnchorDate)])].sort((a, b) => a - b)
-            : [];
-
-        const monthlyMode = form.recurrenciaMensualModo as ZoomMonthlyMode;
-        if (!["DAY_OF_MONTH", "WEEKDAY_OF_MONTH"].includes(monthlyMode)) {
-          throw new Error("Modo mensual invalido.");
-        }
-
-        const monthlyDay = Number(form.recurrenciaDiaMes);
-        if (recurrenceType === "3" && monthlyMode === "DAY_OF_MONTH" && (!Number.isInteger(monthlyDay) || monthlyDay < 1 || monthlyDay > 31)) {
-          throw new Error("El dia del mes debe estar entre 1 y 31.");
-        }
-
-        const monthlyWeek = Number(form.recurrenciaSemanaMes) as -1 | 1 | 2 | 3 | 4;
-        if (recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH" && ![-1, 1, 2, 3, 4].includes(monthlyWeek)) {
-          throw new Error("La semana del mes es invalida.");
-        }
-
-        const monthlyWeekDay = Number(form.recurrenciaDiaSemanaMes);
-        if (recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH" && (!Number.isInteger(monthlyWeekDay) || monthlyWeekDay < 1 || monthlyWeekDay > 7)) {
-          throw new Error("El dia de semana mensual es invalido.");
-        }
-
-        const recurringStarts = buildRecurringStarts({
-          firstStart: firstAnchorDate,
-          recurrenceEnd,
-          recurrenceType,
-          repeatInterval,
-          weeklyDays: weeklyDaysForRule,
-          monthlyMode,
-          monthlyDay,
-          monthlyWeek,
-          monthlyWeekDay
-        });
-
-        if (recurringStarts.length < 2) {
-          throw new Error("Con esa configuracion no se generan al menos 2 instancias.");
-        }
-        if (recurringStarts.length > 50) {
-          throw new Error("Zoom permite un maximo de 50 ocurrencias por reunion recurrente.");
-        }
-
-        const firstInstanceStart = recurringStarts[0];
-        const firstInstanceEndIso = new Date(
-          firstInstanceStart.getTime() + durationMinutes * 60_000
-        ).toISOString();
-
-        const recurrenceSummary = buildRecurrenceSummary({
-          recurrenceType,
-          repeatInterval,
-          weeklyDays: weeklyDaysForRule,
-          monthlyMode,
-          monthlyDay,
-          monthlyWeek,
-          monthlyWeekDay,
-          totalInstancias: recurringStarts.length,
-          fechaFinal: form.fechaFinal
-        });
-
-        payload = {
-          titulo: form.tema.trim(),
-          responsableNombre: form.responsable.trim(),
-          programaNombre: form.programa.trim(),
-          descripcion: [form.descripcionRecurrente.trim(), metadata].filter(Boolean).join("\n\n"),
-          finalidadAcademica: form.programa.trim() || undefined,
-          modalidadReunion: form.modalidad,
-          tipoInstancias: "MULTIPLE_COMPATIBLE_ZOOM",
-          fechaInicioSolicitada: firstInstanceStart.toISOString(),
-          fechaFinSolicitada: firstInstanceEndIso,
-          fechaFinRecurrencia: recurrenceEnd.toISOString(),
-          timezone: "America/Montevideo",
-          controlAsistencia: form.controlAsistencia === "SI",
-          docentesCorreos: normalizedDocentesCorreos,
-          grabacionPreferencia:
-            form.grabacion === "SI" ? "SI" : form.grabacion === "NO" ? "NO" : "A_DEFINIR",
-          requiereGrabacion,
-          requiereAsistencia,
-          motivoAsistencia: requiereAsistencia ? "Asistencia solicitada desde formulario docente." : undefined,
-          regimenEncuentros: recurrenceSummary,
-          instanciasDetalle: recurringStarts.map((date) => ({
-            inicioProgramadoAt: date.toISOString()
-          })),
-          patronRecurrencia: {
-            totalInstancias: recurringStarts.length,
-            fechaFinal: form.fechaFinal,
-            zoomRecurrence: {
-              type: Number(recurrenceType),
-              repeat_interval: repeatInterval,
-              weekly_days: recurrenceType === "2" ? weeklyDaysForRule.join(",") : undefined,
-              monthly_day:
-                recurrenceType === "3" && monthlyMode === "DAY_OF_MONTH" ? monthlyDay : undefined,
-              monthly_week:
-                recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH"
-                  ? monthlyWeek
-                  : undefined,
-              monthly_week_day:
-                recurrenceType === "3" && monthlyMode === "WEEKDAY_OF_MONTH"
-                  ? monthlyWeekDay
-                  : undefined,
-              end_times: recurringStarts.length
-            }
-          }
-        };
-      }
+      const payload = buildDocenteSolicitudPayload({
+        form,
+        metadata,
+        normalizedDocentesCorreos,
+        timezone: "America/Montevideo"
+      });
 
       const response = await submitDocenteSolicitudApi(payload);
       if (!response.success) {
@@ -1121,6 +929,84 @@ export function SpaHome() {
     }
   }
 
+  function toDateTimeLocalInput(value: string): string {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hour = String(date.getHours()).padStart(2, "0");
+    const minute = String(date.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hour}:${minute}`;
+  }
+
+  async function refreshZoomUpcomingMeetings() {
+    setIsLoadingZoomUpcomingMeetings(true);
+    try {
+      const result = await loadZoomUpcomingMeetings();
+      if (result.error) {
+        setMessage(result.error);
+        return;
+      }
+      setZoomGroupName(result.groupName);
+      setZoomUpcomingMeetings(result.meetings);
+    } finally {
+      setIsLoadingZoomUpcomingMeetings(false);
+    }
+  }
+
+  async function refreshZoomPastMeetings() {
+    setIsLoadingZoomPastMeetings(true);
+    try {
+      const result = await loadZoomPastMeetings();
+      if (result.error) {
+        setMessage(result.error);
+        return;
+      }
+      setZoomGroupName(result.groupName);
+      setZoomPastMeetings(result.meetings);
+    } finally {
+      setIsLoadingZoomPastMeetings(false);
+    }
+  }
+
+  function preloadPastMeetingFormFromZoom(meeting: ZoomUpcomingMeeting) {
+    const seed: PastMeetingZoomSeed | null =
+      meeting.meetingId && meeting.startTime && meeting.endTime
+        ? {
+            meetingId: meeting.meetingId,
+            topic: meeting.topic || "Sin titulo",
+            startTime: meeting.startTime,
+            endTime: meeting.endTime,
+            joinUrl: meeting.joinUrl || "",
+            accountEmail: meeting.accountEmail || "sin cuenta"
+          }
+        : null;
+
+    setPastMeetingZoomSeed(seed);
+    setPastMeetingForm({
+      titulo: meeting.topic || "",
+      modalidadReunion: "VIRTUAL",
+      docenteEmail: "",
+      monitorEmail: "",
+      zoomMeetingId: meeting.meetingId ?? "",
+      inicioRealAt: toDateTimeLocalInput(meeting.startTime),
+      finRealAt: toDateTimeLocalInput(meeting.endTime),
+      programaNombre: "",
+      responsableNombre: "",
+      descripcion: `Registro importado desde Zoom (${meeting.accountEmail || "sin cuenta"}).`,
+      zoomJoinUrl: meeting.joinUrl || ""
+    });
+    setTab("historico");
+    setMessage(
+      seed
+        ? "Registro asistido: datos base bloqueados segun Zoom. Completa solo los campos faltantes."
+        : "Formulario de reunion pasada precargado con datos de Zoom."
+    );
+  }
+
   async function refreshPastMeetings() {
     setIsLoadingPastMeetings(true);
     try {
@@ -1140,18 +1026,29 @@ export function SpaHome() {
     setMessage("");
     setIsSubmittingPastMeeting(true);
     try {
+      const lockedTitle = pastMeetingZoomSeed?.topic?.trim() || pastMeetingForm.titulo.trim();
+      const lockedMeetingId = pastMeetingZoomSeed?.meetingId?.trim() || pastMeetingForm.zoomMeetingId.trim();
+      const lockedStartIso = pastMeetingZoomSeed?.startTime
+        ? new Date(pastMeetingZoomSeed.startTime).toISOString()
+        : new Date(pastMeetingForm.inicioRealAt).toISOString();
+      const lockedEndIso = pastMeetingZoomSeed?.endTime
+        ? new Date(pastMeetingZoomSeed.endTime).toISOString()
+        : new Date(pastMeetingForm.finRealAt).toISOString();
+      const lockedJoinUrl =
+        (pastMeetingZoomSeed?.joinUrl?.trim() || "") || pastMeetingForm.zoomJoinUrl.trim() || undefined;
+
       const response = await submitPastMeetingApi({
-        titulo: pastMeetingForm.titulo.trim(),
+        titulo: lockedTitle,
         modalidadReunion: pastMeetingForm.modalidadReunion,
         docenteEmail: pastMeetingForm.docenteEmail.trim().toLowerCase(),
         monitorEmail: pastMeetingForm.monitorEmail.trim().toLowerCase() || undefined,
-        zoomMeetingId: pastMeetingForm.zoomMeetingId.trim() || undefined,
-        inicioRealAt: new Date(pastMeetingForm.inicioRealAt).toISOString(),
-        finRealAt: new Date(pastMeetingForm.finRealAt).toISOString(),
+        zoomMeetingId: lockedMeetingId || undefined,
+        inicioRealAt: lockedStartIso,
+        finRealAt: lockedEndIso,
         programaNombre: pastMeetingForm.programaNombre.trim() || undefined,
         responsableNombre: pastMeetingForm.responsableNombre.trim() || undefined,
         descripcion: pastMeetingForm.descripcion.trim() || undefined,
-        zoomJoinUrl: pastMeetingForm.zoomJoinUrl.trim() || undefined
+        zoomJoinUrl: lockedJoinUrl
       });
 
       if (!response.success) {
@@ -1172,6 +1069,7 @@ export function SpaHome() {
         descripcion: "",
         zoomJoinUrl: ""
       });
+      setPastMeetingZoomSeed(null);
       setMessage(`Reunion registrada correctamente: ${response.solicitudId ?? ""}`);
       const [solicitudesData, summaryData, meetingsData] = await Promise.all([
         loadSolicitudes(),
@@ -1224,26 +1122,21 @@ export function SpaHome() {
         sx={{ mb: 2 }}
       >
         <MuiTab value="dashboard" label="Dashboard" />
-        <MuiTab value="solicitudes" label="Solicitudes" />
+        {canSeeSolicitudes && <MuiTab value="solicitudes" label="Solicitudes" />}
         {canSeeAgendaLibre && <MuiTab value="agenda_libre" label="Agenda libre" />}
         {canSeeAssignmentBoard && <MuiTab value="asignacion" label="Asignacion de personal" />}
         {canSeeManual && <MuiTab value="manual" label="Resolucion manual" />}
         {canSeePastMeetings && <MuiTab value="historico" label="Reuniones pasadas" />}
         {canSeeZoomAccounts && <MuiTab value="cuentas" label="Cuentas Zoom" />}
+        {canSeeZoomAccounts && <MuiTab value="proximas_zoom" label="Proximas Zoom" />}
+        {canSeeZoomAccounts && <MuiTab value="pasadas_zoom" label="Pasadas Zoom" />}
         {canSeeTarifas && <MuiTab value="tarifas" label="Tarifas" />}
         {canSeeUsers && <MuiTab value="usuarios" label="Usuarios" />}
       </Tabs>
 
-      {loading && (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.2, mb: 1.5 }}>
-          <CircularProgress size={18} />
-          <Typography variant="body2" color="text.secondary">Cargando...</Typography>
-        </Box>
-      )}
-
       {tab === "dashboard" && <SpaTabDashboard summary={summary} />}
 
-      {tab === "solicitudes" && (
+      {tab === "solicitudes" && canSeeSolicitudes && (
         <SpaTabSolicitudes
           solicitudes={solicitudes}
           form={form}
@@ -1303,6 +1196,8 @@ export function SpaHome() {
           }}
           pastMeetingForm={pastMeetingForm}
           setPastMeetingForm={setPastMeetingForm}
+          zoomSeed={pastMeetingZoomSeed}
+          onClearZoomSeed={() => setPastMeetingZoomSeed(null)}
           isSubmittingPastMeeting={isSubmittingPastMeeting}
           onSubmit={submitPastMeeting}
         />
@@ -1344,6 +1239,30 @@ export function SpaHome() {
               }
             })();
           }}
+        />
+      )}
+
+      {tab === "proximas_zoom" && canSeeZoomAccounts && (
+        <SpaTabProximasReuniones
+          groupName={zoomGroupName}
+          meetings={zoomUpcomingMeetings}
+          isLoading={isLoadingZoomUpcomingMeetings}
+          onRefresh={() => {
+            void refreshZoomUpcomingMeetings();
+          }}
+          onCreatePostMeetingRecord={preloadPastMeetingFormFromZoom}
+        />
+      )}
+
+      {tab === "pasadas_zoom" && canSeeZoomAccounts && (
+        <SpaTabPasadasReunionesZoom
+          groupName={zoomGroupName}
+          meetings={zoomPastMeetings}
+          isLoading={isLoadingZoomPastMeetings}
+          onRefresh={() => {
+            void refreshZoomPastMeetings();
+          }}
+          onCreatePostMeetingRecord={preloadPastMeetingFormFromZoom}
         />
       )}
 

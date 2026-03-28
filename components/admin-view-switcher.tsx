@@ -4,11 +4,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormControl, InputLabel, MenuItem, Select } from "@mui/material";
 
 const SUPPORT_VIEW_ROLE = "SOPORTE_ZOOM";
+const VIEW_ROLE_COOKIE = "zoom_view_as";
 
 const viewOptions = [
   { value: "ADMINISTRADOR", label: "Administrador" },
   { value: "DOCENTE", label: "Docente" },
-  { value: SUPPORT_VIEW_ROLE, label: "Asistente / Soporte Zoom" },
+  { value: SUPPORT_VIEW_ROLE, label: "Asistente Zoom" },
   { value: "CONTADURIA", label: "Contaduria" }
 ] as const;
 
@@ -17,6 +18,15 @@ function normalizeViewRole(raw: string): string {
     return SUPPORT_VIEW_ROLE;
   }
   return raw;
+}
+
+function persistViewRoleCookie(role: string): void {
+  if (typeof document === "undefined") return;
+  if (role === "ADMINISTRADOR") {
+    document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
+    return;
+  }
+  document.cookie = `${VIEW_ROLE_COOKIE}=${encodeURIComponent(role)}; path=/; max-age=604800; samesite=lax`;
 }
 
 export function AdminViewSwitcher() {
@@ -28,6 +38,7 @@ export function AdminViewSwitcher() {
   const currentValue = viewOptions.some((option) => option.value === raw) ? raw : "ADMINISTRADOR";
 
   function onChange(nextValue: string) {
+    persistViewRoleCookie(nextValue);
     const params = new URLSearchParams(searchParams.toString());
     if (nextValue === "ADMINISTRADOR") {
       params.delete("viewAs");

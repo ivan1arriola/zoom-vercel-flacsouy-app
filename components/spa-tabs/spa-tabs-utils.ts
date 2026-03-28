@@ -1,5 +1,84 @@
 import type { ZoomAccount } from "@/src/services/zoomApi";
 
+type ZoomAccountColor = {
+  background: string;
+  text: string;
+  border: string;
+};
+
+const ZOOM_ACCOUNT_COLORS: ZoomAccountColor[] = [
+  { background: "#fde2e4", text: "#7a1e2c", border: "#f4a6b3" },
+  { background: "#e2f0ff", text: "#164b7a", border: "#9fc6f0" },
+  { background: "#e5f7eb", text: "#1f5f33", border: "#9fd7ae" },
+  { background: "#fff1dc", text: "#7a4c14", border: "#f0c68a" },
+  { background: "#efe8ff", text: "#4a2a7a", border: "#c6b3f0" },
+  { background: "#e6fbfa", text: "#0f5b57", border: "#98dbd7" },
+  { background: "#ffe4f0", text: "#7a1f4d", border: "#f1a9cb" },
+  { background: "#eef7d8", text: "#4c5f1b", border: "#c9de8a" },
+  { background: "#e8edf2", text: "#2f465d", border: "#b3c1cf" },
+  { background: "#ffe8df", text: "#7a3620", border: "#f0b79d" },
+  { background: "#e6e6ff", text: "#2f2f7a", border: "#b0b0f0" },
+  { background: "#e5f5ff", text: "#1a537a", border: "#9bcdf0" },
+  { background: "#fff7d6", text: "#6e5a12", border: "#e6cf7c" },
+  { background: "#e2fff4", text: "#1a6147", border: "#9ad9c1" },
+  { background: "#f7e8e2", text: "#6d3423", border: "#d9b0a3" },
+  { background: "#ebe9ff", text: "#3f2f7a", border: "#bdb4f0" },
+  { background: "#e8f8ff", text: "#15536e", border: "#a1d2e6" },
+  { background: "#f2ffe6", text: "#3d5f1f", border: "#bada9e" },
+  { background: "#ffe9e9", text: "#7a2323", border: "#e6a8a8" },
+  { background: "#e6f2ff", text: "#1e4770", border: "#a7c5e6" }
+];
+
+function hashAccountKey(input: string): number {
+  let hash = 0;
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash * 31 + input.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+export function getZoomAccountColor(accountKey?: string | null): ZoomAccountColor {
+  const normalizedKey = (accountKey ?? "").trim().toLowerCase();
+  if (!normalizedKey) return ZOOM_ACCOUNT_COLORS[0];
+  const index = hashAccountKey(normalizedKey) % ZOOM_ACCOUNT_COLORS.length;
+  return ZOOM_ACCOUNT_COLORS[index] ?? ZOOM_ACCOUNT_COLORS[0];
+}
+
+export function buildZoomAccountColorMap(
+  accountKeys: Array<string | null | undefined>
+): Map<string, ZoomAccountColor> {
+  const uniqueKeys = Array.from(
+    new Set(
+      accountKeys
+        .map((key) => (key ?? "").trim().toLowerCase())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b, "es"));
+
+  const colorMap = new Map<string, ZoomAccountColor>();
+  const usedIndexes = new Set<number>();
+
+  for (const key of uniqueKeys) {
+    const baseIndex = hashAccountKey(key) % ZOOM_ACCOUNT_COLORS.length;
+    let resolvedIndex = baseIndex;
+    let attempts = 0;
+
+    while (usedIndexes.has(resolvedIndex) && attempts < ZOOM_ACCOUNT_COLORS.length) {
+      resolvedIndex = (resolvedIndex + 1) % ZOOM_ACCOUNT_COLORS.length;
+      attempts += 1;
+    }
+
+    if (attempts >= ZOOM_ACCOUNT_COLORS.length) {
+      resolvedIndex = baseIndex;
+    }
+
+    usedIndexes.add(resolvedIndex);
+    colorMap.set(key, ZOOM_ACCOUNT_COLORS[resolvedIndex] ?? ZOOM_ACCOUNT_COLORS[0]);
+  }
+
+  return colorMap;
+}
+
 export function isLicensedZoomAccount(account: ZoomAccount): boolean {
   return account.type === 2;
 }

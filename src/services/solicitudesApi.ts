@@ -52,40 +52,136 @@ export type PastMeeting = {
   monitorEmail: string | null;
 };
 
+export type DocenteSolicitudTipoInstancias = "UNICA" | "MULTIPLE_COMPATIBLE_ZOOM";
+
+export type DocenteSolicitudZoomRecurrence = {
+  type: number;
+  repeat_interval: number;
+  weekly_days?: string;
+  monthly_day?: number;
+  monthly_week?: -1 | 1 | 2 | 3 | 4;
+  monthly_week_day?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  end_times: number;
+};
+
+export type SubmitDocenteSolicitudPayload = {
+  titulo: string;
+  responsableNombre: string;
+  programaNombre: string;
+  descripcion: string;
+  finalidadAcademica?: string;
+  modalidadReunion: "VIRTUAL" | "HIBRIDA";
+  tipoInstancias: DocenteSolicitudTipoInstancias;
+  fechaInicioSolicitada: string;
+  fechaFinSolicitada: string;
+  fechaFinRecurrencia?: string;
+  timezone: string;
+  docentesCorreos?: string;
+  grabacionPreferencia: "SI" | "NO" | "A_DEFINIR";
+  requiereGrabacion: boolean;
+  requiereAsistencia: boolean;
+  motivoAsistencia?: string;
+  regimenEncuentros?: string;
+  instanciasDetalle?: Array<{ inicioProgramadoAt: string }>;
+  patronRecurrencia?: {
+    totalInstancias: number;
+    fechaFinal: string;
+    zoomRecurrence: DocenteSolicitudZoomRecurrence;
+  };
+};
+
+type RequestJsonResult<T> = {
+  ok: boolean;
+  data: T;
+};
+
+type CancelScope = "SERIE" | "INSTANCIA";
+
+type CancelSolicitudResult<TScope extends CancelScope> = {
+  scope: TScope;
+  solicitudId: string;
+  eventoId?: string;
+  occurrenceId?: string | null;
+  zoomMeetingId?: string | null;
+  cancelledInZoom?: boolean;
+  updatedEvents?: number;
+  activeEvents?: number;
+};
+
+type CancelSolicitudResponse<TScope extends CancelScope> = {
+  success: boolean;
+  error?: string;
+  result?: CancelSolicitudResult<TScope>;
+};
+
+async function requestJson<T>(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<RequestJsonResult<T>> {
+  const response = await fetch(input, init);
+  const text = await response.text().catch(() => "");
+  let parsed = {} as T;
+
+  if (text) {
+    try {
+      parsed = JSON.parse(text) as T;
+    } catch {
+      parsed = {} as T;
+    }
+  }
+
+  return {
+    ok: response.ok,
+    data: parsed
+  };
+}
+
+function withJsonBody(payload: unknown): Pick<RequestInit, "headers" | "body"> {
+  return {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  };
+}
+
 export async function loadSolicitudes(): Promise<Solicitud[] | null> {
-  const res = await fetch("/api/v1/solicitudes-sala", { cache: "no-store" });
-  if (!res.ok) return null;
-  const json = (await res.json()) as { requests: Solicitud[] };
-  return json.requests;
+  const result = await requestJson<{ requests?: Solicitud[] }>("/api/v1/solicitudes-sala", {
+    cache: "no-store"
+  });
+  if (!result.ok) return null;
+  return result.data.requests ?? [];
 }
 
 export async function loadPastMeetings(): Promise<PastMeeting[] | null> {
-  const res = await fetch("/api/v1/reuniones-pasadas", { cache: "no-store" });
-  if (!res.ok) return null;
-  const json = (await res.json()) as { meetings: PastMeeting[] };
-  return json.meetings;
+  const result = await requestJson<{ meetings?: PastMeeting[] }>("/api/v1/reuniones-pasadas", {
+    cache: "no-store"
+  });
+  if (!result.ok) return null;
+  return result.data.meetings ?? [];
 }
 
-export async function submitDocenteSolicitud(payload: Record<string, unknown>): Promise<{
+export async function submitDocenteSolicitud(payload: SubmitDocenteSolicitudPayload): Promise<{
   success: boolean;
   requestId?: string;
   error?: string;
 }> {
-  const response = await fetch("/api/v1/solicitudes-sala", {
+  const result = await requestJson<{ error?: string; request?: { id: string } }>(
+    "/api/v1/solicitudes-sala",
+    {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const data = (await response.json()) as { error?: string; request?: { id: string } };
-  if (!response.ok) {
+      ...withJsonBody(payload)
+    }
+  );
+
+  if (!result.ok) {
     return {
       success: false,
-      error: data.error ?? "No se pudo crear la solicitud."
+      error: result.data.error ?? "No se pudo crear la solicitud."
     };
   }
+
   return {
     success: true,
-    requestId: data.request?.id
+    requestId: result.data.request?.id
   };
 }
 
@@ -94,23 +190,24 @@ export async function submitPastMeeting(payload: Record<string, unknown>): Promi
   solicitudId?: string;
   error?: string;
 }> {
-  const response = await fetch("/api/v1/reuniones-pasadas", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  const result = await requestJson<{ error?: string; result?: { solicitudId: string } }>(
+    "/api/v1/reuniones-pasadas",
+    {
+      method: "POST",
+      ...withJsonBody(payload)
+    }
+  );
 
-  const data = (await response.json()) as { error?: string; result?: { solicitudId: string } };
-  if (!response.ok) {
+  if (!result.ok) {
     return {
       success: false,
-      error: data.error ?? "No se pudo registrar la reunion pasada."
+      error: result.data.error ?? "No se pudo registrar la reunion pasada."
     };
   }
 
   return {
     success: true,
-    solicitudId: data.result?.solicitudId
+    solicitudId: result.data.result?.solicitudId
   };
 }
 
@@ -121,79 +218,70 @@ export async function deleteSolicitud(solicitudId: string): Promise<{
   deletedInZoom?: boolean;
   error?: string;
 }> {
-  const response = await fetch(`/api/v1/solicitudes-sala/${encodeURIComponent(solicitudId)}`, {
-    method: "DELETE"
-  });
-
-  const data = (await response.json()) as {
+  const result = await requestJson<{
     error?: string;
     result?: {
       id: string;
       zoomMeetingId?: string | null;
       deletedInZoom?: boolean;
     };
-  };
+  }>(`/api/v1/solicitudes-sala/${encodeURIComponent(solicitudId)}`, {
+    method: "DELETE"
+  });
 
-  if (!response.ok) {
+  if (!result.ok) {
     return {
       success: false,
-      error: data.error ?? "No se pudo eliminar la solicitud."
+      error: result.data.error ?? "No se pudo eliminar la solicitud."
     };
   }
 
   return {
     success: true,
-    requestId: data.result?.id,
-    zoomMeetingId: data.result?.zoomMeetingId ?? null,
-    deletedInZoom: data.result?.deletedInZoom ?? false
+    requestId: result.data.result?.id,
+    zoomMeetingId: result.data.result?.zoomMeetingId ?? null,
+    deletedInZoom: result.data.result?.deletedInZoom ?? false
   };
 }
 
-export async function cancelSolicitudSerie(solicitudId: string, motivo?: string): Promise<{
-  success: boolean;
-  error?: string;
-  result?: {
-    scope: "SERIE";
-    solicitudId: string;
-    zoomMeetingId?: string | null;
-    cancelledInZoom?: boolean;
-    updatedEvents?: number;
-  };
-}> {
-  const response = await fetch(
+async function cancelSolicitud<TScope extends CancelScope>(
+  payload: Record<string, unknown>,
+  defaultErrorMessage: string
+): Promise<CancelSolicitudResponse<TScope>> {
+  const solicitudId = String(payload.solicitudId ?? "");
+  const result = await requestJson<{ error?: string; result?: CancelSolicitudResult<TScope> }>(
     `/api/v1/solicitudes-sala/${encodeURIComponent(solicitudId)}/cancelar`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        scope: "SERIE",
-        motivo
-      })
+      ...withJsonBody(payload)
     }
   );
 
-  const data = (await response.json()) as {
-    error?: string;
-    result?: {
-      scope: "SERIE";
-      solicitudId: string;
-      zoomMeetingId?: string | null;
-      cancelledInZoom?: boolean;
-      updatedEvents?: number;
-    };
-  };
-
-  if (!response.ok) {
+  if (!result.ok) {
     return {
       success: false,
-      error: data.error ?? "No se pudo cancelar la serie."
+      error: result.data.error ?? defaultErrorMessage
     };
   }
 
   return {
     success: true,
-    result: data.result
+    result: result.data.result
   };
+}
+
+export async function cancelSolicitudSerie(
+  solicitudId: string,
+  motivo?: string
+): Promise<CancelSolicitudResponse<"SERIE">> {
+  return cancelSolicitud<"SERIE">(
+    {
+      solicitudId,
+      scope: "SERIE",
+      motivo
+    },
+    "No se pudo cancelar la serie."
+  );
 }
 
 export async function cancelSolicitudInstancia(input: {
@@ -202,56 +290,16 @@ export async function cancelSolicitudInstancia(input: {
   occurrenceId?: string | null;
   inicioProgramadoAt?: string;
   motivo?: string;
-}): Promise<{
-  success: boolean;
-  error?: string;
-  result?: {
-    scope: "INSTANCIA";
-    solicitudId: string;
-    eventoId: string;
-    occurrenceId?: string | null;
-    zoomMeetingId?: string | null;
-    cancelledInZoom?: boolean;
-    activeEvents?: number;
-  };
-}> {
-  const response = await fetch(
-    `/api/v1/solicitudes-sala/${encodeURIComponent(input.solicitudId)}/cancelar`,
+}): Promise<CancelSolicitudResponse<"INSTANCIA">> {
+  return cancelSolicitud<"INSTANCIA">(
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        scope: "INSTANCIA",
-        eventoId: input.eventoId,
-        occurrenceId: input.occurrenceId,
-        inicioProgramadoAt: input.inicioProgramadoAt,
-        motivo: input.motivo
-      })
-    }
+      solicitudId: input.solicitudId,
+      scope: "INSTANCIA",
+      eventoId: input.eventoId,
+      occurrenceId: input.occurrenceId,
+      inicioProgramadoAt: input.inicioProgramadoAt,
+      motivo: input.motivo
+    },
+    "No se pudo cancelar la instancia."
   );
-
-  const data = (await response.json()) as {
-    error?: string;
-    result?: {
-      scope: "INSTANCIA";
-      solicitudId: string;
-      eventoId: string;
-      occurrenceId?: string | null;
-      zoomMeetingId?: string | null;
-      cancelledInZoom?: boolean;
-      activeEvents?: number;
-    };
-  };
-
-  if (!response.ok) {
-    return {
-      success: false,
-      error: data.error ?? "No se pudo cancelar la instancia."
-    };
-  }
-
-  return {
-    success: true,
-    result: data.result
-  };
 }

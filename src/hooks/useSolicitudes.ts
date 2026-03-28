@@ -1,6 +1,6 @@
 import { useState } from "react";
+import { DEFAULT_SOLICITUD_FORM, type SolicitudFormState } from "@/src/lib/spa-home/solicitud-form";
 import type { Solicitud } from "@/src/services/solicitudesApi";
-import type { ZoomRecurrenceType, ZoomMonthlyMode } from "@/src/lib/spa-home/recurrence";
 
 export function useSolicitudes() {
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
@@ -9,37 +9,9 @@ export function useSolicitudes() {
   const [deletingSolicitudId, setDeletingSolicitudId] = useState<string | null>(null);
   const [cancellingSerieSolicitudId, setCancellingSerieSolicitudId] = useState<string | null>(null);
   const [cancellingInstanciaKey, setCancellingInstanciaKey] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    tema: "",
-    responsable: "",
-    programa: "",
-    asistenciaZoom: "SI",
-    modalidad: "VIRTUAL",
-    grabacion: "NO",
-    unaOVarias: "UNA",
-    controlAsistencia: "NO",
-    descripcionUnica: "",
-    diaUnica: "",
-    horaInicioUnica: "",
-    horaFinUnica: "",
-    duracionUnica: "",
-    descripcionRecurrente: "",
-    primerDiaRecurrente: "",
-    horaInicioRecurrente: "",
-    horaFinRecurrente: "",
-    duracionRecurrente: "",
-    recurrenciaTipoZoom: "2" as ZoomRecurrenceType,
-    recurrenciaIntervalo: "1",
-    recurrenciaDiasSemana: "2",
-    recurrenciaMensualModo: "DAY_OF_MONTH" as ZoomMonthlyMode,
-    recurrenciaDiaMes: "1",
-    recurrenciaSemanaMes: "1",
-    recurrenciaDiaSemanaMes: "2",
-    fechaFinal: "",
-    correosDocentes: ""
-  });
+  const [form, setForm] = useState<SolicitudFormState>(DEFAULT_SOLICITUD_FORM);
 
-  function updateForm<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+  function updateForm<K extends keyof SolicitudFormState>(key: K, value: SolicitudFormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 

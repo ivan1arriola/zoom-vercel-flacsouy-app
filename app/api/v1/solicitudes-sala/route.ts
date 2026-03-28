@@ -9,6 +9,14 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const canRead =
+    user.role === UserRole.DOCENTE ||
+    user.role === UserRole.ADMINISTRADOR ||
+    user.role === UserRole.CONTADURIA;
+  if (!canRead) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const service = new SalasService();
   const requests = await service.listSolicitudes(user);
   return NextResponse.json({ requests });

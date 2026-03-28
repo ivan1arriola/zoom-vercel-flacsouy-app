@@ -717,7 +717,7 @@ async function createZoomMeetingForSolicitud(params: {
     settings: {
       approval_type: 2,
       registration_type: 1,
-      waiting_room: false,
+      waiting_room: true, // SIEMPRE habilitar sala de espera
       auto_recording: input.requiereGrabacion ? "cloud" : "none"
     }
   };
@@ -740,12 +740,16 @@ async function createZoomMeetingForSolicitud(params: {
     createdSettings && typeof createdSettings.auto_recording === "string"
       ? createdSettings.auto_recording
       : null;
+  const currentWaitingRoom =
+    createdSettings && typeof createdSettings.waiting_room === "boolean"
+      ? createdSettings.waiting_room
+      : null;
 
-  if (currentAutoRecording !== desiredAutoRecording) {
+  if (currentAutoRecording !== desiredAutoRecording || currentWaitingRoom !== true) {
     await zoomClient
       .updateMeeting(createdSnapshot.meetingId, {
         settings: {
-          waiting_room: false,
+          waiting_room: true, // SIEMPRE habilitar sala de espera
           auto_recording: desiredAutoRecording
         }
       })
@@ -863,7 +867,81 @@ async function getOrCreateCuentaZoomDefault() {
 }
 
 function hasTimeOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
+  if (!aStart || !aEnd || !bStart || !bEnd) return false;
+  if (aEnd <= aStart || bEnd <= bStart) return false;
   return aStart < bEnd && aEnd > bStart;
+}
+
+type BusyWindow = {
+  start: Date;
+  end: Date;
+  meetingId?: string | null;
+};
+
+type AccountCandidateEvaluation = {
+  account: CuentaZoom;
+  supportsAllInstances: boolean;
+  loadScore: number;
+  dbFutureEventsCount: number;
+  zoomFutureMeetingsCount: number;
+};
+
+function buildBusyWindowKey(window: BusyWindow): string {
+  const startMs = window.start.getTime();
+  const endMs = window.end.getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return "";
+
+  const normalizedMeetingId = normalizeZoomMeetingId(window.meetingId ?? null);
+  if (normalizedMeetingId) {
+    return `meeting:${normalizedMeetingId}:${startMs}:${endMs}`;
+  }
+
+  return `time:${startMs}:${endMs}`;
+}
+
+function dedupeBusyWindows(windows: BusyWindow[]): BusyWindow[] {
+  const byKey = new Map<string, BusyWindow>();
+  for (const window of windows) {
+    const key = buildBusyWindowKey(window);
+    if (!key) continue;
+    if (!byKey.has(key)) {
+      byKey.set(key, window);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+async function listZoomBusyWindowsForOwner(
+  zoomClient: ZoomMeetingsClient,
+  ownerEmail: string
+): Promise<BusyWindow[]> {
+  const upcoming = await zoomClient.listUserMeetings(ownerEmail, {
+    type: "upcoming",
+    page_size: 300
+  });
+  const meetings = Array.isArray(upcoming.meetings)
+    ? (upcoming.meetings as Array<Record<string, unknown>>)
+    : [];
+
+  const windows: BusyWindow[] = [];
+  for (const meeting of meetings) {
+    const startRaw = typeof meeting.start_time === "string" ? meeting.start_time : "";
+    if (!startRaw) continue;
+    const start = new Date(startRaw);
+    if (Number.isNaN(start.getTime())) continue;
+
+    const durationMinutes = Math.max(1, Math.floor(numberFromUnknown(meeting.duration) ?? 60));
+    const end = new Date(start.getTime() + durationMinutes * 60_000);
+    const meetingIdRaw = meeting.id != null ? String(meeting.id) : null;
+
+    windows.push({
+      start,
+      end,
+      meetingId: normalizeZoomMeetingId(meetingIdRaw)
+    });
+  }
+
+  return dedupeBusyWindows(windows);
 }
 
 async function listAvailableCuentaZoomCandidatesForAllInstances(instancePlans: InstancePlan[]): Promise<CuentaZoom[]> {
@@ -887,51 +965,121 @@ async function listAvailableCuentaZoomCandidatesForAllInstances(instancePlans: I
     end: plan.fin
   }));
 
-  const candidates: CuentaZoom[] = [];
-  for (const account of activeAccounts) {
-    const concurrentLimit =
-      account.limiteEventosConcurrentes && account.limiteEventosConcurrentes > 0
-        ? account.limiteEventosConcurrentes
-        : 1;
-
-    const overlappingEvents = await db.eventoZoom.findMany({
-      where: {
-        cuentaZoomId: account.id,
-        estadoEvento: { not: EstadoEventoZoom.CANCELADO },
-        OR: windows.map((window) => ({
-          inicioProgramadoAt: { lt: window.end },
-          finProgramadoAt: { gt: window.start }
-        }))
-      },
-      select: {
-        inicioProgramadoAt: true,
-        finProgramadoAt: true
-      }
+  let zoomClient: ZoomMeetingsClient | null = null;
+  try {
+    zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+  } catch (error) {
+    logger.warn("No se pudo inicializar cliente Zoom para validar disponibilidad por cuenta.", {
+      error: error instanceof Error ? error.message : String(error)
     });
-
-    let supportsAllInstances = true;
-    for (const window of windows) {
-      let concurrentCount = 0;
-      for (const existing of overlappingEvents) {
-        if (
-          hasTimeOverlap(window.start, window.end, existing.inicioProgramadoAt, existing.finProgramadoAt)
-        ) {
-          concurrentCount += 1;
-          if (concurrentCount >= concurrentLimit) {
-            supportsAllInstances = false;
-            break;
-          }
-        }
-      }
-      if (!supportsAllInstances) break;
-    }
-
-    if (supportsAllInstances) {
-      candidates.push(account);
-    }
   }
 
-  return candidates;
+  const evaluations = await Promise.all(
+    activeAccounts.map(async (account): Promise<AccountCandidateEvaluation> => {
+      const concurrentLimit =
+        account.limiteEventosConcurrentes && account.limiteEventosConcurrentes > 0
+          ? account.limiteEventosConcurrentes
+          : 1;
+
+      const [dbOverlappingEvents, dbFutureEventsCount] = await Promise.all([
+        db.eventoZoom.findMany({
+          where: {
+            cuentaZoomId: account.id,
+            estadoEvento: { not: EstadoEventoZoom.CANCELADO },
+            OR: windows.map((window) => ({
+              inicioProgramadoAt: { lt: window.end },
+              finProgramadoAt: { gt: window.start }
+            }))
+          },
+          select: {
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            zoomMeetingId: true
+          }
+        }),
+        db.eventoZoom.count({
+          where: {
+            cuentaZoomId: account.id,
+            estadoEvento: { not: EstadoEventoZoom.CANCELADO },
+            finProgramadoAt: { gt: new Date() }
+          }
+        })
+      ]);
+
+      const dbBusyWindows: BusyWindow[] = dbOverlappingEvents.map((event) => ({
+        start: event.inicioProgramadoAt,
+        end: event.finProgramadoAt,
+        meetingId: event.zoomMeetingId
+      }));
+
+      let zoomBusyWindows: BusyWindow[] = [];
+      if (zoomClient) {
+        try {
+          zoomBusyWindows = await listZoomBusyWindowsForOwner(zoomClient, account.ownerEmail);
+        } catch (error) {
+          logger.warn("No se pudo validar disponibilidad Zoom para una cuenta, se descarta como candidata.", {
+            cuentaZoomId: account.id,
+            ownerEmail: account.ownerEmail,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return {
+            account,
+            supportsAllInstances: false,
+            loadScore: Number.MAX_SAFE_INTEGER,
+            dbFutureEventsCount,
+            zoomFutureMeetingsCount: 0
+          };
+        }
+      }
+
+      const mergedBusyWindows = dedupeBusyWindows([...dbBusyWindows, ...zoomBusyWindows]);
+      let supportsAllInstances = true;
+
+      for (const window of windows) {
+        let concurrentCount = 0;
+        for (const existing of mergedBusyWindows) {
+          if (hasTimeOverlap(window.start, window.end, existing.start, existing.end)) {
+            concurrentCount += 1;
+            if (concurrentCount >= concurrentLimit) {
+              supportsAllInstances = false;
+              break;
+            }
+          }
+        }
+        if (!supportsAllInstances) break;
+      }
+
+      const zoomFutureMeetingsCount = zoomBusyWindows.length;
+      const loadScore = Math.max(dbFutureEventsCount, zoomFutureMeetingsCount);
+
+      return {
+        account,
+        supportsAllInstances,
+        loadScore,
+        dbFutureEventsCount,
+        zoomFutureMeetingsCount
+      };
+    })
+  );
+
+  return evaluations
+    .filter((item) => item.supportsAllInstances)
+    .sort((a, b) => {
+      if (a.loadScore !== b.loadScore) return a.loadScore - b.loadScore;
+      if (a.dbFutureEventsCount !== b.dbFutureEventsCount) {
+        return a.dbFutureEventsCount - b.dbFutureEventsCount;
+      }
+      if (a.zoomFutureMeetingsCount !== b.zoomFutureMeetingsCount) {
+        return a.zoomFutureMeetingsCount - b.zoomFutureMeetingsCount;
+      }
+      if (a.account.prioridad !== b.account.prioridad) {
+        return a.account.prioridad - b.account.prioridad;
+      }
+      return a.account.ownerEmail.localeCompare(b.account.ownerEmail, "es", {
+        sensitivity: "base"
+      });
+    })
+    .map((item) => item.account);
 }
 
 function zoomSnapshotSupportsAllRequestedInstances(
@@ -1218,9 +1366,7 @@ export class SalasService {
   async listSolicitudes(user: SessionUser) {
     const canSeeAll =
       user.role === UserRole.ADMINISTRADOR ||
-      user.role === UserRole.CONTADURIA ||
-      user.role === UserRole.ASISTENTE_ZOOM ||
-      user.role === UserRole.SOPORTE_ZOOM;
+      user.role === UserRole.CONTADURIA;
 
     const solicitudes = await db.solicitudSala.findMany({
       where: canSeeAll
@@ -1553,6 +1699,10 @@ export class SalasService {
     const resolvedFechasInstancias =
       input.fechasInstancias ?? input.instanciasDetalle?.map((item) => item.inicioProgramadoAt);
     const availableAccounts = await listAvailableCuentaZoomCandidatesForAllInstances(instancePlans);
+    const requireManualResolution =
+      input.tipoInstancias === TipoInstancias.MULTIPLE_NO_COMPATIBLE_ZOOM &&
+      (input.meetingIdEstrategia ?? MeetingIdEstrategia.UNICO_PREFERIDO) !==
+        MeetingIdEstrategia.MULTIPLE_PERMITIDO;
 
     if (availableAccounts.length === 0) {
       const created = await db.solicitudSala.create({
@@ -1567,6 +1717,9 @@ export class SalasService {
           modalidadReunion: input.modalidadReunion,
           tipoInstancias: input.tipoInstancias,
           meetingIdEstrategia: input.meetingIdEstrategia ?? MeetingIdEstrategia.UNICO_PREFERIDO,
+          meetingPrincipalId: null,
+          motivoMultiplesIds: requireManualResolution
+            ? "El sistema no pudo asignar un único meeting ID para la solicitud." : null,
           fechaInicioSolicitada: start,
           fechaFinSolicitada: end,
           timezone: input.timezone ?? "America/Montevideo",
@@ -1582,14 +1735,14 @@ export class SalasService {
           patronRecurrencia: inputForProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
           fechasInstancias: resolvedFechasInstancias,
           cantidadInstancias: instancePlans.length,
-          estadoSolicitud: EstadoSolicitudSala.SIN_CAPACIDAD_ZOOM,
+          estadoSolicitud: EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID,
           observacionesAdmin:
-            "No se encontro una cuenta Zoom activa con disponibilidad para todas las fechas solicitadas."
+            "No se encontro una cuenta Zoom activa con disponibilidad para todas las fechas solicitadas. Requiere resolucion manual."
         }
       });
 
       await notifyAdminTelegramMovement({
-        action: "SOLICITUD_CREADA_SIN_CAPACIDAD_ZOOM",
+        action: "SOLICITUD_CREADA_PENDIENTE_MANUAL",
         actorEmail: user.email,
         actorRole: user.role,
         entityType: "SolicitudSala",
@@ -1598,17 +1751,13 @@ export class SalasService {
         details: {
           modalidadReunion: input.modalidadReunion,
           tipoInstancias: input.tipoInstancias,
-          cantidadInstancias: instancePlans.length
+          cantidadInstancias: instancePlans.length,
+          motivoSistema: "Sin capacidad automatica para todas las fechas solicitadas."
         }
       });
 
       return created;
     }
-
-    const requireManualResolution =
-      input.tipoInstancias === TipoInstancias.MULTIPLE_NO_COMPATIBLE_ZOOM &&
-      (input.meetingIdEstrategia ?? MeetingIdEstrategia.UNICO_PREFERIDO) !==
-        MeetingIdEstrategia.MULTIPLE_PERMITIDO;
 
     const timezone = input.timezone ?? "America/Montevideo";
     let assignedAccount: CuentaZoom | null = requireManualResolution ? availableAccounts[0] : null;
@@ -1672,6 +1821,9 @@ export class SalasService {
             modalidadReunion: input.modalidadReunion,
             tipoInstancias: input.tipoInstancias,
             meetingIdEstrategia: input.meetingIdEstrategia ?? MeetingIdEstrategia.UNICO_PREFERIDO,
+            meetingPrincipalId: zoomSnapshot?.meetingId ?? null,
+            motivoMultiplesIds: requireManualResolution
+              ? "El sistema no pudo asignar un único meeting ID para la solicitud." : null,
             fechaInicioSolicitada: start,
             fechaFinSolicitada: end,
             timezone,
@@ -1687,15 +1839,15 @@ export class SalasService {
             patronRecurrencia: inputForProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
             fechasInstancias: resolvedFechasInstancias,
             cantidadInstancias: instancePlans.length,
-            estadoSolicitud: EstadoSolicitudSala.SIN_CAPACIDAD_ZOOM,
+            estadoSolicitud: EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID,
             observacionesAdmin:
               lastProvisionError ??
-              "No se encontro una cuenta Zoom que permita provisionar todas las fechas solicitadas."
+              "No se encontro una cuenta Zoom que permita provisionar todas las fechas solicitadas. Requiere resolucion manual."
           }
         });
 
         await notifyAdminTelegramMovement({
-          action: "SOLICITUD_CREADA_SIN_CAPACIDAD_ZOOM",
+          action: "SOLICITUD_CREADA_PENDIENTE_MANUAL",
           actorEmail: user.email,
           actorRole: user.role,
           entityType: "SolicitudSala",
@@ -1704,7 +1856,11 @@ export class SalasService {
           details: {
             modalidadReunion: input.modalidadReunion,
             tipoInstancias: input.tipoInstancias,
-            cantidadInstancias: instancePlans.length
+            cantidadInstancias: instancePlans.length,
+            cuentasProbadas: availableAccounts.length,
+            motivoSistema:
+              lastProvisionError ??
+              "No se encontro una cuenta Zoom que permita provisionar todas las fechas solicitadas."
           }
         });
 
@@ -3210,6 +3366,4 @@ export class SalasService {
     return created;
   }
 }
-
-
 

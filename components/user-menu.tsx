@@ -25,11 +25,12 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import { UserAvatar } from "./user-avatar";
 
 const SUPPORT_VIEW_ROLE = "SOPORTE_ZOOM";
+const VIEW_ROLE_COOKIE = "zoom_view_as";
 
 const viewOptions = [
   { value: "ADMINISTRADOR", label: "Administrador" },
   { value: "DOCENTE", label: "Docente" },
-  { value: SUPPORT_VIEW_ROLE, label: "Asistente / Soporte Zoom" },
+  { value: SUPPORT_VIEW_ROLE, label: "Asistente Zoom" },
   { value: "CONTADURIA", label: "Contaduria" }
 ] as const;
 
@@ -44,6 +45,15 @@ function formatRoleLabel(role: string): string {
   const normalized = normalizeViewRole(role.toUpperCase());
   const found = viewOptions.find((option) => option.value === normalized);
   return found?.label ?? role;
+}
+
+function persistViewRoleCookie(role: string): void {
+  if (typeof document === "undefined") return;
+  if (role === "ADMINISTRADOR") {
+    document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
+    return;
+  }
+  document.cookie = `${VIEW_ROLE_COOKIE}=${encodeURIComponent(role)}; path=/; max-age=604800; samesite=lax`;
 }
 
 interface UserMenuProps {
@@ -83,6 +93,7 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
     }
 
     setPendingView(nextValue);
+    persistViewRoleCookie(nextValue);
     const params = new URLSearchParams(searchParams.toString());
     if (nextValue === "ADMINISTRADOR") {
       params.delete("viewAs");

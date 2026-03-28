@@ -9,6 +9,8 @@ const tabs = [
   "manual",
   "historico",
   "cuentas",
+  "proximas_zoom",
+  "pasadas_zoom",
   "tarifas",
   "usuarios",
   "perfil"
@@ -25,6 +27,8 @@ export function useUIState() {
     const rawTab = (searchParams.get("tab") ?? "").toLowerCase();
     if (!rawTab) return null;
     if (rawTab === "agenda") return "agenda_libre" as Tab;
+    if (rawTab === "proximas") return "proximas_zoom" as Tab;
+    if (rawTab === "pasadas") return "pasadas_zoom" as Tab;
     return tabs.includes(rawTab as Tab) ? (rawTab as Tab) : null;
   }, [searchParams]);
 

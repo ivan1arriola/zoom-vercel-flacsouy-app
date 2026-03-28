@@ -1,28 +1,25 @@
 "use client";
 
-import { Fragment } from "react";
+import { useMemo } from "react";
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
   Chip,
   Collapse,
+  Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-  Paper
+  Typography
 } from "@mui/material";
 import {
   isLicensedZoomAccount,
   isMeetingStartingSoon,
   formatZoomDateTime,
-  formatDurationHoursMinutes
+  formatDurationHoursMinutes,
+  getZoomAccountColor,
+  buildZoomAccountColorMap
 } from "./spa-tabs-utils";
 import type { ZoomAccount } from "@/src/services/zoomApi";
 
@@ -43,6 +40,14 @@ export function SpaTabCuentas({
   setExpandedZoomAccountId,
   onRefresh
 }: SpaTabCuentasProps) {
+  const accountColorMap = useMemo(
+    () =>
+      buildZoomAccountColorMap(
+        zoomAccounts.map((account) => `${account.id}:${account.email}`)
+      ),
+    [zoomAccounts]
+  );
+
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
       <CardContent>
@@ -74,93 +79,173 @@ export function SpaTabCuentas({
             No hay cuentas disponibles en el grupo.
           </Typography>
         ) : (
-          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Nombre</TableCell>
-                  <TableCell>Eventos pendientes (Zoom)</TableCell>
-                  <TableCell>Detalle</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {zoomAccounts.map((account) => (
-                  <Fragment key={account.id}>
-                    <TableRow hover>
-                      <TableCell>{account.email || "-"}</TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Typography component="span" variant="body2">
-                            {[account.firstName, account.lastName].filter(Boolean).join(" ") || "-"}
-                          </Typography>
+          <Stack spacing={1.2}>
+            {zoomAccounts.map((account) => {
+              const accountKey = `${account.id}:${account.email}`.trim().toLowerCase();
+              const accountColor =
+                accountColorMap.get(accountKey) ?? getZoomAccountColor(accountKey);
+              const isExpanded = expandedZoomAccountId === account.id;
+              const accountName = [account.firstName, account.lastName].filter(Boolean).join(" ") || "-";
+              const recurringSeriesCountByMeetingId = account.pendingEvents.reduce((acc, event) => {
+                if (event.meetingKind === "RECURRENTE" && event.meetingId) {
+                  acc.set(event.meetingId, (acc.get(event.meetingId) ?? 0) + 1);
+                }
+                return acc;
+              }, new Map<string, number>());
+
+              return (
+                <Paper
+                  key={account.id}
+                  variant="outlined"
+                  sx={{
+                    borderRadius: 2,
+                    overflow: "hidden",
+                    borderLeft: `5px solid ${accountColor.border}`
+                  }}
+                >
+                  <Box sx={{ p: 1.5 }}>
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      spacing={1}
+                      alignItems={{ xs: "flex-start", md: "center" }}
+                      justifyContent="space-between"
+                    >
+                      <Box>
+                        <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" alignItems="center">
+                          <Chip
+                            size="small"
+                            label={account.email || "-"}
+                            sx={{
+                              bgcolor: accountColor.background,
+                              color: accountColor.text,
+                              border: `1px solid ${accountColor.border}`,
+                              fontWeight: 700
+                            }}
+                          />
+                          <Typography variant="subtitle2">{accountName}</Typography>
                           {isLicensedZoomAccount(account) ? <Chip size="small" color="success" label="Licencia" /> : null}
+                          {account.overlapCount > 0 ? (
+                            <Chip size="small" color="warning" label={`Choques: ${account.overlapCount}`} />
+                          ) : null}
                         </Stack>
-                      </TableCell>
-                      <TableCell>{account.pendingEventsCount}</TableCell>
-                      <TableCell>
+                      </Box>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Chip size="small" variant="outlined" label={`${account.pendingEventsCount} pendientes`} />
+                        {recurringSeriesCountByMeetingId.size > 0 ? (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                            label={`${recurringSeriesCountByMeetingId.size} serie(s) recurrente(s)`}
+                          />
+                        ) : null}
                         {account.pendingEventsCount > 0 ? (
                           <Button
                             size="small"
                             variant="outlined"
-                            onClick={() =>
-                              setExpandedZoomAccountId(expandedZoomAccountId === account.id ? null : account.id)
-                            }
+                            onClick={() => setExpandedZoomAccountId(isExpanded ? null : account.id)}
                           >
-                            {expandedZoomAccountId === account.id ? "Ocultar detalle" : "Ver detalle"}
+                            {isExpanded ? "Ocultar detalle" : "Ver detalle"}
                           </Button>
+                        ) : null}
+                      </Stack>
+                    </Stack>
+
+                    <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                      <Box sx={{ mt: 1.2 }}>
+                        {account.overlapCount > 0 ? (
+                          <Alert severity="warning" sx={{ mb: 1.2 }}>
+                            Zoom reporta {account.overlapCount} solapamiento(s) en esta cuenta.
+                          </Alert>
+                        ) : null}
+                        {account.pendingEvents.length === 0 ? (
+                          <Typography variant="body2" color="text.secondary">
+                            No hay eventos pendientes en esta cuenta.
+                          </Typography>
                         ) : (
-                          "-"
-                        )}
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell colSpan={4} sx={{ py: 0, borderBottom: expandedZoomAccountId === account.id ? undefined : 0 }}>
-                        <Collapse in={expandedZoomAccountId === account.id} timeout="auto" unmountOnExit>
-                          <Box sx={{ py: 1.5 }}>
-                            <Table size="small">
-                              <TableHead>
-                                <TableRow>
-                                  <TableCell>#</TableCell>
-                                  <TableCell>Tema</TableCell>
-                                  <TableCell>Inicio</TableCell>
-                                  <TableCell>Duracion</TableCell>
-                                  <TableCell>Link</TableCell>
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {account.pendingEvents.map((event, index) => (
-                                  <TableRow
-                                    key={event.id}
-                                    hover
-                                    sx={isMeetingStartingSoon(event.startTime) ? { backgroundColor: "warning.50" } : undefined}
+                          <Stack spacing={1}>
+                            {account.pendingEvents.map((event) => {
+                              const hasOverlap = account.overlappingEventIds.includes(event.id);
+                              const startsSoon = isMeetingStartingSoon(event.startTime);
+                              const recurringSeriesId =
+                                event.meetingKind === "RECURRENTE" ? event.meetingId : null;
+                              const recurringSeriesInstances = recurringSeriesId
+                                ? recurringSeriesCountByMeetingId.get(recurringSeriesId) ?? 0
+                                : 0;
+                              const recurringSeriesColor = recurringSeriesId
+                                ? getZoomAccountColor(`series:${recurringSeriesId}`)
+                                : null;
+
+                              return (
+                                <Paper
+                                  key={event.id}
+                                  variant="outlined"
+                                  sx={{
+                                    p: 1.2,
+                                    borderRadius: 1.5,
+                                    backgroundColor: hasOverlap
+                                      ? "error.50"
+                                      : startsSoon
+                                        ? "warning.50"
+                                        : undefined
+                                  }}
+                                >
+                                  <Stack
+                                    direction={{ xs: "column", md: "row" }}
+                                    spacing={1}
+                                    alignItems={{ xs: "flex-start", md: "center" }}
+                                    justifyContent="space-between"
                                   >
-                                    <TableCell sx={{ fontFamily: "monospace" }}>#{index + 1}</TableCell>
-                                    <TableCell>{event.topic}</TableCell>
-                                    <TableCell>{formatZoomDateTime(event.startTime)}</TableCell>
-                                    <TableCell>{formatDurationHoursMinutes(event.durationMinutes)}</TableCell>
-                                    <TableCell>
-                                      {event.joinUrl ? (
-                                        <Button size="small" variant="contained" color="secondary" href={event.joinUrl} target="_blank" rel="noreferrer">
-                                          Abrir
-                                        </Button>
-                                      ) : (
-                                        "-"
-                                      )}
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </Box>
-                        </Collapse>
-                      </TableCell>
-                    </TableRow>
-                  </Fragment>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                                    <Box>
+                                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                        {event.topic}
+                                      </Typography>
+                                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                                        <Chip size="small" variant="outlined" label={formatZoomDateTime(event.startTime)} />
+                                        <Chip size="small" variant="outlined" label={formatDurationHoursMinutes(event.durationMinutes)} />
+                                        {recurringSeriesId ? (
+                                          <Chip
+                                            size="small"
+                                            label={
+                                              recurringSeriesInstances > 1
+                                                ? `Serie recurrente ${recurringSeriesId}`
+                                                : "Recurrente"
+                                            }
+                                            sx={{
+                                              bgcolor: recurringSeriesColor?.background,
+                                              color: recurringSeriesColor?.text,
+                                              border: `1px solid ${recurringSeriesColor?.border ?? "transparent"}`
+                                            }}
+                                          />
+                                        ) : null}
+                                        {hasOverlap ? <Chip size="small" color="error" label="Se pisa" /> : null}
+                                      </Stack>
+                                    </Box>
+                                    {event.joinUrl ? (
+                                      <Button
+                                        size="small"
+                                        variant="contained"
+                                        color="secondary"
+                                        href={event.joinUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        Abrir
+                                      </Button>
+                                    ) : null}
+                                  </Stack>
+                                </Paper>
+                              );
+                            })}
+                          </Stack>
+                        )}
+                      </Box>
+                    </Collapse>
+                  </Box>
+                </Paper>
+              );
+            })}
+          </Stack>
         )}
       </CardContent>
     </Card>

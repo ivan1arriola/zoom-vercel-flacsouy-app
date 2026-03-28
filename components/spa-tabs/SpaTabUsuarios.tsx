@@ -6,17 +6,12 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   MenuItem,
+  Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
-  Typography,
-  Paper
+  Typography
 } from "@mui/material";
 import { formatManagedUserRole, formatManagedUserDate } from "./spa-tabs-utils";
 import type { ManagedUser } from "@/src/services/userApi";
@@ -120,32 +115,45 @@ export function SpaTabUsuarios({
             No hay usuarios registrados.
           </Typography>
         ) : (
-          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Nombre</TableCell>
-                  <TableCell>Rol</TableCell>
-                  <TableCell>Verificado</TableCell>
-                  <TableCell>Creado</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {users.map((managedUser) => (
-                  <TableRow key={managedUser.id} hover>
-                    <TableCell>{managedUser.email}</TableCell>
-                    <TableCell>
-                      {[managedUser.firstName, managedUser.lastName].filter(Boolean).join(" ") || "-"}
-                    </TableCell>
-                    <TableCell>{formatManagedUserRole(managedUser.role)}</TableCell>
-                    <TableCell>{managedUser.emailVerified ? "Si" : "No"}</TableCell>
-                    <TableCell>{formatManagedUserDate(managedUser.createdAt)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Stack spacing={1.2}>
+            {users.map((managedUser) => {
+              const fullName =
+                [managedUser.firstName, managedUser.lastName].filter(Boolean).join(" ") || "-";
+              return (
+                <Paper key={managedUser.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                  <Stack
+                    direction={{ xs: "column", md: "row" }}
+                    spacing={1}
+                    alignItems={{ xs: "flex-start", md: "center" }}
+                    justifyContent="space-between"
+                  >
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                        {managedUser.email}
+                      </Typography>
+                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                        <Chip size="small" variant="outlined" label={formatManagedUserRole(managedUser.role)} />
+                        <Chip
+                          size="small"
+                          color={managedUser.emailVerified ? "success" : "warning"}
+                          label={managedUser.emailVerified ? "Verificado" : "Sin verificar"}
+                        />
+                      </Stack>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                      Alta: {formatManagedUserDate(managedUser.createdAt)}
+                    </Typography>
+                  </Stack>
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Nombre
+                    </Typography>
+                    <Typography variant="body2">{fullName}</Typography>
+                  </Box>
+                </Paper>
+              );
+            })}
+          </Stack>
         )}
       </CardContent>
     </Card>

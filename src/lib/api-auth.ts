@@ -1,4 +1,5 @@
 import { UserRole } from "@prisma/client";
+import { cookies } from "next/headers";
 import { auth } from "@/auth";
 import { db } from "@/src/lib/db";
 import { env } from "./env";
@@ -10,6 +11,30 @@ const rolePriority: Record<UserRole, number> = {
   CONTADURIA: 2,
   ADMINISTRADOR: 3
 };
+
+const ADMIN_VIEW_ROLE_COOKIE = "zoom_view_as";
+
+function normalizeAdminViewRole(raw: string): UserRole | null {
+  const normalized = raw.trim().toUpperCase();
+  if (!normalized) return null;
+  if (normalized === UserRole.ADMINISTRADOR) return UserRole.ADMINISTRADOR;
+  if (normalized === UserRole.DOCENTE) return UserRole.DOCENTE;
+  if (normalized === UserRole.CONTADURIA) return UserRole.CONTADURIA;
+  if (normalized === UserRole.SOPORTE_ZOOM || normalized === UserRole.ASISTENTE_ZOOM) {
+    return UserRole.SOPORTE_ZOOM;
+  }
+  return null;
+}
+
+async function getAdminViewRoleFromCookie(): Promise<UserRole | null> {
+  try {
+    const cookieStore = await cookies();
+    const value = cookieStore.get(ADMIN_VIEW_ROLE_COOKIE)?.value ?? "";
+    return normalizeAdminViewRole(value);
+  } catch {
+    return null;
+  }
+}
 
 export type SessionUser = {
   id: string;
@@ -42,10 +67,14 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 
   if (!dbUser || !dbUser.emailVerified) return null;
 
+  const adminViewRole =
+    dbUser.role === UserRole.ADMINISTRADOR ? await getAdminViewRoleFromCookie() : null;
+  const effectiveRole = adminViewRole ?? dbUser.role;
+
   return {
     id: dbUser.id,
     email: dbUser.email,
-    role: dbUser.role,
+    role: effectiveRole,
     firstName: dbUser.firstName,
     lastName: dbUser.lastName,
     name: dbUser.name,

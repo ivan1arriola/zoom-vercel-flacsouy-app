@@ -1,6 +1,10 @@
 import { UserRole } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/src/lib/api-auth";
+import {
+  buildUnlinkedZoomMeetingAssociation,
+  resolveZoomMeetingAssociations
+} from "@/src/lib/zoom-association";
 import { env } from "@/src/lib/env";
 import {
   detectZoomUpcomingOverlaps,
@@ -12,10 +16,6 @@ export const runtime = "nodejs";
 
 function getString(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-function getNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export async function GET() {
@@ -39,9 +39,15 @@ export async function GET() {
     const groupName = getString(group?.name);
     const members = await zoom.listGroupMembers(env.ZOOM_GROUP_ID);
 
-    const accounts = await Promise.all(
+    const perAccount = await Promise.all(
       members.map(async (member) => {
         const memberId = getString(member.id);
+        const accountEmail = getString(member.email);
+        const accountName = [getString(member.first_name), getString(member.last_name)]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+
         const upcoming = memberId
           ? await zoom
               .listUserMeetings(memberId, { type: "upcoming", page_size: 300 })
@@ -51,38 +57,44 @@ export async function GET() {
         const meetings = Array.isArray(upcoming.meetings)
           ? (upcoming.meetings as Array<Record<string, unknown>>)
           : [];
-        const pendingEvents = normalizeZoomUpcomingEvents(meetings);
-        const overlapInfo = detectZoomUpcomingOverlaps(pendingEvents);
-        const totalRecordsRaw = upcoming.total_records;
-        const pendingCount =
-          (typeof totalRecordsRaw === "number" && Number.isFinite(totalRecordsRaw)
-            ? totalRecordsRaw
-            : pendingEvents.length) ?? 0;
+        const events = normalizeZoomUpcomingEvents(meetings);
+        const overlapInfo = detectZoomUpcomingOverlaps(events);
+        const conflictIds = new Set(overlapInfo.overlappingEventIds);
 
-        return {
-          id: memberId,
-          email: getString(member.email),
-          firstName: getString(member.first_name),
-          lastName: getString(member.last_name),
-          type: getNumber(member.type),
-          status: getString(member.status),
-          pendingEventsCount: pendingCount,
-          pendingEvents,
-          overlapCount: overlapInfo.overlapCount,
-          overlappingEventIds: overlapInfo.overlappingEventIds,
-          overlaps: overlapInfo.overlaps
-        };
+        return events.map((event) => ({
+          ...event,
+          accountId: memberId,
+          accountEmail,
+          accountName,
+          hasAccountOverlap: conflictIds.has(event.id),
+          accountOverlapCount: overlapInfo.overlapCount
+        }));
       })
     );
 
+    const rawEvents = perAccount
+      .flat()
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    const associationByMeetingId = await resolveZoomMeetingAssociations(
+      rawEvents.map((event) => event.meetingId)
+    );
+
+    const events = rawEvents.map((event) => ({
+      ...event,
+      association: event.meetingId
+        ? associationByMeetingId.get(event.meetingId) ?? buildUnlinkedZoomMeetingAssociation()
+        : buildUnlinkedZoomMeetingAssociation()
+    }));
+
     return NextResponse.json({
       groupName,
-      total: accounts.length,
-      accounts
+      total: events.length,
+      events,
+      generatedAt: new Date().toISOString()
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "No se pudieron listar cuentas de Zoom." },
+      { error: error instanceof Error ? error.message : "No se pudieron listar proximas reuniones de Zoom." },
       { status: 500 }
     );
   }

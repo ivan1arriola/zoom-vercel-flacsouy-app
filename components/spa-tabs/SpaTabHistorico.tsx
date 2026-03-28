@@ -1,22 +1,19 @@
 "use client";
 
-import { FormEvent } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
+  Chip,
+  Collapse,
   MenuItem,
+  Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
-  Typography,
-  Paper
+  Typography
 } from "@mui/material";
 import { formatDateTime } from "@/src/lib/spa-home/recurrence";
 import type { PastMeeting } from "@/src/services/solicitudesApi";
@@ -41,6 +38,15 @@ interface SpaTabHistoricoProps {
   onRefreshPastMeetings: () => void;
   pastMeetingForm: PastMeetingForm;
   setPastMeetingForm: (form: PastMeetingForm | ((prev: PastMeetingForm) => PastMeetingForm)) => void;
+  zoomSeed: {
+    meetingId: string;
+    topic: string;
+    startTime: string;
+    endTime: string;
+    joinUrl: string;
+    accountEmail: string;
+  } | null;
+  onClearZoomSeed: () => void;
   isSubmittingPastMeeting: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
@@ -51,9 +57,20 @@ export function SpaTabHistorico({
   onRefreshPastMeetings,
   pastMeetingForm,
   setPastMeetingForm,
+  zoomSeed,
+  onClearZoomSeed,
   isSubmittingPastMeeting,
   onSubmit
 }: SpaTabHistoricoProps) {
+  const [manualFormOpen, setManualFormOpen] = useState(false);
+  const isZoomSeedMode = Boolean(zoomSeed);
+
+  useEffect(() => {
+    if (zoomSeed) {
+      setManualFormOpen(true);
+    }
+  }, [zoomSeed]);
+
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
       <CardContent>
@@ -74,153 +91,320 @@ export function SpaTabHistorico({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Historial de reuniones finalizadas con Meeting ID de Zoom.
         </Typography>
+        <Stack spacing={1.5}>
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              alignItems={{ xs: "flex-start", sm: "center" }}
+              justifyContent="space-between"
+              sx={{ mb: 1 }}
+            >
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                Historial registrado
+              </Typography>
+              <Chip size="small" variant="outlined" label={`${pastMeetings.length} reunion(es)`} />
+            </Stack>
 
-        {isLoadingPastMeetings ? (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Cargando reuniones pasadas...
-          </Typography>
-        ) : pastMeetings.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            No hay reuniones pasadas registradas.
-          </Typography>
-        ) : (
-          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, mb: 2.5 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Titulo</TableCell>
-                  <TableCell>ID Zoom</TableCell>
-                  <TableCell>Docente</TableCell>
-                  <TableCell>Monitoreo</TableCell>
-                  <TableCell>Inicio</TableCell>
-                  <TableCell>Fin</TableCell>
-                  <TableCell>Duracion</TableCell>
-                  <TableCell>Modalidad</TableCell>
-                  <TableCell>Link</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
+            {isLoadingPastMeetings ? (
+              <Typography variant="body2" color="text.secondary">
+                Cargando reuniones pasadas...
+              </Typography>
+            ) : pastMeetings.length === 0 ? (
+              <Alert severity="info">No hay reuniones pasadas registradas.</Alert>
+            ) : (
+              <Stack spacing={1.2}>
                 {pastMeetings.map((meeting) => (
-                  <TableRow key={meeting.id} hover>
-                    <TableCell>{meeting.titulo}</TableCell>
-                    <TableCell sx={{ fontFamily: "monospace" }}>{meeting.zoomMeetingId}</TableCell>
-                    <TableCell>{meeting.docenteNombre || meeting.docenteEmail}</TableCell>
-                    <TableCell>{meeting.monitorNombre || meeting.monitorEmail || "-"}</TableCell>
-                    <TableCell>{formatDateTime(meeting.inicioAt)}</TableCell>
-                    <TableCell>{formatDateTime(meeting.finAt)}</TableCell>
-                    <TableCell sx={{ fontFamily: "monospace" }}>{meeting.minutosReales} min</TableCell>
-                    <TableCell>{meeting.modalidadReunion}</TableCell>
-                    <TableCell>
+                  <Paper key={meeting.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      spacing={1}
+                      alignItems={{ xs: "flex-start", md: "center" }}
+                      justifyContent="space-between"
+                    >
+                      <Box>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                          {meeting.titulo}
+                        </Typography>
+                        <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                          <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
+                          <Chip size="small" variant="outlined" label={`${meeting.minutosReales} min`} />
+                        </Stack>
+                      </Box>
                       {meeting.zoomJoinUrl ? (
                         <Button size="small" variant="contained" color="secondary" href={meeting.zoomJoinUrl} target="_blank" rel="noreferrer">
                           Abrir
                         </Button>
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
+                      ) : null}
+                    </Stack>
 
-        <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
-          Registrar reunion pasada
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Este registro exige un Meeting ID de Zoom con instancias ya pasadas y crea la solicitud base para liquidacion.
-        </Typography>
-        <Box component="form" onSubmit={onSubmit}>
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
-              gap: 1.5
-            }}
-          >
-            <TextField
-              label="Titulo"
-              required
-              value={pastMeetingForm.titulo}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, titulo: e.target.value }))}
-            />
-            <TextField
-              label="Modalidad"
-              select
-              value={pastMeetingForm.modalidadReunion}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, modalidadReunion: e.target.value }))}
+                    <Box
+                      sx={{
+                        mt: 1.2,
+                        display: "grid",
+                        gridTemplateColumns: {
+                          xs: "1fr",
+                          sm: "repeat(2, minmax(0, 1fr))",
+                          lg: "repeat(4, minmax(0, 1fr))"
+                        },
+                        gap: 1
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          ID Zoom
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                          {meeting.zoomMeetingId || "-"}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Docente
+                        </Typography>
+                        <Typography variant="body2">{meeting.docenteNombre || meeting.docenteEmail || "-"}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Monitoreo
+                        </Typography>
+                        <Typography variant="body2">{meeting.monitorNombre || meeting.monitorEmail || "-"}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Inicio
+                        </Typography>
+                        <Typography variant="body2">{formatDateTime(meeting.inicioAt)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Fin
+                        </Typography>
+                        <Typography variant="body2">{formatDateTime(meeting.finAt)}</Typography>
+                      </Box>
+                    </Box>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+          </Paper>
+
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              alignItems={{ xs: "flex-start", sm: "center" }}
+              justifyContent="space-between"
+              sx={{ mb: 0.5 }}
             >
-              <MenuItem value="VIRTUAL">Virtual</MenuItem>
-              <MenuItem value="HIBRIDA">Hibrida</MenuItem>
-            </TextField>
-            <TextField
-              label="Email docente"
-              type="email"
-              required
-              value={pastMeetingForm.docenteEmail}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, docenteEmail: e.target.value }))}
-            />
-            <TextField
-              label="Email monitoreo (opcional)"
-              type="email"
-              value={pastMeetingForm.monitorEmail}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, monitorEmail: e.target.value }))}
-            />
-            <TextField
-              label="Zoom Meeting ID"
-              value={pastMeetingForm.zoomMeetingId}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, zoomMeetingId: e.target.value }))}
-            />
-            <TextField
-              label="Inicio real"
-              type="datetime-local"
-              required
-              InputLabelProps={{ shrink: true }}
-              value={pastMeetingForm.inicioRealAt}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, inicioRealAt: e.target.value }))}
-            />
-            <TextField
-              label="Fin real"
-              type="datetime-local"
-              required
-              InputLabelProps={{ shrink: true }}
-              value={pastMeetingForm.finRealAt}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, finRealAt: e.target.value }))}
-            />
-            <TextField
-              label="Programa (opcional)"
-              value={pastMeetingForm.programaNombre}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, programaNombre: e.target.value }))}
-            />
-            <TextField
-              label="Responsable (opcional)"
-              value={pastMeetingForm.responsableNombre}
-              onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, responsableNombre: e.target.value }))}
-            />
-          </Box>
-          <TextField
-            sx={{ mt: 1.5 }}
-            fullWidth
-            label="Link de Zoom (opcional)"
-            type="url"
-            value={pastMeetingForm.zoomJoinUrl}
-            onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, zoomJoinUrl: e.target.value }))}
-          />
-          <TextField
-            sx={{ mt: 1.5 }}
-            fullWidth
-            multiline
-            minRows={3}
-            label="Descripcion (opcional)"
-            value={pastMeetingForm.descripcion}
-            onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, descripcion: e.target.value }))}
-          />
-          <Button sx={{ mt: 1.5 }} type="submit" variant="contained" disabled={isSubmittingPastMeeting}>
-            {isSubmittingPastMeeting ? "Registrando..." : "Registrar reunion pasada"}
-          </Button>
-        </Box>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                Registrar reunion pasada
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Chip
+                  size="small"
+                  color={isZoomSeedMode ? "success" : "primary"}
+                  variant="outlined"
+                  label={isZoomSeedMode ? "Sincronizado con Zoom" : "Registro manual"}
+                />
+                {isZoomSeedMode ? (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="secondary"
+                    onClick={onClearZoomSeed}
+                  >
+                    Cambiar a manual
+                  </Button>
+                ) : null}
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setManualFormOpen((prev) => !prev)}
+                >
+                  {manualFormOpen ? "Ocultar formulario" : "Mostrar formulario"}
+                </Button>
+              </Stack>
+            </Stack>
+            {!manualFormOpen ? (
+              <Typography variant="body2" color="text.secondary">
+                Formulario oculto. Usar "Mostrar formulario" para cargar una reunion pasada manualmente.
+              </Typography>
+            ) : null}
+
+            <Collapse in={manualFormOpen} timeout="auto" unmountOnExit>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                {isZoomSeedMode
+                  ? "Datos base sincronizados con Zoom y bloqueados para evitar inconsistencias. Completa solo los datos faltantes."
+                  : "Este registro exige un Meeting ID de Zoom con instancias ya pasadas y crea la solicitud base para liquidacion."}
+              </Typography>
+
+              {zoomSeed ? (
+                <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 1.8, mb: 1.5, backgroundColor: "success.50" }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.6 }}>
+                    Datos confirmados por Zoom (no editables)
+                  </Typography>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: {
+                        xs: "1fr",
+                        sm: "repeat(2, minmax(0, 1fr))",
+                        lg: "repeat(4, minmax(0, 1fr))"
+                      },
+                      gap: 1
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Titulo
+                      </Typography>
+                      <Typography variant="body2">{zoomSeed.topic || "-"}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Meeting ID
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                        {zoomSeed.meetingId || "-"}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Inicio
+                      </Typography>
+                      <Typography variant="body2">{formatDateTime(zoomSeed.startTime)}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Fin
+                      </Typography>
+                      <Typography variant="body2">{formatDateTime(zoomSeed.endTime)}</Typography>
+                    </Box>
+                    <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Cuenta Zoom
+                      </Typography>
+                      <Typography variant="body2">{zoomSeed.accountEmail || "-"}</Typography>
+                    </Box>
+                    {zoomSeed.joinUrl ? (
+                      <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Link Zoom
+                        </Typography>
+                        <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
+                          {zoomSeed.joinUrl}
+                        </Typography>
+                      </Box>
+                    ) : null}
+                  </Box>
+                </Paper>
+              ) : null}
+
+              <Box component="form" onSubmit={onSubmit}>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+                    gap: 1.5
+                  }}
+                >
+                  {!isZoomSeedMode ? (
+                    <TextField
+                      label="Titulo"
+                      required
+                      value={pastMeetingForm.titulo}
+                      onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, titulo: e.target.value }))}
+                    />
+                  ) : null}
+                  <TextField
+                    label="Modalidad"
+                    select
+                    value={pastMeetingForm.modalidadReunion}
+                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, modalidadReunion: e.target.value }))}
+                  >
+                    <MenuItem value="VIRTUAL">Virtual</MenuItem>
+                    <MenuItem value="HIBRIDA">Hibrida</MenuItem>
+                  </TextField>
+                  <TextField
+                    label="Email docente"
+                    type="email"
+                    required
+                    value={pastMeetingForm.docenteEmail}
+                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, docenteEmail: e.target.value }))}
+                  />
+                  <TextField
+                    label="Email monitoreo (opcional)"
+                    type="email"
+                    value={pastMeetingForm.monitorEmail}
+                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, monitorEmail: e.target.value }))}
+                  />
+                  {!isZoomSeedMode ? (
+                    <TextField
+                      label="Zoom Meeting ID"
+                      value={pastMeetingForm.zoomMeetingId}
+                      onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, zoomMeetingId: e.target.value }))}
+                    />
+                  ) : null}
+                  {!isZoomSeedMode ? (
+                    <TextField
+                      label="Inicio real"
+                      type="datetime-local"
+                      required
+                      InputLabelProps={{ shrink: true }}
+                      value={pastMeetingForm.inicioRealAt}
+                      onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, inicioRealAt: e.target.value }))}
+                    />
+                  ) : null}
+                  {!isZoomSeedMode ? (
+                    <TextField
+                      label="Fin real"
+                      type="datetime-local"
+                      required
+                      InputLabelProps={{ shrink: true }}
+                      value={pastMeetingForm.finRealAt}
+                      onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, finRealAt: e.target.value }))}
+                    />
+                  ) : null}
+                  <TextField
+                    label="Programa (opcional)"
+                    value={pastMeetingForm.programaNombre}
+                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, programaNombre: e.target.value }))}
+                  />
+                  <TextField
+                    label="Responsable (opcional)"
+                    value={pastMeetingForm.responsableNombre}
+                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, responsableNombre: e.target.value }))}
+                  />
+                </Box>
+                {!isZoomSeedMode ? (
+                  <TextField
+                    sx={{ mt: 1.5 }}
+                    fullWidth
+                    label="Link de Zoom (opcional)"
+                    type="url"
+                    value={pastMeetingForm.zoomJoinUrl}
+                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, zoomJoinUrl: e.target.value }))}
+                  />
+                ) : null}
+                {!isZoomSeedMode ? (
+                  <TextField
+                    sx={{ mt: 1.5 }}
+                    fullWidth
+                    multiline
+                    minRows={3}
+                    label="Descripcion (opcional)"
+                    value={pastMeetingForm.descripcion}
+                    onChange={(e) => setPastMeetingForm((prev) => ({ ...prev, descripcion: e.target.value }))}
+                  />
+                ) : null}
+                <Button sx={{ mt: 1.5 }} type="submit" variant="contained" disabled={isSubmittingPastMeeting}>
+                  {isSubmittingPastMeeting ? "Registrando..." : "Registrar reunion pasada"}
+                </Button>
+              </Box>
+            </Collapse>
+          </Paper>
+        </Stack>
       </CardContent>
     </Card>
   );

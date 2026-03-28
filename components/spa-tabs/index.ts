@@ -8,6 +8,8 @@ export { SpaTabManual } from "./SpaTabManual";
 export { SpaTabHistorico } from "./SpaTabHistorico";
 export { SpaTabTarifas } from "./SpaTabTarifas";
 export { SpaTabCuentas } from "./SpaTabCuentas";
+export { SpaTabProximasReuniones } from "./SpaTabProximasReuniones";
+export { SpaTabPasadasReunionesZoom } from "./SpaTabPasadasReunionesZoom";
 export { SpaTabUsuarios } from "./SpaTabUsuarios";
 export { SpaTabPerfil } from "./SpaTabPerfil";
 
