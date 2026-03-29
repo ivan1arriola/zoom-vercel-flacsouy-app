@@ -1,5 +1,6 @@
 import {
   CuentaZoom,
+  EstadoAsignacion,
   EstadoEjecucionEvento,
   EstadoCoberturaSoporte,
   EstadoEventoZoom,
@@ -2211,35 +2212,193 @@ async function cancelZoomOccurrencesOutsideRequestedSchedule(
 
 export class SalasService {
   async getDashboardSummary(user: SessionUser) {
-    const canSeeAll = user.role === UserRole.ADMINISTRADOR || user.role === UserRole.CONTADURIA;
+    const now = new Date();
 
-    const whereSolicitudes = canSeeAll
-      ? undefined
-      : {
-          docente: {
-            usuarioId: user.id
-          }
-        };
+    if (user.role === UserRole.ADMINISTRADOR) {
+      const [solicitudesTotales, manualPendings, eventosSinCobertura, agendaAbierta] =
+        await Promise.all([
+          db.solicitudSala.count(),
+          db.solicitudSala.count({
+            where: { estadoSolicitud: EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID }
+          }),
+          db.eventoZoom.count({
+            where: { estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR }
+          }),
+          db.eventoZoom.count({
+            where: {
+              requiereAsistencia: true,
+              agendaAbiertaAt: { not: null },
+              agendaCierraAt: { gt: now }
+            }
+          })
+        ]);
 
-    const [solicitudesTotales, manualPendings, eventosSinSoporte, agendaAbierta] =
-      await Promise.all([
-        db.solicitudSala.count({ where: whereSolicitudes }),
-        db.solicitudSala.count({ where: { estadoSolicitud: EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID } }),
-        db.eventoZoom.count({ where: { estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR } }),
+      return {
+        scope: UserRole.ADMINISTRADOR,
+        solicitudesTotales,
+        manualPendings,
+        eventosSinCobertura,
+        agendaAbierta
+      };
+    }
+
+    if (user.role === UserRole.DOCENTE) {
+      const ownSolicitudesWhere = {
+        docente: {
+          usuarioId: user.id
+        }
+      };
+
+      const [solicitudesTotales, solicitudesActivas, proximasReuniones, reunionesConZoom] =
+        await Promise.all([
+          db.solicitudSala.count({ where: ownSolicitudesWhere }),
+          db.solicitudSala.count({
+            where: {
+              ...ownSolicitudesWhere,
+              estadoSolicitud: {
+                notIn: [
+                  EstadoSolicitudSala.CANCELADA_ADMIN,
+                  EstadoSolicitudSala.CANCELADA_DOCENTE
+                ]
+              }
+            }
+          }),
+          db.eventoZoom.count({
+            where: {
+              solicitud: ownSolicitudesWhere,
+              inicioProgramadoAt: { gte: now },
+              estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            }
+          }),
+          db.eventoZoom.count({
+            where: {
+              solicitud: ownSolicitudesWhere,
+              inicioProgramadoAt: { gte: now },
+              zoomMeetingId: { not: null },
+              estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            }
+          })
+        ]);
+
+      return {
+        scope: UserRole.DOCENTE,
+        solicitudesTotales,
+        solicitudesActivas,
+        proximasReuniones,
+        reunionesConZoom
+      };
+    }
+
+    if (user.role === UserRole.ASISTENTE_ZOOM) {
+      const assistant = await getOrCreateAsistente(user);
+      const [agendaDisponible, misPostulaciones, misAsignacionesProximas] = await Promise.all([
         db.eventoZoom.count({
           where: {
             requiereAsistencia: true,
+            estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR,
             agendaAbiertaAt: { not: null },
-            agendaCierraAt: { gt: new Date() }
+            agendaCierraAt: { gt: now },
+            inicioProgramadoAt: { gte: now },
+            estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+          }
+        }),
+        db.interesAsistenteEvento.count({
+          where: {
+            asistenteZoomId: assistant.id,
+            estadoInteres: EstadoInteresAsistente.ME_INTERESA,
+            evento: {
+              inicioProgramadoAt: { gte: now },
+              estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            }
+          }
+        }),
+        db.asignacionAsistente.count({
+          where: {
+            asistenteZoomId: assistant.id,
+            tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+            estadoAsignacion: {
+              in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO]
+            },
+            evento: {
+              inicioProgramadoAt: { gte: now },
+              estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            }
           }
         })
       ]);
 
+      return {
+        scope: UserRole.ASISTENTE_ZOOM,
+        agendaDisponible,
+        misPostulaciones,
+        misAsignacionesProximas
+      };
+    }
+
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const nextMonthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0)
+    );
+
+    const executedAssignments = await db.asignacionAsistente.findMany({
+      where: {
+        tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+        estadoAsignacion: {
+          in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO]
+        },
+        evento: {
+          requiereAsistencia: true,
+          estadoEjecucion: EstadoEjecucionEvento.EJECUTADO,
+          estadoEvento: { not: EstadoEventoZoom.CANCELADO },
+          inicioProgramadoAt: {
+            gte: monthStart,
+            lt: nextMonthStart
+          }
+        }
+      },
+      select: {
+        asistenteZoomId: true,
+        evento: {
+          select: {
+            id: true,
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            inicioRealAt: true,
+            finRealAt: true,
+            minutosReales: true
+          }
+        }
+      }
+    });
+
+    const eventIds = new Set<string>();
+    const assistantIds = new Set<string>();
+    let completedMinutes = 0;
+
+    for (const assignment of executedAssignments) {
+      eventIds.add(assignment.evento.id);
+      assistantIds.add(assignment.asistenteZoomId);
+
+      const minutes =
+        assignment.evento.minutosReales ??
+        Math.max(
+          0,
+          Math.round(
+            (
+              (assignment.evento.finRealAt ?? assignment.evento.finProgramadoAt).getTime() -
+              (assignment.evento.inicioRealAt ?? assignment.evento.inicioProgramadoAt).getTime()
+            ) /
+              60000
+          )
+        );
+      completedMinutes += minutes;
+    }
+
     return {
-      solicitudesTotales,
-      manualPendings,
-      eventosSinSoporte,
-      agendaAbierta
+      scope: UserRole.CONTADURIA,
+      reunionesCompletadasMes: eventIds.size,
+      horasCompletadasMes: Number((completedMinutes / 60).toFixed(1)),
+      personasActivasMes: assistantIds.size
     };
   }
 

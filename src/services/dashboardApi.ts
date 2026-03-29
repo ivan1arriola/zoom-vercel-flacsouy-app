@@ -1,8 +1,18 @@
 export type DashboardSummary = {
-  solicitudesTotales: number;
-  manualPendings: number;
-  eventosSinSoporte: number;
-  agendaAbierta: number;
+  scope: "ADMINISTRADOR" | "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA";
+  solicitudesTotales?: number;
+  solicitudesActivas?: number;
+  proximasReuniones?: number;
+  reunionesConZoom?: number;
+  manualPendings?: number;
+  eventosSinCobertura?: number;
+  agendaAbierta?: number;
+  agendaDisponible?: number;
+  misPostulaciones?: number;
+  misAsignacionesProximas?: number;
+  reunionesCompletadasMes?: number;
+  horasCompletadasMes?: number;
+  personasActivasMes?: number;
 };
 
 export async function loadSummary(): Promise<DashboardSummary | null> {

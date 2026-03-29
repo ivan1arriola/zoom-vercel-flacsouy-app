@@ -5,16 +5,44 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "FLACSO Zoom Salas",
     short_name: "ZoomSalas",
     description: "Herramienta para coordinar salas Zoom y asistentes.",
+    id: "/",
     start_url: "/",
+    scope: "/",
     display: "standalone",
+    display_override: ["standalone", "minimal-ui", "browser"],
+    orientation: "portrait",
     background_color: "#ffffff",
-    theme_color: "#1f6b5b",
+    theme_color: "#1f4b8f",
     lang: "es-UY",
     icons: [
       {
-        src: "/favicon.ico",
-        sizes: "any",
-        type: "image/x-icon"
+        src: "/pwa-192x192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any"
+      },
+      {
+        src: "/pwa-192x192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "maskable"
+      },
+      {
+        src: "/pwa-512x512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any"
+      },
+      {
+        src: "/pwa-512x512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable"
+      },
+      {
+        src: "/apple-touch-icon.png",
+        sizes: "180x180",
+        type: "image/png"
       }
     ]
   };

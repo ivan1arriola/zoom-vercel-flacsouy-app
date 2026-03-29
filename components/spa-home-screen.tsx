@@ -457,26 +457,42 @@ export function SpaHomeScreen() {
         setTab("solicitudes");
       }
 
+      const normalizedRole = normalizeAssistantRole(meJson.user.role);
       const loaders: Array<Promise<void>> = [
         (async () => {
           const summary = await loadSummary();
           if (summary) setSummary(summary);
-        })(),
-        (async () => {
-          const pendings = await loadManualPendings();
-          if (pendings) setManualPendings(pendings);
-        })(),
-        (async () => {
-          const tarifas = await loadTarifas();
-          if (tarifas) setTarifas(tarifas);
-        })(),
-        (async () => {
-          const loadedProgramas = await loadProgramas();
-          if (loadedProgramas) setProgramas(loadedProgramas);
         })()
       ];
 
-      if (["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(normalizeAssistantRole(meJson.user.role))) {
+      if (normalizedRole === "ADMINISTRADOR") {
+        loaders.push(
+          (async () => {
+            const pendings = await loadManualPendings();
+            if (pendings) setManualPendings(pendings);
+          })()
+        );
+      }
+
+      if (["ADMINISTRADOR", "CONTADURIA"].includes(normalizedRole)) {
+        loaders.push(
+          (async () => {
+            const tarifas = await loadTarifas();
+            if (tarifas) setTarifas(tarifas);
+          })()
+        );
+      }
+
+      if (["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(normalizedRole)) {
+        loaders.push(
+          (async () => {
+            const loadedProgramas = await loadProgramas();
+            if (loadedProgramas) setProgramas(loadedProgramas);
+          })()
+        );
+      }
+
+      if (["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(normalizedRole)) {
         loaders.push(
           (async () => {
             const solicitudes = await loadSolicitudes();
@@ -515,7 +531,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (normalizeAssistantRole(meJson.user.role) === "ASISTENTE_ZOOM") {
+      if (normalizedRole === "ASISTENTE_ZOOM") {
         loaders.push(
           (async () => {
             const agenda = await loadAgendaLibre();

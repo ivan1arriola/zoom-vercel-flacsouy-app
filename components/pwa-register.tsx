@@ -8,19 +8,31 @@ export function PwaRegister() {
       return;
     }
 
-    void navigator.serviceWorker.getRegistrations().then((registrations) => {
-      registrations.forEach((registration) => {
-        void registration.unregister();
-      });
-    });
-
-    if ("caches" in window) {
-      void caches.keys().then((keys) => {
-        keys.forEach((key) => {
-          void caches.delete(key);
+    const register = async () => {
+      try {
+        const registration = await navigator.serviceWorker.register("/sw.js", {
+          scope: "/"
         });
-      });
+        await registration.update();
+      } catch (error) {
+        console.error("No se pudo registrar el service worker.", error);
+      }
+    };
+
+    if (document.readyState === "complete") {
+      void register();
+      return;
     }
+
+    const onLoad = () => {
+      void register();
+    };
+
+    window.addEventListener("load", onLoad);
+
+    return () => {
+      window.removeEventListener("load", onLoad);
+    };
   }, []);
 
   return null;

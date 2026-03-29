@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Box, Container, Stack, Typography } from "@mui/material";
 import { auth } from "@/auth";
@@ -16,12 +16,34 @@ export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
 export const metadata: Metadata = {
+  applicationName: "FLACSO Zoom Salas",
   title: "FLACSO Uruguay | Plataforma Zoom",
   description: "Aplicacion modular con UI, base de datos e integraciones para FLACSO Uruguay",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "FLACSO Zoom"
+  },
   icons: {
-    icon: [{ url: "/favicon.ico", type: "image/x-icon" }],
+    icon: [
+      { url: "/favicon.ico", type: "image/x-icon" },
+      { url: "/pwa-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/pwa-512x512.png", sizes: "512x512", type: "image/png" }
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
     shortcut: "/favicon.ico"
+  },
+  other: {
+    "mobile-web-app-capable": "yes"
   }
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#1f4b8f",
+  viewportFit: "cover"
 };
 
 export default async function RootLayout({

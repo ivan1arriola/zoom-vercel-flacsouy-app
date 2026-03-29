@@ -18,9 +18,15 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SchoolIcon from "@mui/icons-material/School";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import PaymentsIcon from "@mui/icons-material/Payments";
+import LinkIcon from "@mui/icons-material/Link";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import EventNoteIcon from "@mui/icons-material/EventNote";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import GroupIcon from "@mui/icons-material/Group";
 import type { DashboardSummary } from "@/src/services/dashboardApi";
 
 type DashboardRole = "ADMINISTRADOR" | "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA";
+type DashboardMetricKey = Exclude<keyof DashboardSummary, "scope">;
 
 interface SpaTabDashboardProps {
   summary: DashboardSummary | null;
@@ -28,11 +34,12 @@ interface SpaTabDashboardProps {
 }
 
 type MetricCardItem = {
-  key: keyof DashboardSummary;
+  key: DashboardMetricKey;
   title: string;
   description: string;
   color: string;
   icon: ReactNode;
+  formatValue?: (value: number) => string;
 };
 
 type DashboardStatus = {
@@ -56,13 +63,21 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
-  const riskScore =
-    summary.manualPendings * 3 +
-    summary.eventosSinSoporte * 4 +
-    Math.max(0, summary.agendaAbierta - summary.eventosSinSoporte);
+function metricValue(summary: DashboardSummary, key: DashboardMetricKey): number {
+  return typeof summary[key] === "number" ? Number(summary[key]) : 0;
+}
 
-  if (summary.eventosSinSoporte >= 6 || summary.manualPendings >= 8 || riskScore >= 45) {
+function formatHours(value: number): string {
+  return `${value.toFixed(value % 1 === 0 ? 0 : 1).replace(".", ",")} h`;
+}
+
+function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
+  const manualPendings = metricValue(summary, "manualPendings");
+  const eventosSinCobertura = metricValue(summary, "eventosSinCobertura");
+  const agendaAbierta = metricValue(summary, "agendaAbierta");
+  const riskScore = manualPendings * 3 + eventosSinCobertura * 4 + Math.max(0, agendaAbierta - eventosSinCobertura);
+
+  if (eventosSinCobertura >= 6 || manualPendings >= 8 || riskScore >= 45) {
     return {
       label: "Critico",
       color: "error",
@@ -70,125 +85,154 @@ function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
     };
   }
 
-  if (summary.eventosSinSoporte > 0 || summary.manualPendings > 0 || riskScore >= 16) {
+  if (eventosSinCobertura > 0 || manualPendings > 0 || riskScore >= 16) {
     return {
       label: "Atencion",
       color: "warning",
-      message: "Operacion estable pero con puntos a resolver en el corto plazo."
+      message: "Operacion estable, pero con puntos a resolver en el corto plazo."
     };
   }
 
   return {
     label: "Estable",
     color: "success",
-    message: "No hay alertas activas relevantes en este momento."
+    message: "No hay alertas operativas relevantes en este momento."
   };
 }
 
 function deriveAssistantStatus(summary: DashboardSummary): DashboardStatus {
-  const riskScore = summary.eventosSinSoporte * 5 + summary.agendaAbierta * 2 + summary.manualPendings;
+  const agendaDisponible = metricValue(summary, "agendaDisponible");
+  const misPostulaciones = metricValue(summary, "misPostulaciones");
+  const misAsignacionesProximas = metricValue(summary, "misAsignacionesProximas");
+  const workload = agendaDisponible * 2 + misPostulaciones + misAsignacionesProximas * 3;
 
-  if (summary.eventosSinSoporte >= 4 || riskScore >= 30) {
+  if (misAsignacionesProximas >= 4 || workload >= 18) {
     return {
       label: "Alta demanda",
       color: "error",
-      message: "Hay cobertura pendiente. Revisar agenda abierta y asignaciones urgentes."
+      message: "Tu carga operativa es alta. Conviene revisar agenda y proximas coberturas."
     };
   }
 
-  if (summary.eventosSinSoporte > 0 || summary.agendaAbierta > 0 || riskScore >= 10) {
+  if (agendaDisponible > 0 || misPostulaciones > 0 || misAsignacionesProximas > 0) {
     return {
       label: "En curso",
       color: "warning",
-      message: "Hay reuniones disponibles o pendientes de cobertura para coordinar."
+      message: "Tienes actividad abierta entre agenda, postulaciones o reuniones asignadas."
     };
   }
 
   return {
-    label: "Sin alertas",
+    label: "Libre",
     color: "success",
-    message: "No hay reuniones abiertas sin cubrir en este momento."
+    message: "No tienes pendientes inmediatos de asistencia."
   };
 }
 
 function deriveAccountingStatus(summary: DashboardSummary): DashboardStatus {
-  const riskScore = summary.manualPendings * 4 + summary.eventosSinSoporte * 2;
+  const reunionesCompletadasMes = metricValue(summary, "reunionesCompletadasMes");
+  const horasCompletadasMes = metricValue(summary, "horasCompletadasMes");
+  const personasActivasMes = metricValue(summary, "personasActivasMes");
 
-  if (summary.manualPendings >= 5 || riskScore >= 24) {
+  if (reunionesCompletadasMes >= 25 || horasCompletadasMes >= 80) {
     return {
-      label: "Riesgo de cierre",
-      color: "error",
-      message: "Pendientes manuales altos. Puede impactar liquidaciones y control mensual."
+      label: "Alta carga",
+      color: "warning",
+      message: "El mes acumula bastante ejecucion. Conviene revisar cierres y consistencia."
     };
   }
 
-  if (summary.manualPendings > 0 || summary.eventosSinSoporte > 0) {
+  if (reunionesCompletadasMes > 0 || personasActivasMes > 0) {
     return {
-      label: "Seguimiento",
-      color: "warning",
-      message: "Hay pendientes operativos que conviene monitorear para cierre."
+      label: "Con movimiento",
+      color: "success",
+      message: "Ya hay actividad ejecutada para control y liquidacion."
     };
   }
 
   return {
-    label: "Controlado",
-    color: "success",
-    message: "No hay pendientes relevantes para el seguimiento contable."
+    label: "Sin cierres",
+    color: "warning",
+    message: "Todavia no hay actividad ejecutada en el periodo actual."
   };
 }
 
 function deriveDocenteStatus(summary: DashboardSummary): DashboardStatus {
-  if (summary.solicitudesTotales <= 0) {
+  const solicitudesTotales = metricValue(summary, "solicitudesTotales");
+  const solicitudesActivas = metricValue(summary, "solicitudesActivas");
+  const proximasReuniones = metricValue(summary, "proximasReuniones");
+
+  if (solicitudesTotales <= 0) {
     return {
       label: "Sin actividad",
       color: "warning",
-      message: "Todavia no tenes solicitudes registradas."
+      message: "Todavia no tienes solicitudes registradas."
     };
   }
 
-  if (summary.solicitudesTotales >= 8) {
+  if (solicitudesActivas > 0 || proximasReuniones > 0) {
     return {
-      label: "Alta actividad",
+      label: "En seguimiento",
       color: "success",
-      message: "Tenes varias solicitudes en curso y registradas en el sistema."
+      message: "Tus solicitudes y reuniones proximas estan bajo seguimiento."
     };
   }
 
   return {
-    label: "Activo",
+    label: "Al dia",
     color: "success",
-    message: "Tus solicitudes estan registradas correctamente."
+    message: "No hay gestiones pendientes visibles en este momento."
   };
 }
 
 function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): DashboardRoleConfig {
   if (role === "DOCENTE") {
+    const solicitudesTotales = metricValue(summary, "solicitudesTotales");
+    const solicitudesActivas = metricValue(summary, "solicitudesActivas");
+    const proximasReuniones = metricValue(summary, "proximasReuniones");
+    const reunionesConZoom = metricValue(summary, "reunionesConZoom");
+
     return {
-      title: "Mi actividad",
-      subtitle: "Resumen de tus solicitudes y contexto operativo.",
+      title: "Mi actividad academica",
+      subtitle: "Seguimiento de tus solicitudes y de las reuniones ya calendarizadas.",
       headerIcon: <SchoolIcon fontSize="small" />,
       background: "linear-gradient(135deg, rgba(23,95,161,0.10) 0%, rgba(56,132,255,0.12) 100%)",
       metrics: [
         {
           key: "solicitudesTotales",
-          title: "Mis solicitudes",
-          description: "Solicitudes creadas por tu perfil.",
+          title: "Solicitudes totales",
+          description: "Solicitudes creadas desde tu perfil.",
           color: "#175FA1",
           icon: <AssignmentTurnedInIcon fontSize="small" />
         },
         {
-          key: "agendaAbierta",
-          title: "Agenda de asistencia",
-          description: "Eventos con agenda de asistencia abierta (referencia global).",
+          key: "solicitudesActivas",
+          title: "Solicitudes activas",
+          description: "Solicitudes aun en curso o vigentes.",
           color: "#2F855A",
-          icon: <EventAvailableIcon fontSize="small" />
+          icon: <PendingActionsIcon fontSize="small" />
+        },
+        {
+          key: "proximasReuniones",
+          title: "Proximas reuniones",
+          description: "Instancias futuras ya registradas.",
+          color: "#C05621",
+          icon: <EventNoteIcon fontSize="small" />
+        },
+        {
+          key: "reunionesConZoom",
+          title: "Con link Zoom",
+          description: "Instancias futuras que ya tienen meeting ID asignado.",
+          color: "#5A67D8",
+          icon: <LinkIcon fontSize="small" />
         }
       ],
       status: deriveDocenteStatus(summary),
-      priorityItems: summary.solicitudesTotales > 0
+      priorityItems: solicitudesTotales > 0
         ? [
-            `${summary.solicitudesTotales} solicitud(es) registradas en tu perfil.`,
-            "Si necesitas ajustes, gestiona los cambios desde la vista Solicitudes."
+            `${solicitudesActivas} solicitud(es) activa(s) para seguimiento.`,
+            `${proximasReuniones} reunion(es) futura(s) registradas.`,
+            `${reunionesConZoom} reunion(es) futura(s) con Zoom asignado.`
           ]
         : [
             "No hay solicitudes registradas en tu perfil.",
@@ -198,91 +242,98 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
   }
 
   if (role === "ASISTENTE_ZOOM") {
+    const agendaDisponible = metricValue(summary, "agendaDisponible");
+    const misPostulaciones = metricValue(summary, "misPostulaciones");
+    const misAsignacionesProximas = metricValue(summary, "misAsignacionesProximas");
+
     return {
-      title: "Panel de asistencia",
-      subtitle: "Foco en cobertura, agenda y eventos a tomar.",
+      title: "Mi panel de asistencia",
+      subtitle: "Solo ves agenda disponible, tus postulaciones y tus reuniones asignadas.",
       headerIcon: <SupportAgentIcon fontSize="small" />,
       background: "linear-gradient(135deg, rgba(10,93,72,0.10) 0%, rgba(56,161,105,0.14) 100%)",
       metrics: [
         {
-          key: "agendaAbierta",
-          title: "Agenda abierta",
-          description: "Eventos disponibles para asistentes.",
+          key: "agendaDisponible",
+          title: "Agenda disponible",
+          description: "Eventos abiertos que todavia pueden tomarse.",
           color: "#2F855A",
           icon: <EventAvailableIcon fontSize="small" />
         },
         {
-          key: "eventosSinSoporte",
-          title: "Sin cobertura",
-          description: "Eventos que aun no tienen asistencia asignada.",
-          color: "#C53030",
-          icon: <Groups2Icon fontSize="small" />
+          key: "misPostulaciones",
+          title: "Mis postulaciones",
+          description: "Eventos donde marcaste interes.",
+          color: "#D69E2E",
+          icon: <PendingActionsIcon fontSize="small" />
         },
         {
-          key: "manualPendings",
-          title: "Pendientes manuales",
-          description: "Casos que requieren intervencion administrativa.",
-          color: "#B7791F",
-          icon: <BuildCircleIcon fontSize="small" />
+          key: "misAsignacionesProximas",
+          title: "Mis proximas reuniones",
+          description: "Reuniones futuras ya asignadas a tu perfil.",
+          color: "#2B6CB0",
+          icon: <ScheduleIcon fontSize="small" />
         }
       ],
       status: deriveAssistantStatus(summary),
       priorityItems: [
-        `${summary.agendaAbierta} evento(s) en agenda abierta.`,
-        `${summary.eventosSinSoporte} evento(s) sin asistencia asignada.`,
-        `${summary.manualPendings} caso(s) manual(es) pendientes de resolucion.`
+        `${agendaDisponible} evento(s) abiertos para tomar.`,
+        `${misPostulaciones} postulacion(es) activas registradas.`,
+        `${misAsignacionesProximas} reunion(es) futura(s) asignadas a tu perfil.`
       ]
     };
   }
 
   if (role === "CONTADURIA") {
+    const reunionesCompletadasMes = metricValue(summary, "reunionesCompletadasMes");
+    const horasCompletadasMes = metricValue(summary, "horasCompletadasMes");
+    const personasActivasMes = metricValue(summary, "personasActivasMes");
+
     return {
-      title: "Control contable",
-      subtitle: "Indicadores para seguimiento de cierre y liquidacion.",
+      title: "Seguimiento contable",
+      subtitle: "Vista enfocada en ejecucion del periodo y volumen a revisar para liquidacion.",
       headerIcon: <PaymentsIcon fontSize="small" />,
       background: "linear-gradient(135deg, rgba(126,77,13,0.10) 0%, rgba(214,158,46,0.14) 100%)",
       metrics: [
         {
-          key: "manualPendings",
-          title: "Pendientes manuales",
-          description: "Pueden impactar consistencia de datos para cierre.",
+          key: "reunionesCompletadasMes",
+          title: "Reuniones ejecutadas",
+          description: "Eventos ejecutados en el mes actual.",
           color: "#B7791F",
-          icon: <BuildCircleIcon fontSize="small" />
+          icon: <EventNoteIcon fontSize="small" />
         },
         {
-          key: "eventosSinSoporte",
-          title: "Sin cobertura",
-          description: "Eventos aun no cubiertos por asistencia.",
-          color: "#C53030",
-          icon: <Groups2Icon fontSize="small" />
-        },
-        {
-          key: "solicitudesTotales",
-          title: "Solicitudes",
-          description: "Volumen total de solicitudes registradas.",
+          key: "horasCompletadasMes",
+          title: "Horas ejecutadas",
+          description: "Horas de asistencia acumuladas en el mes.",
           color: "#2B6CB0",
-          icon: <AssignmentTurnedInIcon fontSize="small" />
+          icon: <ScheduleIcon fontSize="small" />,
+          formatValue: formatHours
         },
         {
-          key: "agendaAbierta",
-          title: "Agenda abierta",
-          description: "Eventos con cobertura todavia en proceso.",
+          key: "personasActivasMes",
+          title: "Personas con actividad",
+          description: "Asistentes con reuniones ejecutadas en el mes.",
           color: "#2F855A",
-          icon: <EventAvailableIcon fontSize="small" />
+          icon: <GroupIcon fontSize="small" />
         }
       ],
       status: deriveAccountingStatus(summary),
       priorityItems: [
-        `${summary.manualPendings} caso(s) manual(es) pendientes para conciliacion.`,
-        `${summary.eventosSinSoporte} evento(s) sin cobertura para seguimiento.`,
-        "Revisar horas cumplidas por persona en la vista de tarifas/liquidacion mensual."
+        `${reunionesCompletadasMes} reunion(es) ejecutadas acumuladas en el mes.`,
+        `${formatHours(horasCompletadasMes)} de asistencia para control.`,
+        `${personasActivasMes} asistente(s) con actividad ejecutada.`
       ]
     };
   }
 
+  const solicitudesTotales = metricValue(summary, "solicitudesTotales");
+  const manualPendings = metricValue(summary, "manualPendings");
+  const eventosSinCobertura = metricValue(summary, "eventosSinCobertura");
+  const agendaAbierta = metricValue(summary, "agendaAbierta");
+
   return {
     title: "Estado operativo general",
-    subtitle: "Resumen consolidado de la operacion actual.",
+    subtitle: "Resumen consolidado para administracion.",
     headerIcon: <AssignmentTurnedInIcon fontSize="small" />,
     background: "linear-gradient(135deg, rgba(31,75,143,0.08) 0%, rgba(249,181,3,0.12) 100%)",
     metrics: [
@@ -296,36 +347,37 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
       {
         key: "manualPendings",
         title: "Pendientes manuales",
-        description: "Requieren intervencion administrativa.",
+        description: "Casos que requieren intervencion administrativa.",
         color: "#B7791F",
         icon: <BuildCircleIcon fontSize="small" />
       },
       {
-        key: "eventosSinSoporte",
+        key: "eventosSinCobertura",
         title: "Sin asistencia",
-        description: "Eventos con asistencia aun no cubierta.",
+        description: "Eventos que todavia no tienen cobertura asignada.",
         color: "#C53030",
         icon: <Groups2Icon fontSize="small" />
       },
       {
         key: "agendaAbierta",
         title: "Agenda abierta",
-        description: "Eventos disponibles para asistentes.",
+        description: "Eventos visibles para el equipo de asistencia.",
         color: "#2F855A",
         icon: <EventAvailableIcon fontSize="small" />
       }
     ],
     status: deriveAdminStatus(summary),
     priorityItems: [
-      summary.eventosSinSoporte > 0
-        ? `${summary.eventosSinSoporte} evento(s) sin asistencia asignada.`
+      `${solicitudesTotales} solicitud(es) totales registradas.`,
+      eventosSinCobertura > 0
+        ? `${eventosSinCobertura} evento(s) sin asistencia asignada.`
         : "No hay eventos sin asistencia asignada.",
-      summary.manualPendings > 0
-        ? `${summary.manualPendings} solicitud(es) pendiente(s) de resolucion manual.`
+      manualPendings > 0
+        ? `${manualPendings} caso(s) pendiente(s) de resolucion manual.`
         : "No hay pendientes manuales.",
-      summary.agendaAbierta > 0
-        ? `${summary.agendaAbierta} evento(s) con agenda de asistencia abierta.`
-        : "No hay agenda de asistencia abierta."
+      agendaAbierta > 0
+        ? `${agendaAbierta} evento(s) con agenda abierta para asistentes.`
+        : "No hay agenda abierta en este momento."
     ]
   };
 }
@@ -344,7 +396,7 @@ export function SpaTabDashboard({ summary, role }: SpaTabDashboardProps) {
   }
 
   const config = buildRoleConfig(role, summary);
-  const totalMetrics = config.metrics.reduce((acc, metric) => acc + summary[metric.key], 0);
+  const totalMetrics = config.metrics.reduce((acc, metric) => acc + metricValue(summary, metric.key), 0);
 
   return (
     <Stack spacing={2.2}>
@@ -391,7 +443,7 @@ export function SpaTabDashboard({ summary, role }: SpaTabDashboardProps) {
         }}
       >
         {config.metrics.map((metric) => {
-          const value = summary[metric.key];
+          const value = metricValue(summary, metric.key);
           const share = totalMetrics > 0 ? (value / totalMetrics) * 100 : 0;
 
           return (
@@ -416,7 +468,7 @@ export function SpaTabDashboard({ summary, role }: SpaTabDashboardProps) {
                   </Box>
                 </Stack>
                 <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                  {value}
+                  {metric.formatValue ? metric.formatValue(value) : value}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.1 }}>
                   {metric.description}
