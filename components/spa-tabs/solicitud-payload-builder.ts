@@ -360,7 +360,7 @@ function buildSpecificDatesSolicitudPayload(
   return {
     ...buildSharedPayloadFields(input, form.descripcionRecurrente),
     tipoInstancias: "MULTIPLE_NO_COMPATIBLE_ZOOM",
-    meetingIdEstrategia: "MULTIPLE_PERMITIDO",
+    meetingIdEstrategia: "UNICO_PREFERIDO",
     fechaInicioSolicitada: firstInstanceStartIso,
     fechaFinSolicitada: firstInstanceEndIso,
     regimenEncuentros: `Fechas puntuales: ${fechasLabel}`,

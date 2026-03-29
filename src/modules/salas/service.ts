@@ -1257,48 +1257,6 @@ function buildProvisionedEventPlans(
   return [];
 }
 
-function buildProvisionedEventPlansFromIndependentMeetings(
-  snapshots: ZoomMeetingSnapshot[],
-  fallbackPlans: InstancePlan[],
-  durationMinutes: number
-): ProvisionedEventPlan[] {
-  if (snapshots.length === 0 || fallbackPlans.length === 0) return [];
-
-  const sortedFallbackPlans = [...fallbackPlans].sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
-  const sortedSnapshots = [...snapshots].sort((a, b) => {
-    const aStart = new Date(a.instances[0]?.startTime ?? "").getTime();
-    const bStart = new Date(b.instances[0]?.startTime ?? "").getTime();
-    if (Number.isNaN(aStart) && Number.isNaN(bStart)) return 0;
-    if (Number.isNaN(aStart)) return 1;
-    if (Number.isNaN(bStart)) return -1;
-    return aStart - bStart;
-  });
-
-  const total = Math.min(sortedSnapshots.length, sortedFallbackPlans.length);
-  const plans: ProvisionedEventPlan[] = [];
-
-  for (let index = 0; index < total; index += 1) {
-    const snapshot = sortedSnapshots[index];
-    const fallback = sortedFallbackPlans[index];
-    const instance = snapshot?.instances[0];
-    const start = instance?.startTime ? new Date(instance.startTime) : fallback.inicio;
-    const hasValidStart = start instanceof Date && !Number.isNaN(start.getTime());
-    const resolvedStart = hasValidStart ? start : fallback.inicio;
-    const minutes = Math.max(1, instance?.durationMinutes ?? durationMinutes);
-
-    plans.push({
-      inicio: resolvedStart,
-      fin: new Date(resolvedStart.getTime() + minutes * 60_000),
-      joinUrl: instance?.joinUrl ?? snapshot?.joinUrl ?? null,
-      zoomMeetingId: snapshot?.meetingId ?? null,
-      zoomStartUrl: snapshot?.startUrl ?? null,
-      zoomPayloadUltimo: snapshot?.rawPayload
-    });
-  }
-
-  return plans;
-}
-
 async function getOrCreateDocente(user: SessionUser) {
   const existing = await db.docente.findUnique({ where: { usuarioId: user.id } });
   if (existing) return existing;
@@ -1808,6 +1766,459 @@ function buildInputWithZoomEndTimes(
   };
 }
 
+type SpecificDatesSyntheticRecurrencePlan = {
+  zoomRecurrence: ZoomRecurrencePayload;
+  generatedStarts: Date[];
+  requestedMinuteKeys: Set<number>;
+};
+
+function toMinuteKey(value: Date): number {
+  return Math.floor(value.getTime() / 60_000);
+}
+
+function addDaysPreservingTime(base: Date, days: number): Date {
+  const copy = new Date(base);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function startOfDayLocal(base: Date): Date {
+  const copy = new Date(base);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function withTemplateTime(baseDay: Date, template: Date): Date {
+  const copy = new Date(baseDay);
+  copy.setHours(
+    template.getHours(),
+    template.getMinutes(),
+    template.getSeconds(),
+    template.getMilliseconds()
+  );
+  return copy;
+}
+
+function buildDailyStartsWithinRange(firstStart: Date, lastStart: Date, intervalDays: number): Date[] {
+  const starts: Date[] = [];
+  let cursor = new Date(firstStart);
+  while (cursor <= lastStart && starts.length < 120) {
+    starts.push(new Date(cursor));
+    cursor = addDaysPreservingTime(cursor, intervalDays);
+  }
+  return starts;
+}
+
+function buildWeeklyStartsWithinRange(
+  firstStart: Date,
+  lastStart: Date,
+  intervalWeeks: number,
+  weeklyDays: number[]
+): Date[] {
+  const starts: Date[] = [];
+  const activeDays = new Set(weeklyDays);
+  const firstWeekday = firstStart.getDay() + 1;
+  if (!activeDays.has(firstWeekday)) {
+    activeDays.add(firstWeekday);
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  let dayCursor = startOfDayLocal(firstStart);
+  const endDay = startOfDayLocal(lastStart);
+  const firstWeekStart = startOfDayLocal(firstStart);
+  firstWeekStart.setDate(firstWeekStart.getDate() - firstWeekStart.getDay());
+
+  while (dayCursor <= endDay && starts.length < 120) {
+    const zoomDay = dayCursor.getDay() + 1;
+    if (activeDays.has(zoomDay)) {
+      const weekStart = startOfDayLocal(dayCursor);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const weekDiff = Math.floor((weekStart.getTime() - firstWeekStart.getTime()) / (7 * dayMs));
+      if (weekDiff % intervalWeeks === 0) {
+        const candidate = withTemplateTime(dayCursor, firstStart);
+        if (candidate >= firstStart && candidate <= lastStart) {
+          starts.push(candidate);
+        }
+      }
+    }
+    dayCursor = addDaysPreservingTime(dayCursor, 1);
+  }
+
+  return starts;
+}
+
+function getMonthlyWeekMarker(date: Date): -1 | 1 | 2 | 3 | 4 {
+  const day = date.getDate();
+  const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  if (day + 7 > daysInMonth) return -1;
+  const ordinal = Math.ceil(day / 7);
+  if (ordinal <= 1) return 1;
+  if (ordinal === 2) return 2;
+  if (ordinal === 3) return 3;
+  return 4;
+}
+
+function getNthWeekdayOfMonthLocal(
+  year: number,
+  monthIndex: number,
+  monthlyWeek: -1 | 1 | 2 | 3 | 4,
+  monthlyWeekDay: 1 | 2 | 3 | 4 | 5 | 6 | 7,
+  timeTemplate: Date
+): Date | null {
+  const targetJsWeekday = monthlyWeekDay - 1;
+
+  if (monthlyWeek === -1) {
+    const lastDay = new Date(
+      year,
+      monthIndex + 1,
+      0,
+      timeTemplate.getHours(),
+      timeTemplate.getMinutes(),
+      timeTemplate.getSeconds(),
+      timeTemplate.getMilliseconds()
+    );
+    const delta = (lastDay.getDay() - targetJsWeekday + 7) % 7;
+    lastDay.setDate(lastDay.getDate() - delta);
+    return lastDay;
+  }
+
+  const firstDay = new Date(
+    year,
+    monthIndex,
+    1,
+    timeTemplate.getHours(),
+    timeTemplate.getMinutes(),
+    timeTemplate.getSeconds(),
+    timeTemplate.getMilliseconds()
+  );
+  const delta = (targetJsWeekday - firstDay.getDay() + 7) % 7;
+  const dayNumber = 1 + delta + (monthlyWeek - 1) * 7;
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  if (dayNumber > daysInMonth) return null;
+
+  return new Date(
+    year,
+    monthIndex,
+    dayNumber,
+    timeTemplate.getHours(),
+    timeTemplate.getMinutes(),
+    timeTemplate.getSeconds(),
+    timeTemplate.getMilliseconds()
+  );
+}
+
+function buildMonthlyDayStartsWithinRange(
+  firstStart: Date,
+  lastStart: Date,
+  intervalMonths: number,
+  monthlyDay: number
+): Date[] {
+  const starts: Date[] = [];
+  let monthOffset = 0;
+
+  while (starts.length < 120 && monthOffset <= 240) {
+    const monthBase = new Date(firstStart.getFullYear(), firstStart.getMonth() + monthOffset, 1);
+    if (monthBase > lastStart && monthOffset > 0) break;
+
+    const daysInMonth = new Date(monthBase.getFullYear(), monthBase.getMonth() + 1, 0).getDate();
+    if (monthlyDay <= daysInMonth) {
+      const candidate = new Date(
+        monthBase.getFullYear(),
+        monthBase.getMonth(),
+        monthlyDay,
+        firstStart.getHours(),
+        firstStart.getMinutes(),
+        firstStart.getSeconds(),
+        firstStart.getMilliseconds()
+      );
+      if (candidate >= firstStart && candidate <= lastStart) {
+        starts.push(candidate);
+      }
+    }
+
+    monthOffset += intervalMonths;
+  }
+
+  return starts;
+}
+
+function buildMonthlyWeekdayStartsWithinRange(
+  firstStart: Date,
+  lastStart: Date,
+  intervalMonths: number,
+  monthlyWeek: -1 | 1 | 2 | 3 | 4,
+  monthlyWeekDay: 1 | 2 | 3 | 4 | 5 | 6 | 7
+): Date[] {
+  const starts: Date[] = [];
+  let monthOffset = 0;
+
+  while (starts.length < 120 && monthOffset <= 240) {
+    const monthBase = new Date(firstStart.getFullYear(), firstStart.getMonth() + monthOffset, 1);
+    if (monthBase > lastStart && monthOffset > 0) break;
+
+    const candidate = getNthWeekdayOfMonthLocal(
+      monthBase.getFullYear(),
+      monthBase.getMonth(),
+      monthlyWeek,
+      monthlyWeekDay,
+      firstStart
+    );
+    if (candidate && candidate >= firstStart && candidate <= lastStart) {
+      starts.push(candidate);
+    }
+
+    monthOffset += intervalMonths;
+  }
+
+  return starts;
+}
+
+function buildSpecificDatesSyntheticRecurrencePlan(
+  instancePlans: InstancePlan[]
+): SpecificDatesSyntheticRecurrencePlan {
+  const sortedRequestedStarts = [...instancePlans]
+    .map((plan) => plan.inicio)
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  if (sortedRequestedStarts.length < 2) {
+    throw new Error("Se requieren al menos 2 fechas para construir una recurrencia unica.");
+  }
+
+  const requestedMinuteKeys = new Set<number>();
+  const requestedStarts: Date[] = [];
+  for (const start of sortedRequestedStarts) {
+    const key = toMinuteKey(start);
+    if (requestedMinuteKeys.has(key)) continue;
+    requestedMinuteKeys.add(key);
+    requestedStarts.push(start);
+  }
+
+  const firstStart = requestedStarts[0] as Date;
+  const lastStart = requestedStarts[requestedStarts.length - 1] as Date;
+  const requestedCount = requestedMinuteKeys.size;
+  if (requestedCount < 2) {
+    throw new Error("Se requieren al menos 2 fechas distintas para construir una recurrencia unica.");
+  }
+
+  type Candidate = {
+    zoomRecurrence: ZoomRecurrencePayload;
+    generatedStarts: Date[];
+    extras: number;
+    priority: number;
+  };
+
+  const candidates: Candidate[] = [];
+
+  function registerCandidate(
+    zoomRecurrence: ZoomRecurrencePayload,
+    generatedStarts: Date[],
+    priority: number
+  ) {
+    if (generatedStarts.length < requestedCount) return;
+    if (generatedStarts.length > 50) return;
+
+    const generatedMinuteKeys = new Set<number>(generatedStarts.map((item) => toMinuteKey(item)));
+    for (const key of requestedMinuteKeys) {
+      if (!generatedMinuteKeys.has(key)) {
+        return;
+      }
+    }
+
+    candidates.push({
+      zoomRecurrence,
+      generatedStarts,
+      extras: generatedStarts.length - requestedCount,
+      priority
+    });
+  }
+
+  const requestedWeekdays = [...new Set(requestedStarts.map((item) => item.getDay() + 1))].sort((a, b) => a - b);
+  if (requestedWeekdays.length > 0) {
+    for (let intervalWeeks = 1; intervalWeeks <= 12; intervalWeeks += 1) {
+      const generatedStarts = buildWeeklyStartsWithinRange(
+        firstStart,
+        lastStart,
+        intervalWeeks,
+        requestedWeekdays
+      );
+      registerCandidate(
+        {
+          type: 2,
+          repeat_interval: intervalWeeks,
+          weekly_days: requestedWeekdays.join(","),
+          end_times: generatedStarts.length
+        },
+        generatedStarts,
+        2
+      );
+    }
+  }
+
+  for (let intervalDays = 1; intervalDays <= 90; intervalDays += 1) {
+    const generatedStarts = buildDailyStartsWithinRange(firstStart, lastStart, intervalDays);
+    registerCandidate(
+      {
+        type: 1,
+        repeat_interval: intervalDays,
+        end_times: generatedStarts.length
+      },
+      generatedStarts,
+      3
+    );
+  }
+
+  const monthlyDay = firstStart.getDate();
+  const allSameDayOfMonth = requestedStarts.every((item) => item.getDate() === monthlyDay);
+  if (allSameDayOfMonth) {
+    for (let intervalMonths = 1; intervalMonths <= 3; intervalMonths += 1) {
+      const generatedStarts = buildMonthlyDayStartsWithinRange(
+        firstStart,
+        lastStart,
+        intervalMonths,
+        monthlyDay
+      );
+      registerCandidate(
+        {
+          type: 3,
+          repeat_interval: intervalMonths,
+          monthly_day: monthlyDay,
+          end_times: generatedStarts.length
+        },
+        generatedStarts,
+        1
+      );
+    }
+  }
+
+  const monthlyWeek = getMonthlyWeekMarker(firstStart);
+  const monthlyWeekDay = (firstStart.getDay() + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  const allSameWeekdayPattern = requestedStarts.every((item) => {
+    const itemWeek = getMonthlyWeekMarker(item);
+    const itemWeekday = (item.getDay() + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7;
+    return itemWeek === monthlyWeek && itemWeekday === monthlyWeekDay;
+  });
+  if (allSameWeekdayPattern) {
+    for (let intervalMonths = 1; intervalMonths <= 3; intervalMonths += 1) {
+      const generatedStarts = buildMonthlyWeekdayStartsWithinRange(
+        firstStart,
+        lastStart,
+        intervalMonths,
+        monthlyWeek,
+        monthlyWeekDay
+      );
+      registerCandidate(
+        {
+          type: 3,
+          repeat_interval: intervalMonths,
+          monthly_week: monthlyWeek,
+          monthly_week_day: monthlyWeekDay,
+          end_times: generatedStarts.length
+        },
+        generatedStarts,
+        1
+      );
+    }
+  }
+
+  if (candidates.length === 0) {
+    throw new Error(
+      "No se pudo construir una recurrencia de Zoom unica que cubra todas las fechas (maximo 50 ocurrencias)."
+    );
+  }
+
+  candidates.sort((left, right) => {
+    if (left.extras !== right.extras) return left.extras - right.extras;
+    if (left.generatedStarts.length !== right.generatedStarts.length) {
+      return left.generatedStarts.length - right.generatedStarts.length;
+    }
+    return left.priority - right.priority;
+  });
+
+  const best = candidates[0] as Candidate;
+  return {
+    zoomRecurrence: best.zoomRecurrence,
+    generatedStarts: best.generatedStarts,
+    requestedMinuteKeys
+  };
+}
+
+function buildSingleMeetingInputForSpecificDates(
+  input: CreateSolicitudInput,
+  syntheticPlan: SpecificDatesSyntheticRecurrencePlan
+): CreateSolicitudInput {
+  const lastStart = syntheticPlan.generatedStarts[syntheticPlan.generatedStarts.length - 1] ?? null;
+
+  return {
+    ...input,
+    tipoInstancias: TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM,
+    fechaFinRecurrencia: lastStart ? lastStart.toISOString() : input.fechaFinRecurrencia,
+    fechasInstancias: undefined,
+    instanciasDetalle: undefined,
+    patronRecurrencia: {
+      totalInstancias: syntheticPlan.generatedStarts.length,
+      fechaFinal: (lastStart ? lastStart.toISOString() : new Date().toISOString()).slice(0, 10),
+      zoomRecurrence: syntheticPlan.zoomRecurrence
+    }
+  };
+}
+
+function zoomSnapshotContainsRequestedMinuteKeys(
+  zoomSnapshot: ZoomMeetingSnapshot,
+  requestedMinuteKeys: Set<number>
+): boolean {
+  if (requestedMinuteKeys.size === 0) return true;
+
+  const snapshotMinuteKeys = new Set<number>();
+  for (const item of zoomSnapshot.instances) {
+    const start = new Date(item.startTime);
+    if (Number.isNaN(start.getTime())) continue;
+    snapshotMinuteKeys.add(toMinuteKey(start));
+  }
+
+  for (const key of requestedMinuteKeys) {
+    if (!snapshotMinuteKeys.has(key)) return false;
+  }
+
+  return true;
+}
+
+async function cancelZoomOccurrencesOutsideRequestedSchedule(
+  zoomClient: ZoomMeetingsClient,
+  zoomSnapshot: ZoomMeetingSnapshot,
+  requestedMinuteKeys: Set<number>
+): Promise<void> {
+  const occurrenceIdsToCancel = new Set<string>();
+
+  for (const item of zoomSnapshot.instances) {
+    const start = new Date(item.startTime);
+    if (Number.isNaN(start.getTime())) continue;
+    const minuteKey = toMinuteKey(start);
+    if (requestedMinuteKeys.has(minuteKey)) continue;
+    if (item.status === "deleted") continue;
+    if (!item.occurrenceId) {
+      throw new Error(
+        "Zoom no devolvio occurrence_id para una instancia extra; no se puede depurar la recurrencia automaticamente."
+      );
+    }
+    occurrenceIdsToCancel.add(item.occurrenceId);
+  }
+
+  for (const occurrenceId of occurrenceIdsToCancel) {
+    try {
+      await zoomClient.deleteMeeting(zoomSnapshot.meetingId, {
+        occurrence_id: occurrenceId,
+        schedule_for_reminder: false,
+        cancel_meeting_reminder: false
+      });
+    } catch (error) {
+      if (error instanceof ZoomApiError && (error.status === 404 || error.code === 3001)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 export class SalasService {
   async getDashboardSummary(user: SessionUser) {
     const canSeeAll = user.role === UserRole.ADMINISTRADOR || user.role === UserRole.CONTADURIA;
@@ -2245,11 +2656,34 @@ export class SalasService {
     validateZoomRecurrenceRestrictions(inputForProvisioning);
     const resolvedFechasInstancias =
       input.fechasInstancias ?? input.instanciasDetalle?.map((item) => item.inicioProgramadoAt);
+    const shouldProvisionSpecificDatesWithSingleMeeting =
+      input.tipoInstancias === TipoInstancias.MULTIPLE_NO_COMPATIBLE_ZOOM;
+    let specificDatesSyntheticPlan: SpecificDatesSyntheticRecurrencePlan | null = null;
+    let specificDatesProvisioningInput: CreateSolicitudInput | null = null;
+    let specificDatesProvisioningError: string | null = null;
+
+    if (shouldProvisionSpecificDatesWithSingleMeeting) {
+      try {
+        specificDatesSyntheticPlan = buildSpecificDatesSyntheticRecurrencePlan(instancePlans);
+        specificDatesProvisioningInput = buildSingleMeetingInputForSpecificDates(
+          inputForProvisioning,
+          specificDatesSyntheticPlan
+        );
+        validateZoomRecurrenceRestrictions(specificDatesProvisioningInput);
+      } catch (error) {
+        specificDatesProvisioningError =
+          error instanceof Error
+            ? error.message
+            : "No se pudo construir una recurrencia unica de Zoom para las fechas solicitadas.";
+      }
+    }
+
+    const inputForZoomProvisioning = specificDatesProvisioningInput ?? inputForProvisioning;
+    const recurrenceEndForProvisioning = inputForZoomProvisioning.fechaFinRecurrencia
+      ? toDate(inputForZoomProvisioning.fechaFinRecurrencia, "fechaFinRecurrencia")
+      : recurrenceEnd;
     const availableAccounts = await listAvailableCuentaZoomCandidatesForAllInstances(instancePlans);
-    const requireManualResolution =
-      input.tipoInstancias === TipoInstancias.MULTIPLE_NO_COMPATIBLE_ZOOM &&
-      (input.meetingIdEstrategia ?? MeetingIdEstrategia.UNICO_PREFERIDO) !==
-        MeetingIdEstrategia.MULTIPLE_PERMITIDO;
+    const requireManualResolution = Boolean(specificDatesProvisioningError);
 
     if (availableAccounts.length === 0) {
       const created = await db.solicitudSala.create({
@@ -2278,12 +2712,13 @@ export class SalasService {
           requiereAsistencia: input.requiereAsistencia ?? false,
           motivoAsistencia: input.motivoAsistencia,
           regimenEncuentros: input.regimenEncuentros,
-          fechaFinRecurrencia: recurrenceEnd,
-          patronRecurrencia: inputForProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
+          fechaFinRecurrencia: recurrenceEndForProvisioning,
+          patronRecurrencia: inputForZoomProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
           fechasInstancias: resolvedFechasInstancias,
           cantidadInstancias: instancePlans.length,
           estadoSolicitud: EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID,
           observacionesAdmin:
+            specificDatesProvisioningError ??
             "No se encontro una cuenta Zoom activa con disponibilidad para todas las fechas solicitadas. Requiere resolucion manual."
         }
       });
@@ -2311,19 +2746,13 @@ export class SalasService {
 
       return created;
     }
-    const shouldProvisionSpecificDatesWithMultipleMeetings =
-      input.tipoInstancias === TipoInstancias.MULTIPLE_NO_COMPATIBLE_ZOOM &&
-      (input.meetingIdEstrategia ?? MeetingIdEstrategia.UNICO_PREFERIDO) ===
-        MeetingIdEstrategia.MULTIPLE_PERMITIDO;
-
     let assignedAccount: CuentaZoom | null = requireManualResolution ? availableAccounts[0] : null;
     let zoomSnapshot: ZoomMeetingSnapshot | null = null;
-    let additionalZoomSnapshots: ZoomMeetingSnapshot[] = [];
     let lastProvisionError: string | null = null;
 
     if (!requireManualResolution) {
       if (
-        !shouldProvisionSpecificDatesWithMultipleMeetings &&
+        !shouldProvisionSpecificDatesWithSingleMeeting &&
         input.tipoInstancias !== TipoInstancias.UNICA &&
         input.tipoInstancias !== TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM
       ) {
@@ -2333,46 +2762,32 @@ export class SalasService {
       for (const candidate of availableAccounts) {
         const candidateSnapshots: ZoomMeetingSnapshot[] = [];
         try {
-          if (shouldProvisionSpecificDatesWithMultipleMeetings) {
-            // meetings.json only supports patterned recurrence for type=8; for specific days
-            // we provision one type=2 meeting per requested date.
-            const singleMeetingInput: CreateSolicitudInput = {
-              ...inputForProvisioning,
-              tipoInstancias: TipoInstancias.UNICA,
-              patronRecurrencia: undefined,
-              fechaFinRecurrencia: undefined,
-              fechasInstancias: undefined,
-              instanciasDetalle: undefined
-            };
+          const createdSnapshot = await createZoomMeetingForSolicitud({
+            accountOwnerEmail: candidate.ownerEmail,
+            input: inputForZoomProvisioning,
+            start: instancePlans[0]?.inicio ?? start,
+            durationMinutes,
+            timezone
+          });
 
-            for (const plan of instancePlans) {
-              const snapshot = await createZoomMeetingForSolicitud({
-                accountOwnerEmail: candidate.ownerEmail,
-                input: singleMeetingInput,
-                start: plan.inicio,
-                durationMinutes,
-                timezone
-              });
-              candidateSnapshots.push(snapshot);
+          let resolvedSnapshot = createdSnapshot;
+
+          if (shouldProvisionSpecificDatesWithSingleMeeting) {
+            if (!specificDatesSyntheticPlan) {
+              throw new Error("No se pudo resolver un plan de recurrencia para las fechas puntuales.");
             }
-          } else {
-            const candidateSnapshot = await createZoomMeetingForSolicitud({
-              accountOwnerEmail: candidate.ownerEmail,
-              input: inputForProvisioning,
-              start: instancePlans[0]?.inicio ?? start,
-              durationMinutes,
-              timezone
-            });
 
             if (
-              input.tipoInstancias === TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM &&
-              !zoomSnapshotSupportsAllRequestedInstances(candidateSnapshot, instancePlans)
+              !zoomSnapshotContainsRequestedMinuteKeys(
+                resolvedSnapshot,
+                specificDatesSyntheticPlan.requestedMinuteKeys
+              )
             ) {
               lastProvisionError =
-                "La cuenta Zoom elegida no devolvio todas las ocurrencias de la recurrencia solicitada.";
+                "Zoom no devolvio una recurrencia que cubra todas las fechas solicitadas con un unico meeting ID.";
               try {
                 const rollbackClient = await ZoomMeetingsClient.fromAccountCredentials();
-                await rollbackClient.deleteMeeting(candidateSnapshot.meetingId, {
+                await rollbackClient.deleteMeeting(resolvedSnapshot.meetingId, {
                   schedule_for_reminder: false,
                   cancel_meeting_reminder: false
                 });
@@ -2382,12 +2797,59 @@ export class SalasService {
               continue;
             }
 
-            candidateSnapshots.push(candidateSnapshot);
+            const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+            await cancelZoomOccurrencesOutsideRequestedSchedule(
+              zoomClient,
+              resolvedSnapshot,
+              specificDatesSyntheticPlan.requestedMinuteKeys
+            );
+
+            const refreshedSnapshot = await fetchZoomMeetingSnapshot(zoomClient, resolvedSnapshot.meetingId);
+            if (refreshedSnapshot) {
+              resolvedSnapshot = refreshedSnapshot;
+            }
+
+            if (
+              !zoomSnapshotContainsRequestedMinuteKeys(
+                resolvedSnapshot,
+                specificDatesSyntheticPlan.requestedMinuteKeys
+              )
+            ) {
+              lastProvisionError =
+                "Tras cancelar las ocurrencias extra, Zoom no mantuvo todas las fechas solicitadas.";
+              try {
+                const rollbackClient = await ZoomMeetingsClient.fromAccountCredentials();
+                await rollbackClient.deleteMeeting(resolvedSnapshot.meetingId, {
+                  schedule_for_reminder: false,
+                  cancel_meeting_reminder: false
+                });
+              } catch {
+                // If rollback fails, continue trying another account.
+              }
+              continue;
+            }
+          } else if (
+            input.tipoInstancias === TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM &&
+            !zoomSnapshotSupportsAllRequestedInstances(resolvedSnapshot, instancePlans)
+          ) {
+            lastProvisionError =
+              "La cuenta Zoom elegida no devolvio todas las ocurrencias de la recurrencia solicitada.";
+            try {
+              const rollbackClient = await ZoomMeetingsClient.fromAccountCredentials();
+              await rollbackClient.deleteMeeting(resolvedSnapshot.meetingId, {
+                schedule_for_reminder: false,
+                cancel_meeting_reminder: false
+              });
+            } catch {
+              // If rollback fails, continue trying another account.
+            }
+            continue;
           }
+
+          candidateSnapshots.push(resolvedSnapshot);
 
           assignedAccount = candidate;
           zoomSnapshot = candidateSnapshots[0] ?? null;
-          additionalZoomSnapshots = candidateSnapshots.slice(1);
           break;
         } catch (error) {
           lastProvisionError = error instanceof Error ? error.message : "Error al provisionar reunion en Zoom.";
@@ -2434,12 +2896,13 @@ export class SalasService {
             requiereAsistencia: input.requiereAsistencia ?? false,
             motivoAsistencia: input.motivoAsistencia,
             regimenEncuentros: input.regimenEncuentros,
-            fechaFinRecurrencia: recurrenceEnd,
-            patronRecurrencia: inputForProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
+            fechaFinRecurrencia: recurrenceEndForProvisioning,
+            patronRecurrencia: inputForZoomProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
             fechasInstancias: resolvedFechasInstancias,
             cantidadInstancias: instancePlans.length,
             estadoSolicitud: EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID,
             observacionesAdmin:
+              specificDatesProvisioningError ??
               lastProvisionError ??
               "No se encontro una cuenta Zoom que permita provisionar todas las fechas solicitadas. Requiere resolucion manual."
           }
@@ -2477,19 +2940,13 @@ export class SalasService {
       throw new Error("No se pudo seleccionar una cuenta Zoom para la solicitud.");
     }
 
-    const allZoomSnapshots = zoomSnapshot ? [zoomSnapshot, ...additionalZoomSnapshots] : [];
-    const provisionedPlans = shouldProvisionSpecificDatesWithMultipleMeetings
-      ? buildProvisionedEventPlansFromIndependentMeetings(allZoomSnapshots, instancePlans, durationMinutes)
-      : buildProvisionedEventPlans(zoomSnapshot, instancePlans, durationMinutes);
+    const provisionedPlans = buildProvisionedEventPlans(zoomSnapshot, instancePlans, durationMinutes);
     const provisionedFechasInstancias = provisionedPlans.map((plan) => plan.inicio.toISOString());
-    const hasMultipleMeetingIds = allZoomSnapshots.length > 1;
-    const meetingPrincipalId: string | null = allZoomSnapshots[0]?.meetingId ?? null;
+    const meetingPrincipalId: string | null = zoomSnapshot?.meetingId ?? null;
     const motivoMultiplesIds =
       requireManualResolution
         ? "El sistema no pudo asignar un unico meeting ID para la solicitud."
-        : hasMultipleMeetingIds
-          ? "La solicitud fue provisionada con multiples meeting IDs por fechas puntuales no compatibles con recurrencia Zoom."
-          : null;
+        : null;
 
     const status = requireManualResolution
       ? EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID
@@ -2522,8 +2979,8 @@ export class SalasService {
           requiereAsistencia: input.requiereAsistencia ?? false,
           motivoAsistencia: input.motivoAsistencia,
           regimenEncuentros: input.regimenEncuentros,
-          fechaFinRecurrencia: recurrenceEnd,
-          patronRecurrencia: inputForProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
+          fechaFinRecurrencia: recurrenceEndForProvisioning,
+          patronRecurrencia: inputForZoomProvisioning.patronRecurrencia as Prisma.InputJsonValue | undefined,
           fechasInstancias: requireManualResolution ? resolvedFechasInstancias : provisionedFechasInstancias,
           cantidadInstancias: requireManualResolution ? instancePlans.length : provisionedPlans.length,
           estadoSolicitud: status
@@ -2603,7 +3060,7 @@ export class SalasService {
       if (!requireManualResolution) {
         const rollbackMeetingIds = Array.from(
           new Set(
-            [zoomSnapshot, ...additionalZoomSnapshots]
+            [zoomSnapshot]
               .map((item) => item?.meetingId)
               .filter((item): item is string => Boolean(item))
           )
@@ -2647,7 +3104,7 @@ export class SalasService {
     });
 
     if (!requireManualResolution && status === EstadoSolicitudSala.PROVISIONADA) {
-      const primaryZoomSnapshot = allZoomSnapshots[0] ?? null;
+      const primaryZoomSnapshot = zoomSnapshot;
       const joinUrl =
         primaryZoomSnapshot?.joinUrl ??
         provisionedPlans.find((plan) => typeof plan.joinUrl === "string" && plan.joinUrl)?.joinUrl ??

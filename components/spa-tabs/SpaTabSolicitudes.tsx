@@ -1114,7 +1114,7 @@ export function SpaTabSolicitudes({
                     ) : specificDatesPreview.dates.length > 0 ? (
                       <>
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8, mb: 0.8 }}>
-                          Se crearan {specificDatesPreview.dates.length} reunion(es) en Zoom con IDs independientes.
+                          Se creara una recurrencia en Zoom con un unico ID y se ajustaran las ocurrencias necesarias.
                         </Typography>
                         <Box sx={{ display: "grid", gap: 0.5, maxHeight: 220, overflowY: "auto" }}>
                           {specificDatesPreview.dates.map((dateIso, index) => (
