@@ -38,6 +38,7 @@ import {
 } from "@/src/lib/spa-home/recurrence";
 import type { SolicitudFormState } from "@/src/lib/spa-home/solicitud-form";
 import type { Solicitud } from "@/src/services/solicitudesApi";
+import { parseSpecificDatesInput } from "@/components/spa-tabs/solicitud-payload-builder";
 
 interface SpaTabSolicitudesProps {
   solicitudes: Solicitud[];
@@ -236,7 +237,7 @@ export function SpaTabSolicitudes({
   }
 
   const recurrencePreview = useMemo(() => {
-    if (form.unaOVarias !== "VARIAS") {
+    if (form.unaOVarias !== "VARIAS" || form.variasModo !== "RECURRENCIA_ZOOM") {
       return { dates: [] as Date[], error: "" };
     }
 
@@ -332,6 +333,7 @@ export function SpaTabSolicitudes({
     return { dates, error: "" };
   }, [
     form.unaOVarias,
+    form.variasModo,
     form.primerDiaRecurrente,
     form.horaInicioRecurrente,
     form.fechaFinal,
@@ -342,6 +344,35 @@ export function SpaTabSolicitudes({
     form.recurrenciaDiaMes,
     form.recurrenciaSemanaMes,
     form.recurrenciaDiaSemanaMes
+  ]);
+
+  const specificDatesPreview = useMemo(() => {
+    if (form.unaOVarias !== "VARIAS" || form.variasModo !== "FECHAS_ESPECIFICAS") {
+      return { dates: [] as string[], error: "" };
+    }
+
+    const fallbackYear = form.primerDiaRecurrente
+      ? Number(form.primerDiaRecurrente.slice(0, 4))
+      : new Date().getFullYear();
+    const parsed = parseSpecificDatesInput(form.fechasEspecificas, fallbackYear);
+    if (parsed.errors.length > 0) {
+      return { dates: [] as string[], error: parsed.errors[0] ?? "Hay fechas invalidas." };
+    }
+    if (parsed.dates.length === 0) {
+      return { dates: [] as string[], error: "" };
+    }
+    if (parsed.dates.length > 50) {
+      return {
+        dates: parsed.dates.slice(0, 50),
+        error: "Zoom permite como maximo 50 ocurrencias. Reduce la cantidad de fechas."
+      };
+    }
+    return { dates: parsed.dates, error: "" };
+  }, [
+    form.unaOVarias,
+    form.variasModo,
+    form.primerDiaRecurrente,
+    form.fechasEspecificas
   ]);
 
   function mapSolicitudStatus(estado: string): { label: string; color: "default" | "warning" | "success" | "error" | "info" } {
@@ -800,6 +831,18 @@ export function SpaTabSolicitudes({
                 value={form.descripcionRecurrente}
                 onChange={(e) => updateForm("descripcionRecurrente", e.target.value)}
               />
+
+              <ToggleButtons
+                label="Modo para varias reuniones"
+                name="solicitud-varias-modo"
+                value={form.variasModo}
+                onChange={(val) => updateForm("variasModo", val as SolicitudFormState["variasModo"])}
+                options={[
+                  { value: "RECURRENCIA_ZOOM", label: "Recurrencia Zoom" },
+                  { value: "FECHAS_ESPECIFICAS", label: "Fechas puntuales" }
+                ]}
+              />
+
               <Box
                 sx={{
                   display: "grid",
@@ -807,15 +850,6 @@ export function SpaTabSolicitudes({
                   gap: 1.2
                 }}
               >
-                <TextField
-                  label="Primer dia"
-                  type="date"
-                  required
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                  value={form.primerDiaRecurrente}
-                  onChange={(e) => updateForm("primerDiaRecurrente", e.target.value)}
-                />
                 <TextField
                   label="Hora de comienzo"
                   type="time"
@@ -853,176 +887,251 @@ export function SpaTabSolicitudes({
                 />
               </Box>
 
-              <ToggleButtons
-                label="Recurrencia (Zoom)"
-                name="solicitud-recurrencia-zoom"
-                value={form.recurrenciaTipoZoom}
-                onChange={(val) => updateForm("recurrenciaTipoZoom", val as ZoomRecurrenceType)}
-                options={[
-                  { value: "1", label: "Diaria" },
-                  { value: "2", label: "Semanal" },
-                  { value: "3", label: "Mensual" }
-                ]}
-              />
-
-              <TextField
-                label="Intervalo"
-                type="number"
-                required
-                fullWidth
-                inputProps={{
-                  min: 1,
-                  max: form.recurrenciaTipoZoom === "1" ? 90 : form.recurrenciaTipoZoom === "2" ? 12 : 3,
-                  step: 1
-                }}
-                value={form.recurrenciaIntervalo}
-                onChange={(e) => updateForm("recurrenciaIntervalo", e.target.value)}
-                helperText={
-                  form.recurrenciaTipoZoom === "1"
-                    ? "Zoom diario: maximo cada 90 dias."
-                    : form.recurrenciaTipoZoom === "2"
-                      ? "Zoom semanal: maximo cada 12 semanas."
-                      : "Zoom mensual: maximo cada 3 meses."
-                }
-              />
-
-              {form.recurrenciaTipoZoom === "2" && (
-                <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 0.6 }}>
-                    Dias de la semana
-                  </Typography>
+              {form.variasModo === "RECURRENCIA_ZOOM" ? (
+                <>
                   <Box
                     sx={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-                      gap: 0.6
+                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gap: 1.2
                     }}
                   >
-                    {zoomWeekdayOptionsFull.map((dayOption) => {
-                      const checked = parseWeekdaysCsv(form.recurrenciaDiasSemana).includes(Number(dayOption.value));
-                      return (
-                        <FormControlLabel
-                          key={dayOption.value}
-                          control={
-                            <Checkbox
-                              checked={checked}
-                              onChange={(e) => {
-                                const current = parseWeekdaysCsv(form.recurrenciaDiasSemana);
-                                const value = Number(dayOption.value);
-                                const next = e.target.checked
-                                  ? [...new Set([...current, value])]
-                                  : current.filter((day) => day !== value);
-                                updateForm("recurrenciaDiasSemana", next.sort((a, b) => a - b).join(","));
-                              }}
-                            />
-                          }
-                          label={dayOption.label}
-                        />
-                      );
-                    })}
-                  </Box>
-                </Paper>
-              )}
-
-              {form.recurrenciaTipoZoom === "3" && (
-                <>
-                  <ToggleButtons
-                    label="Modo mensual"
-                    name="solicitud-modo-mensual"
-                    value={form.recurrenciaMensualModo}
-                    onChange={(val) => updateForm("recurrenciaMensualModo", val as ZoomMonthlyMode)}
-                    options={[
-                      { value: "DAY_OF_MONTH", label: "Dia del mes" },
-                      { value: "WEEKDAY_OF_MONTH", label: "Dia de semana" }
-                    ]}
-                  />
-                  {form.recurrenciaMensualModo === "DAY_OF_MONTH" ? (
                     <TextField
-                      label="Dia del mes (1-31)"
-                      type="number"
+                      label="Primer dia"
+                      type="date"
                       required
                       fullWidth
-                      inputProps={{ min: 1, max: 31, step: 1 }}
-                      value={form.recurrenciaDiaMes}
-                      onChange={(e) => updateForm("recurrenciaDiaMes", e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      value={form.primerDiaRecurrente}
+                      onChange={(e) => updateForm("primerDiaRecurrente", e.target.value)}
                     />
-                  ) : (
-                    <Box
-                      sx={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                        gap: 1.2
-                      }}
-                    >
-                      <TextField
-                        label="Semana del mes"
-                        select
-                        fullWidth
-                        value={form.recurrenciaSemanaMes}
-                        onChange={(e) => updateForm("recurrenciaSemanaMes", e.target.value)}
+                  </Box>
+
+                  <ToggleButtons
+                    label="Recurrencia (Zoom)"
+                    name="solicitud-recurrencia-zoom"
+                    value={form.recurrenciaTipoZoom}
+                    onChange={(val) => updateForm("recurrenciaTipoZoom", val as ZoomRecurrenceType)}
+                    options={[
+                      { value: "1", label: "Diaria" },
+                      { value: "2", label: "Semanal" },
+                      { value: "3", label: "Mensual" }
+                    ]}
+                  />
+
+                  <TextField
+                    label="Intervalo"
+                    type="number"
+                    required
+                    fullWidth
+                    inputProps={{
+                      min: 1,
+                      max: form.recurrenciaTipoZoom === "1" ? 90 : form.recurrenciaTipoZoom === "2" ? 12 : 3,
+                      step: 1
+                    }}
+                    value={form.recurrenciaIntervalo}
+                    onChange={(e) => updateForm("recurrenciaIntervalo", e.target.value)}
+                    helperText={
+                      form.recurrenciaTipoZoom === "1"
+                        ? "Zoom diario: maximo cada 90 dias."
+                        : form.recurrenciaTipoZoom === "2"
+                          ? "Zoom semanal: maximo cada 12 semanas."
+                          : "Zoom mensual: maximo cada 3 meses."
+                    }
+                  />
+
+                  {form.recurrenciaTipoZoom === "2" && (
+                    <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 0.6 }}>
+                        Dias de la semana
+                      </Typography>
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                          gap: 0.6
+                        }}
                       >
-                        {zoomMonthlyWeekOptions.map((option) => (
-                          <MenuItem key={option.value} value={option.value}>
-                            {option.label}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                      <TextField
-                        label="Dia de semana"
-                        select
-                        fullWidth
-                        value={form.recurrenciaDiaSemanaMes}
-                        onChange={(e) => updateForm("recurrenciaDiaSemanaMes", e.target.value)}
-                      >
-                        {zoomWeekdayOptionsFull.map((option) => (
-                          <MenuItem key={option.value} value={option.value}>
-                            {option.label}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                    </Box>
+                        {zoomWeekdayOptionsFull.map((dayOption) => {
+                          const checked = parseWeekdaysCsv(form.recurrenciaDiasSemana).includes(Number(dayOption.value));
+                          return (
+                            <FormControlLabel
+                              key={dayOption.value}
+                              control={
+                                <Checkbox
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const current = parseWeekdaysCsv(form.recurrenciaDiasSemana);
+                                    const value = Number(dayOption.value);
+                                    const next = e.target.checked
+                                      ? [...new Set([...current, value])]
+                                      : current.filter((day) => day !== value);
+                                    updateForm("recurrenciaDiasSemana", next.sort((a, b) => a - b).join(","));
+                                  }}
+                                />
+                              }
+                              label={dayOption.label}
+                            />
+                          );
+                        })}
+                      </Box>
+                    </Paper>
                   )}
+
+                  {form.recurrenciaTipoZoom === "3" && (
+                    <>
+                      <ToggleButtons
+                        label="Modo mensual"
+                        name="solicitud-modo-mensual"
+                        value={form.recurrenciaMensualModo}
+                        onChange={(val) => updateForm("recurrenciaMensualModo", val as ZoomMonthlyMode)}
+                        options={[
+                          { value: "DAY_OF_MONTH", label: "Dia del mes" },
+                          { value: "WEEKDAY_OF_MONTH", label: "Dia de semana" }
+                        ]}
+                      />
+                      {form.recurrenciaMensualModo === "DAY_OF_MONTH" ? (
+                        <TextField
+                          label="Dia del mes (1-31)"
+                          type="number"
+                          required
+                          fullWidth
+                          inputProps={{ min: 1, max: 31, step: 1 }}
+                          value={form.recurrenciaDiaMes}
+                          onChange={(e) => updateForm("recurrenciaDiaMes", e.target.value)}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                            gap: 1.2
+                          }}
+                        >
+                          <TextField
+                            label="Semana del mes"
+                            select
+                            fullWidth
+                            value={form.recurrenciaSemanaMes}
+                            onChange={(e) => updateForm("recurrenciaSemanaMes", e.target.value)}
+                          >
+                            {zoomMonthlyWeekOptions.map((option) => (
+                              <MenuItem key={option.value} value={option.value}>
+                                {option.label}
+                              </MenuItem>
+                            ))}
+                          </TextField>
+                          <TextField
+                            label="Dia de semana"
+                            select
+                            fullWidth
+                            value={form.recurrenciaDiaSemanaMes}
+                            onChange={(e) => updateForm("recurrenciaDiaSemanaMes", e.target.value)}
+                          >
+                            {zoomWeekdayOptionsFull.map((option) => (
+                              <MenuItem key={option.value} value={option.value}>
+                                {option.label}
+                              </MenuItem>
+                            ))}
+                          </TextField>
+                        </Box>
+                      )}
+                    </>
+                  )}
+
+                  <TextField
+                    label="Fecha final"
+                    type="date"
+                    required
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                    value={form.fechaFinal}
+                    onChange={(e) => updateForm("fechaFinal", e.target.value)}
+                  />
+
+                  <Paper
+                    variant="outlined"
+                    sx={{ mb: 1, p: 1.2, borderRadius: 2, backgroundColor: "grey.50" }}
+                  >
+                    <Typography variant="subtitle2">Previsualizacion de fechas</Typography>
+                    {recurrencePreview.error ? (
+                      <Typography variant="body2" color="error.main" sx={{ mt: 0.8 }}>
+                        {recurrencePreview.error}
+                      </Typography>
+                    ) : recurrencePreview.dates.length > 0 ? (
+                      <>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8, mb: 0.8 }}>
+                          Se crearan {recurrencePreview.dates.length} instancia(s).
+                        </Typography>
+                        <Box sx={{ display: "grid", gap: 0.5, maxHeight: 220, overflowY: "auto" }}>
+                          {recurrencePreview.dates.map((date, index) => (
+                            <Typography key={`${date.toISOString()}-${index}`} variant="body2">
+                              {index + 1}. {formatDateTime(date.toISOString())}
+                            </Typography>
+                          ))}
+                        </Box>
+                      </>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
+                        Completa primer dia, hora de comienzo y fecha final para ver la previsualizacion.
+                      </Typography>
+                    )}
+                  </Paper>
+                </>
+              ) : (
+                <>
+                  <TextField
+                    label="Ancla de anio (opcional)"
+                    type="date"
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                    value={form.primerDiaRecurrente}
+                    onChange={(e) => updateForm("primerDiaRecurrente", e.target.value)}
+                    helperText="Si escribes fechas como 11/04 sin anio, se usa este anio como referencia."
+                  />
+
+                  <TextField
+                    label="Fechas puntuales"
+                    multiline
+                    minRows={5}
+                    required
+                    fullWidth
+                    value={form.fechasEspecificas}
+                    onChange={(e) => updateForm("fechasEspecificas", e.target.value)}
+                    placeholder={"11/04\n02/05\n23/05\n20/06\n27/06"}
+                    helperText="Ingresa una fecha por linea. Formatos permitidos: DD/MM, DD/MM/AAAA o AAAA-MM-DD."
+                  />
+
+                  <Paper
+                    variant="outlined"
+                    sx={{ mb: 1, p: 1.2, borderRadius: 2, backgroundColor: "grey.50" }}
+                  >
+                    <Typography variant="subtitle2">Previsualizacion de fechas puntuales</Typography>
+                    {specificDatesPreview.error ? (
+                      <Typography variant="body2" color="error.main" sx={{ mt: 0.8 }}>
+                        {specificDatesPreview.error}
+                      </Typography>
+                    ) : specificDatesPreview.dates.length > 0 ? (
+                      <>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8, mb: 0.8 }}>
+                          Se crearan {specificDatesPreview.dates.length} reunion(es) en Zoom con IDs independientes.
+                        </Typography>
+                        <Box sx={{ display: "grid", gap: 0.5, maxHeight: 220, overflowY: "auto" }}>
+                          {specificDatesPreview.dates.map((dateIso, index) => (
+                            <Typography key={`${dateIso}-${index}`} variant="body2">
+                              {index + 1}. {formatDateTime(`${dateIso}T${form.horaInicioRecurrente || "00:00"}`)}
+                            </Typography>
+                          ))}
+                        </Box>
+                      </>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
+                        Carga al menos dos fechas para ver la previsualizacion.
+                      </Typography>
+                    )}
+                  </Paper>
                 </>
               )}
-
-              <TextField
-                label="Fecha final"
-                type="date"
-                required
-                fullWidth
-                InputLabelProps={{ shrink: true }}
-                value={form.fechaFinal}
-                onChange={(e) => updateForm("fechaFinal", e.target.value)}
-              />
-
-              <Paper
-                variant="outlined"
-                sx={{ mb: 1, p: 1.2, borderRadius: 2, backgroundColor: "grey.50" }}
-              >
-                <Typography variant="subtitle2">Previsualizacion de fechas</Typography>
-                {recurrencePreview.error ? (
-                  <Typography variant="body2" color="error.main" sx={{ mt: 0.8 }}>
-                    {recurrencePreview.error}
-                  </Typography>
-                ) : recurrencePreview.dates.length > 0 ? (
-                  <>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8, mb: 0.8 }}>
-                      Se crearan {recurrencePreview.dates.length} instancia(s).
-                    </Typography>
-                    <Box sx={{ display: "grid", gap: 0.5, maxHeight: 220, overflowY: "auto" }}>
-                      {recurrencePreview.dates.map((date, index) => (
-                        <Typography key={`${date.toISOString()}-${index}`} variant="body2">
-                          {index + 1}. {formatDateTime(date.toISOString())}
-                        </Typography>
-                      ))}
-                    </Box>
-                  </>
-                ) : (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
-                    Completa primer dia, hora de comienzo y fecha final para ver la previsualizacion.
-                  </Typography>
-                )}
-              </Paper>
             </>
           )}
 

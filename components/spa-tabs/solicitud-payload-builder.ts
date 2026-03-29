@@ -24,6 +24,11 @@ type BuildDocenteSolicitudPayloadInput = {
   timezone?: string;
 };
 
+type ParsedSpecificDates = {
+  dates: string[];
+  errors: string[];
+};
+
 type SharedPayloadFields = Pick<
   SubmitDocenteSolicitudPayload,
   | "titulo"
@@ -74,6 +79,69 @@ function buildSharedPayloadFields(
     requiereAsistencia,
     motivoAsistencia: requiereAsistencia ? "Asistencia solicitada desde formulario docente." : undefined
   };
+}
+
+function toIsoLocalDate(year: number, month: number, day: number): string | null {
+  const date = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  const monthValue = String(month).padStart(2, "0");
+  const dayValue = String(day).padStart(2, "0");
+  return `${year}-${monthValue}-${dayValue}`;
+}
+
+function parseSpecificDateToken(token: string, fallbackYear: number): string | null {
+  const normalized = token.trim();
+  if (!normalized) return null;
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    return toIsoLocalDate(year, month, day);
+  }
+
+  const shortMatch = /^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?$/.exec(normalized);
+  if (!shortMatch) return null;
+
+  const day = Number(shortMatch[1]);
+  const month = Number(shortMatch[2]);
+  const yearRaw = shortMatch[3];
+  const year = yearRaw
+    ? (yearRaw.length === 2 ? 2000 + Number(yearRaw) : Number(yearRaw))
+    : fallbackYear;
+
+  return toIsoLocalDate(year, month, day);
+}
+
+export function parseSpecificDatesInput(rawInput: string, fallbackYear = new Date().getFullYear()): ParsedSpecificDates {
+  const tokens = rawInput
+    .replace(/\r\n/g, "\n")
+    .split(/[\n,;]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const uniqueDates = new Set<string>();
+  const errors: string[] = [];
+
+  for (const token of tokens) {
+    const parsed = parseSpecificDateToken(token, fallbackYear);
+    if (!parsed) {
+      errors.push(`Fecha invalida: "${token}". Usa DD/MM, DD/MM/AAAA o AAAA-MM-DD.`);
+      continue;
+    }
+    uniqueDates.add(parsed);
+  }
+
+  const dates = Array.from(uniqueDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  return { dates, errors };
 }
 
 function buildSingleSolicitudPayload(
@@ -246,11 +314,72 @@ function buildRecurringSolicitudPayload(
   };
 }
 
+function buildSpecificDatesSolicitudPayload(
+  input: BuildDocenteSolicitudPayloadInput
+): SubmitDocenteSolicitudPayload {
+  const { form } = input;
+  const fallbackYear = form.primerDiaRecurrente
+    ? Number(form.primerDiaRecurrente.slice(0, 4))
+    : new Date().getFullYear();
+  const parsedSpecificDates = parseSpecificDatesInput(form.fechasEspecificas, fallbackYear);
+
+  if (parsedSpecificDates.errors.length > 0) {
+    throw new Error(parsedSpecificDates.errors[0] ?? "Hay fechas especificas invalidas.");
+  }
+  if (parsedSpecificDates.dates.length < 2) {
+    throw new Error("Debes ingresar al menos 2 fechas especificas.");
+  }
+  if (parsedSpecificDates.dates.length > 50) {
+    throw new Error("Zoom permite un maximo de 50 instancias por solicitud.");
+  }
+
+  if (!form.horaInicioRecurrente) {
+    throw new Error("Debes completar la hora de comienzo para las fechas especificas.");
+  }
+
+  const instanceStartsIso = parsedSpecificDates.dates.map((dateIso) =>
+    combineDateAndTimeToIso(dateIso, form.horaInicioRecurrente, `fecha especifica ${dateIso}`)
+  );
+  const firstInstanceStartIso = instanceStartsIso[0] ?? "";
+  const { endIso: firstInstanceEndIso } = resolveEndByTimeOrDuration(
+    firstInstanceStartIso,
+    form.horaFinRecurrente,
+    form.duracionRecurrente,
+    "las fechas especificas"
+  );
+
+  const dateFormatter = new Intl.DateTimeFormat("es-UY", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
+  const fechasLabel = parsedSpecificDates.dates
+    .map((dateIso) => dateFormatter.format(new Date(`${dateIso}T00:00:00`)))
+    .join(", ");
+
+  return {
+    ...buildSharedPayloadFields(input, form.descripcionRecurrente),
+    tipoInstancias: "MULTIPLE_NO_COMPATIBLE_ZOOM",
+    meetingIdEstrategia: "MULTIPLE_PERMITIDO",
+    fechaInicioSolicitada: firstInstanceStartIso,
+    fechaFinSolicitada: firstInstanceEndIso,
+    regimenEncuentros: `Fechas puntuales: ${fechasLabel}`,
+    fechasInstancias: instanceStartsIso,
+    instanciasDetalle: instanceStartsIso.map((inicioProgramadoAt) => ({
+      inicioProgramadoAt
+    }))
+  };
+}
+
 export function buildDocenteSolicitudPayload(
   input: BuildDocenteSolicitudPayloadInput
 ): SubmitDocenteSolicitudPayload {
   if (input.form.unaOVarias === "UNA") {
     return buildSingleSolicitudPayload(input);
+  }
+
+  if (input.form.variasModo === "FECHAS_ESPECIFICAS") {
+    return buildSpecificDatesSolicitudPayload(input);
   }
 
   return buildRecurringSolicitudPayload(input);

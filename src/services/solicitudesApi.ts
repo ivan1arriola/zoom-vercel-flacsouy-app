@@ -1,6 +1,7 @@
 export type Solicitud = {
   id: string;
   titulo: string;
+  programaNombre?: string | null;
   responsableNombre?: string | null;
   modalidadReunion: string;
   tipoInstancias: string;
@@ -55,7 +56,10 @@ export type PastMeeting = {
   monitorEmail: string | null;
 };
 
-export type DocenteSolicitudTipoInstancias = "UNICA" | "MULTIPLE_COMPATIBLE_ZOOM";
+export type DocenteSolicitudTipoInstancias =
+  | "UNICA"
+  | "MULTIPLE_COMPATIBLE_ZOOM"
+  | "MULTIPLE_NO_COMPATIBLE_ZOOM";
 
 export type DocenteSolicitudZoomRecurrence = {
   type: number;
@@ -75,6 +79,7 @@ export type SubmitDocenteSolicitudPayload = {
   finalidadAcademica?: string;
   modalidadReunion: "VIRTUAL" | "HIBRIDA";
   tipoInstancias: DocenteSolicitudTipoInstancias;
+  meetingIdEstrategia?: "UNICO_REQUERIDO" | "UNICO_PREFERIDO" | "MULTIPLE_PERMITIDO";
   fechaInicioSolicitada: string;
   fechaFinSolicitada: string;
   fechaFinRecurrencia?: string;
@@ -85,6 +90,7 @@ export type SubmitDocenteSolicitudPayload = {
   requiereAsistencia: boolean;
   motivoAsistencia?: string;
   regimenEncuentros?: string;
+  fechasInstancias?: string[];
   instanciasDetalle?: Array<{ inicioProgramadoAt: string }>;
   patronRecurrencia?: {
     totalInstancias: number;

@@ -4,7 +4,6 @@ import { MouseEvent, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
-  Avatar,
   Box,
   Button,
   Divider,
@@ -22,6 +21,7 @@ import PersonIcon from "@mui/icons-material/Person";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import AutorenewIcon from "@mui/icons-material/Autorenew";
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import { UserAvatar } from "./user-avatar";
 
 const SUPPORT_VIEW_ROLE = "SOPORTE_ZOOM";
@@ -111,7 +111,7 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
         variant="outlined"
         onClick={(event: MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget)}
         startIcon={<UserAvatar firstName={firstName} lastName={lastName} image={image} size={34} />}
-        endIcon={<Avatar sx={{ width: 18, height: 18, bgcolor: "transparent", color: "text.secondary" }}>▾</Avatar>}
+        endIcon={<ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary" }} />}
         sx={{
           textTransform: "none",
           borderRadius: 3,

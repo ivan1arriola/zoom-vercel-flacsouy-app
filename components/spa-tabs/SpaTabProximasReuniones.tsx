@@ -191,7 +191,7 @@ function formatNullableCount(value: number | null): string {
 
 function renderAssociation(meeting: ZoomUpcomingMeeting) {
   if (!meeting.association.linked) {
-    return <Chip size="small" color="warning" label="Sin asociar" />;
+    return <Chip size="small" color="warning" label="Pendiente de asociacion" />;
   }
 
   const programaNombre = meeting.association.solicitudProgramaNombre?.trim();
@@ -257,6 +257,19 @@ export function SpaTabProximasReuniones({
         : recurringSeries.flatMap((series) => series.meetings),
     [groupedMeetings, recurringSeries, viewMode]
   );
+  const meetingSummary = useMemo(() => {
+    const linked = meetings.filter((meeting) => meeting.association.linked).length;
+    const total = meetings.length;
+    const overlaps = meetings.filter((meeting) => meeting.hasAccountOverlap).length;
+    const recurrent = meetings.filter((meeting) => meeting.meetingKind === "RECURRENTE").length;
+    return {
+      total,
+      linked,
+      pending: Math.max(0, total - linked),
+      overlaps,
+      recurrent
+    };
+  }, [meetings]);
 
   async function fetchPastMeetingDetails(meeting: ZoomUpcomingMeeting, meetingKey: string) {
     if (!meeting.meetingId) {
@@ -374,6 +387,11 @@ export function SpaTabProximasReuniones({
               </Typography>
             ) : null}
             <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: showTopic ? 0.6 : 0 }}>
+              <Chip
+                size="small"
+                color={meeting.association.linked ? "success" : "warning"}
+                label={meeting.association.linked ? "Asociada" : "Pendiente"}
+              />
               <Chip size="small" variant="outlined" label={formatZoomDateTime(meeting.startTime)} />
               <Chip size="small" variant="outlined" label={formatDurationHoursMinutes(meeting.durationMinutes)} />
               <Chip
@@ -396,7 +414,7 @@ export function SpaTabProximasReuniones({
                 target="_blank"
                 rel="noreferrer"
               >
-                Abrir
+                Abrir en Zoom
               </Button>
             ) : null}
             {!meeting.association.linked && onCreatePostMeetingRecord ? (
@@ -405,7 +423,7 @@ export function SpaTabProximasReuniones({
                 variant="outlined"
                 onClick={() => onCreatePostMeetingRecord(meeting)}
               >
-                Crear registro
+                Crear registro historico
               </Button>
             ) : null}
             {enablePastMeetingDetails ? (
@@ -415,7 +433,7 @@ export function SpaTabProximasReuniones({
                 onClick={() => togglePastMeetingDetails(meeting)}
                 disabled={!meeting.meetingId}
               >
-                {detailsOpen ? "Ocultar info" : "Mas info"}
+                {detailsOpen ? "Ocultar detalle" : "Ver detalle"}
               </Button>
             ) : null}
           </Stack>
@@ -583,39 +601,20 @@ export function SpaTabProximasReuniones({
       <CardContent>
         <Stack
           direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          alignItems={{ xs: "flex-start", sm: "center" }}
+          spacing={1.2}
+          alignItems={{ xs: "flex-start", sm: "flex-start" }}
           justifyContent="space-between"
           sx={{ mb: 1 }}
         >
-          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            {title}
-          </Typography>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <ToggleButtonGroup
-              size="small"
-              exclusive
-              value={viewMode}
-              onChange={(_event, value: ZoomViewMode | null) => {
-                if (value) setViewMode(value);
-              }}
-            >
-              <ToggleButton value="CALENDAR">Calendario</ToggleButton>
-              <ToggleButton value="RECURRENTES">Recurrentes</ToggleButton>
-            </ToggleButtonGroup>
-            {viewMode === "CALENDAR" ? (
-              <ToggleButtonGroup
-                size="small"
-                exclusive
-                value={grouping}
-                onChange={(_event, value: ZoomGroupingMode | null) => {
-                  if (value) setGrouping(value);
-                }}
-              >
-                <ToggleButton value="WEEK">Semanas</ToggleButton>
-                <ToggleButton value="MONTH">Meses</ToggleButton>
-              </ToggleButtonGroup>
-            ) : null}
+          <Box>
+            <Typography variant="h5" sx={{ fontWeight: 700 }}>
+              {title}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.45 }}>
+              {subtitle}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
             <Button variant="outlined" onClick={onRefresh} disabled={isLoading}>
               {isLoading ? "Actualizando..." : "Actualizar"}
             </Button>
@@ -631,12 +630,56 @@ export function SpaTabProximasReuniones({
           </Stack>
         </Stack>
 
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
-          {subtitle}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Grupo: {groupName || "(sin nombre)"} - Total: {meetings.length}
-        </Typography>
+        <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mb: 1.3 }}>
+          <Chip size="small" variant="outlined" label={`Grupo: ${groupName || "(sin nombre)"}`} />
+          <Chip size="small" variant="outlined" label={`Total: ${meetingSummary.total}`} />
+          <Chip size="small" color="success" variant="outlined" label={`Asociadas: ${meetingSummary.linked}`} />
+          <Chip size="small" color="warning" variant="outlined" label={`Pendientes: ${meetingSummary.pending}`} />
+          <Chip size="small" color="primary" variant="outlined" label={`Recurrentes: ${meetingSummary.recurrent}`} />
+          {meetingSummary.overlaps > 0 ? (
+            <Chip size="small" color="error" variant="outlined" label={`Cruces: ${meetingSummary.overlaps}`} />
+          ) : null}
+        </Stack>
+
+        <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 2, mb: 2 }}>
+          <Stack direction={{ xs: "column", md: "row" }} spacing={1.2} useFlexGap alignItems={{ md: "center" }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.35 }}>
+                Vista
+              </Typography>
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={viewMode}
+                onChange={(_event, value: ZoomViewMode | null) => {
+                  if (value) setViewMode(value);
+                }}
+              >
+                <ToggleButton value="CALENDAR">Calendario</ToggleButton>
+                <ToggleButton value="RECURRENTES">Recurrentes</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+
+            {viewMode === "CALENDAR" ? (
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.35 }}>
+                  Agrupar por
+                </Typography>
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={grouping}
+                  onChange={(_event, value: ZoomGroupingMode | null) => {
+                    if (value) setGrouping(value);
+                  }}
+                >
+                  <ToggleButton value="WEEK">Semanas</ToggleButton>
+                  <ToggleButton value="MONTH">Meses</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+            ) : null}
+          </Stack>
+        </Paper>
 
         {isLoading ? (
           <Typography variant="body2" color="text.secondary">

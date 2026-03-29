@@ -4,6 +4,7 @@ export type SolicitudAsistencia = "SI" | "NO";
 export type SolicitudGrabacion = "SI" | "NO" | "DEFINIR";
 export type SolicitudModalidad = "VIRTUAL" | "HIBRIDA";
 export type SolicitudInstancias = "UNA" | "VARIAS";
+export type SolicitudVariasModo = "RECURRENCIA_ZOOM" | "FECHAS_ESPECIFICAS";
 
 export type SolicitudFormState = {
   tema: string;
@@ -13,6 +14,7 @@ export type SolicitudFormState = {
   modalidad: SolicitudModalidad;
   grabacion: SolicitudGrabacion;
   unaOVarias: SolicitudInstancias;
+  variasModo: SolicitudVariasModo;
   descripcionUnica: string;
   diaUnica: string;
   horaInicioUnica: string;
@@ -31,6 +33,7 @@ export type SolicitudFormState = {
   recurrenciaSemanaMes: string;
   recurrenciaDiaSemanaMes: string;
   fechaFinal: string;
+  fechasEspecificas: string;
   correosDocentes: string;
 };
 
@@ -42,6 +45,7 @@ export const DEFAULT_SOLICITUD_FORM: SolicitudFormState = {
   modalidad: "VIRTUAL",
   grabacion: "NO",
   unaOVarias: "UNA",
+  variasModo: "RECURRENCIA_ZOOM",
   descripcionUnica: "",
   diaUnica: "",
   horaInicioUnica: "",
@@ -60,5 +64,6 @@ export const DEFAULT_SOLICITUD_FORM: SolicitudFormState = {
   recurrenciaSemanaMes: "1",
   recurrenciaDiaSemanaMes: "2",
   fechaFinal: "",
+  fechasEspecificas: "",
   correosDocentes: ""
 };

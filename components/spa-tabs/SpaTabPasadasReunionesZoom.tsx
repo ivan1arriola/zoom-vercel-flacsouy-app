@@ -27,7 +27,7 @@ export function SpaTabPasadasReunionesZoom({
   return (
     <SpaTabProximasReuniones
       title="Reuniones pasadas (Zoom)"
-      subtitle="Reuniones historicas detectadas en Zoom para validar asociacion con el sistema."
+      subtitle="Historial detectado en Zoom para validar o crear la asociacion con el sistema."
       groupName={groupName}
       meetings={meetings}
       isLoading={isLoading}

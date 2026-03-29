@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 const tabs = [
   "dashboard",
   "solicitudes",
+  "programas",
   "agenda_libre",
   "asignacion",
   "manual",
@@ -29,6 +30,7 @@ export function useUIState() {
     if (rawTab === "agenda") return "agenda_libre" as Tab;
     if (rawTab === "proximas") return "proximas_zoom" as Tab;
     if (rawTab === "pasadas") return "pasadas_zoom" as Tab;
+    if (rawTab === "programa") return "programas" as Tab;
     return tabs.includes(rawTab as Tab) ? (rawTab as Tab) : null;
   }, [searchParams]);
 

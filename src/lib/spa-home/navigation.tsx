@@ -5,6 +5,7 @@ import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import AutoStoriesOutlinedIcon from "@mui/icons-material/AutoStoriesOutlined";
 import EventAvailableOutlinedIcon from "@mui/icons-material/EventAvailableOutlined";
 import AssignmentIndOutlinedIcon from "@mui/icons-material/AssignmentIndOutlined";
 import BuildCircleOutlinedIcon from "@mui/icons-material/BuildCircleOutlined";
@@ -18,6 +19,7 @@ import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
 export const tabs = [
   "dashboard",
   "solicitudes",
+  "programas",
   "agenda_libre",
   "asignacion",
   "manual",
@@ -48,7 +50,7 @@ export const NAVIGATION_GROUP_ORDER: NavigationGroup[] = ["GENERAL", "OPERACION"
 
 export const NAVIGATION_GROUP_LABEL: Record<NavigationGroup, string> = {
   GENERAL: "Inicio",
-  OPERACION: "Gestion",
+  OPERACION: "Operacion",
   ZOOM: "Zoom",
   ADMIN: "Administracion"
 };
@@ -66,6 +68,12 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     roles: ["ADMINISTRADOR", "DOCENTE", "CONTADURIA"],
     group: "OPERACION"
   },
+  programas: {
+    label: "Programas",
+    visibleInNavigation: true,
+    roles: ["ADMINISTRADOR", "DOCENTE", "CONTADURIA"],
+    group: "OPERACION"
+  },
   agenda_libre: {
     label: "Agenda libre",
     visibleInNavigation: true,
@@ -79,13 +87,13 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     group: "OPERACION"
   },
   manual: {
-    label: "Resolucion manual",
+    label: "Asociacion manual",
     visibleInNavigation: true,
     roles: ["ADMINISTRADOR"],
     group: "ZOOM"
   },
   historico: {
-    label: "Reuniones pasadas",
+    label: "Registro historico",
     visibleInNavigation: true,
     roles: ["ADMINISTRADOR"],
     group: "ZOOM"
@@ -97,13 +105,13 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     group: "ZOOM"
   },
   proximas_zoom: {
-    label: "Proximas Zoom",
+    label: "Reuniones proximas",
     visibleInNavigation: true,
     roles: ["ADMINISTRADOR"],
     group: "ZOOM"
   },
   pasadas_zoom: {
-    label: "Pasadas Zoom",
+    label: "Reuniones pasadas",
     visibleInNavigation: true,
     roles: ["ADMINISTRADOR"],
     group: "ZOOM"
@@ -167,6 +175,8 @@ export function getTabIcon(tab: Tab): ReactNode {
       return <DashboardOutlinedIcon fontSize="small" />;
     case "solicitudes":
       return <DescriptionOutlinedIcon fontSize="small" />;
+    case "programas":
+      return <AutoStoriesOutlinedIcon fontSize="small" />;
     case "agenda_libre":
       return <EventAvailableOutlinedIcon fontSize="small" />;
     case "asignacion":
@@ -191,4 +201,3 @@ export function getTabIcon(tab: Tab): ReactNode {
       return <DashboardOutlinedIcon fontSize="small" />;
   }
 }
-

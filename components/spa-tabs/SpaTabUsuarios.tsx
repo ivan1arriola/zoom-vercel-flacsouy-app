@@ -13,6 +13,13 @@ import {
   TextField,
   Typography
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
+import ManageAccountsRoundedIcon from "@mui/icons-material/ManageAccountsRounded";
+import PersonAddAlt1RoundedIcon from "@mui/icons-material/PersonAddAlt1Rounded";
+import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
+import VerifiedUserRoundedIcon from "@mui/icons-material/VerifiedUserRounded";
+import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
 import { formatManagedUserRole, formatManagedUserDate } from "./spa-tabs-utils";
 import type { ManagedUser } from "@/src/services/userApi";
 
@@ -77,67 +84,128 @@ export function SpaTabUsuarios({
   }, [users]);
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3 }}>
-      <CardContent>
+    <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
+      <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
         <Stack
           direction={{ xs: "column", sm: "row" }}
-          spacing={1}
+          spacing={1.2}
           alignItems={{ xs: "flex-start", sm: "center" }}
           justifyContent="space-between"
-          sx={{ mb: 2 }}
+          sx={{ mb: 1.8 }}
         >
-          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            Gestion de usuarios
-          </Typography>
-          <Button variant="outlined" onClick={onRefresh} disabled={isLoadingUsers}>
+          <Box>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box
+                sx={(theme) => ({
+                  width: 34,
+                  height: 34,
+                  borderRadius: 2,
+                  display: "grid",
+                  placeItems: "center",
+                  color: "primary.main",
+                  bgcolor: alpha(theme.palette.primary.main, 0.1),
+                  border: "1px solid",
+                  borderColor: alpha(theme.palette.primary.main, 0.22)
+                })}
+              >
+                <ManageAccountsRoundedIcon fontSize="small" />
+              </Box>
+              <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                Gestion de usuarios
+              </Typography>
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.65, maxWidth: 640 }}>
+              Crea cuentas, asigna roles y gestiona activaciones desde un unico flujo.
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshRoundedIcon />}
+            onClick={onRefresh}
+            disabled={isLoadingUsers}
+            sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700, px: 1.6 }}
+          >
             {isLoadingUsers ? "Actualizando..." : "Actualizar"}
           </Button>
         </Stack>
 
-        <Box component="form" onSubmit={onSubmit} sx={{ mb: 2.5 }}>
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: 1.5
-            }}
-          >
-            <TextField
-              label="Nombre"
-              value={createUserForm.firstName}
-              onChange={(e) => setCreateUserForm((prev) => ({ ...prev, firstName: e.target.value }))}
-            />
-            <TextField
-              label="Apellido"
-              value={createUserForm.lastName}
-              onChange={(e) => setCreateUserForm((prev) => ({ ...prev, lastName: e.target.value }))}
-            />
-            <TextField
-              label="Email"
-              required
-              type="email"
-              value={createUserForm.email}
-              onChange={(e) => setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))}
-            />
-            <TextField
-              label="Rol"
-              select
-              value={createUserForm.role}
-              onChange={(e) => setCreateUserForm((prev) => ({ ...prev, role: e.target.value }))}
-            >
-              {ROLE_OPTIONS.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-            El usuario se crea sin contrasena y recibe un enlace de activacion para definir su contrasena.
+        <Paper
+          variant="outlined"
+          sx={(theme) => ({
+            mb: 2.2,
+            p: { xs: 1.2, sm: 1.6 },
+            borderRadius: 2.6,
+            borderColor: alpha(theme.palette.primary.main, 0.24),
+            background: `linear-gradient(140deg, ${alpha(theme.palette.primary.main, 0.07)} 0%, ${alpha(
+              theme.palette.success.main,
+              0.05
+            )} 100%)`
+          })}
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.2 }}>
+            Crear nuevo usuario
           </Typography>
-          <Button sx={{ mt: 1.5 }} type="submit" variant="contained" disabled={isCreatingUser}>
-            {isCreatingUser ? "Creando usuario..." : "Crear usuario y enviar enlace"}
-          </Button>
+          <Box component="form" onSubmit={onSubmit}>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                gap: 1.1
+              }}
+            >
+              <TextField
+                label="Nombre"
+                size="small"
+                value={createUserForm.firstName}
+                onChange={(e) => setCreateUserForm((prev) => ({ ...prev, firstName: e.target.value }))}
+              />
+              <TextField
+                label="Apellido"
+                size="small"
+                value={createUserForm.lastName}
+                onChange={(e) => setCreateUserForm((prev) => ({ ...prev, lastName: e.target.value }))}
+              />
+              <TextField
+                label="Email"
+                required
+                type="email"
+                size="small"
+                value={createUserForm.email}
+                onChange={(e) => setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))}
+              />
+              <TextField
+                label="Rol"
+                select
+                size="small"
+                value={createUserForm.role}
+                onChange={(e) => setCreateUserForm((prev) => ({ ...prev, role: e.target.value }))}
+              >
+                {ROLE_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2 }}>
+              El usuario se crea sin contrasena y recibe un enlace de activacion para definir su contrasena.
+            </Typography>
+            <Button
+              sx={{ mt: 1.3, textTransform: "none", borderRadius: 2, fontWeight: 700 }}
+              type="submit"
+              variant="contained"
+              startIcon={<PersonAddAlt1RoundedIcon />}
+              disabled={isCreatingUser}
+            >
+              {isCreatingUser ? "Creando usuario..." : "Crear usuario y enviar enlace"}
+            </Button>
+          </Box>
+        </Paper>
+
+        <Box sx={{ mb: 1.2 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            Usuarios registrados ({users.length})
+          </Typography>
         </Box>
 
         {isLoadingUsers ? (
@@ -149,7 +217,7 @@ export function SpaTabUsuarios({
             No hay usuarios registrados.
           </Typography>
         ) : (
-          <Stack spacing={1.2}>
+          <Stack spacing={1.05}>
             {users.map((managedUser) => {
               const fullName =
                 [managedUser.firstName, managedUser.lastName].filter(Boolean).join(" ") || "-";
@@ -159,9 +227,30 @@ export function SpaTabUsuarios({
               const isResendingActivation = resendingActivationUserId === managedUser.id;
               const canSaveRole = !isUpdatingRole && selectedRole !== currentRole;
               const canResendActivation = !managedUser.emailVerified;
+              const verificationLabel = managedUser.emailVerified ? "Verificado" : "Sin verificar";
 
               return (
-                <Paper key={managedUser.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Paper
+                  key={managedUser.id}
+                  variant="outlined"
+                  sx={(theme) => ({
+                    p: { xs: 1.2, sm: 1.4 },
+                    borderRadius: 2.2,
+                    borderLeftWidth: 4,
+                    borderLeftStyle: "solid",
+                    borderLeftColor: managedUser.emailVerified
+                      ? theme.palette.success.main
+                      : theme.palette.warning.main,
+                    bgcolor: managedUser.emailVerified
+                      ? alpha(theme.palette.success.main, 0.04)
+                      : alpha(theme.palette.warning.main, 0.07),
+                    transition: "box-shadow 160ms ease, transform 160ms ease",
+                    "&:hover": {
+                      boxShadow: `0 8px 16px ${alpha(theme.palette.common.black, 0.08)}`,
+                      transform: "translateY(-1px)"
+                    }
+                  })}
+                >
                   <Stack
                     direction={{ xs: "column", md: "row" }}
                     spacing={1}
@@ -169,33 +258,46 @@ export function SpaTabUsuarios({
                     justifyContent="space-between"
                   >
                     <Box>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.15 }}>
                         {managedUser.email}
                       </Typography>
-                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.65 }}>
                         <Chip size="small" variant="outlined" label={formatManagedUserRole(managedUser.role)} />
                         <Chip
                           size="small"
                           color={managedUser.emailVerified ? "success" : "warning"}
-                          label={managedUser.emailVerified ? "Verificado" : "Sin verificar"}
+                          icon={
+                            managedUser.emailVerified ? (
+                              <VerifiedUserRoundedIcon fontSize="small" />
+                            ) : (
+                              <ErrorOutlineRoundedIcon fontSize="small" />
+                            )
+                          }
+                          label={verificationLabel}
                         />
                       </Stack>
                     </Box>
-                    <Typography variant="body2" color="text.secondary">
-                      Alta: {formatManagedUserDate(managedUser.createdAt)}
-                    </Typography>
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`Alta: ${formatManagedUserDate(managedUser.createdAt)}`}
+                    />
                   </Stack>
+
                   <Box sx={{ mt: 1 }}>
                     <Typography variant="caption" color="text.secondary">
-                      Nombre
+                      Nombre completo
                     </Typography>
-                    <Typography variant="body2">{fullName}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {fullName}
+                    </Typography>
                   </Box>
+
                   <Stack
-                    direction={{ xs: "column", sm: "row" }}
+                    direction={{ xs: "column", lg: "row" }}
                     spacing={1}
-                    alignItems={{ xs: "stretch", sm: "center" }}
-                    sx={{ mt: 1.2 }}
+                    alignItems={{ xs: "stretch", lg: "center" }}
+                    sx={{ mt: 1.25 }}
                   >
                     <TextField
                       label="Rol"
@@ -208,7 +310,7 @@ export function SpaTabUsuarios({
                           [managedUser.id]: event.target.value as EditableRole
                         }))
                       }
-                      sx={{ minWidth: 220 }}
+                      sx={{ minWidth: 230, maxWidth: 320 }}
                     >
                       {ROLE_OPTIONS.map((option) => (
                         <MenuItem key={option.value} value={option.value}>
@@ -217,22 +319,25 @@ export function SpaTabUsuarios({
                       ))}
                     </TextField>
                     <Button
-                      variant="outlined"
+                      variant={canSaveRole ? "contained" : "outlined"}
                       disabled={!canSaveRole}
                       onClick={() => {
                         void onUpdateUserRole(managedUser.id, selectedRole);
                       }}
+                      sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700 }}
                     >
                       {isUpdatingRole ? "Guardando..." : "Guardar rol"}
                     </Button>
                     {canResendActivation ? (
                       <Button
                         variant="outlined"
-                        color="secondary"
+                        color="warning"
                         disabled={isResendingActivation}
+                        startIcon={<MailOutlineRoundedIcon />}
                         onClick={() => {
                           void onResendActivationLink(managedUser.id);
                         }}
+                        sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700 }}
                       >
                         {isResendingActivation ? "Enviando..." : "Reenviar activacion"}
                       </Button>

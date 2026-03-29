@@ -7,11 +7,14 @@ import {
   Backdrop,
   Box,
   Button,
+  Chip,
   CircularProgress,
   ListItemIcon,
   ListItemText,
   Menu,
   MenuItem,
+  Paper,
+  Snackbar,
   Stack,
   Typography
 } from "@mui/material";
@@ -92,6 +95,7 @@ import { useZoomUpcomingMeetings } from "@/src/hooks/useZoomUpcomingMeetings";
 import { useZoomPastMeetings } from "@/src/hooks/useZoomPastMeetings";
 import { SpaTabDashboard } from "@/components/spa-tabs/SpaTabDashboard";
 import { SpaTabSolicitudes } from "@/components/spa-tabs/SpaTabSolicitudes";
+import { SpaTabProgramas } from "@/components/spa-tabs/SpaTabProgramas";
 import { SpaTabAgendaLibre } from "@/components/spa-tabs/SpaTabAgendaLibre";
 import { SpaTabAsignacion } from "@/components/spa-tabs/SpaTabAsignacion";
 import { SpaTabManual } from "@/components/spa-tabs/SpaTabManual";
@@ -139,6 +143,7 @@ const DEFAULT_ZOOM_PAST_MONTHS_BACK = 1;
 export function SpaHomeScreen() {
   const [programas, setProgramas] = useState<Programa[]>([]);
   const [isCreatingPrograma, setIsCreatingPrograma] = useState(false);
+  const [isRefreshingProgramas, setIsRefreshingProgramas] = useState(false);
 
   // UI State
   const { tab, setTab, message, setMessage, loading, setLoading, requestedTab } = useUIState();
@@ -254,6 +259,7 @@ export function SpaHomeScreen() {
   const canSeeAssignmentBoard = canAccessTabForRole("asignacion", effectiveRole);
   const canSeeTarifas = canAccessTabForRole("tarifas", effectiveRole);
   const canSeeSolicitudes = canAccessTabForRole("solicitudes", effectiveRole);
+  const canSeeProgramas = canAccessTabForRole("programas", effectiveRole);
   const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
   const canCreateSolicitudShortcut = useMemo(
     () => ["DOCENTE", "ADMINISTRADOR"].includes(effectiveRole),
@@ -1249,6 +1255,23 @@ export function SpaHomeScreen() {
     }
   }
 
+  async function refreshProgramasView() {
+    setIsRefreshingProgramas(true);
+    try {
+      const [loadedProgramas, loadedSolicitudes] = await Promise.all([
+        loadProgramas(),
+        loadSolicitudes()
+      ]);
+      if (loadedProgramas) setProgramas(loadedProgramas);
+      if (loadedSolicitudes) setSolicitudes(loadedSolicitudes);
+      if (!loadedProgramas && !loadedSolicitudes) {
+        setMessage("No se pudo actualizar la vista de programas.");
+      }
+    } finally {
+      setIsRefreshingProgramas(false);
+    }
+  }
+
   function openNavigationMenu(group: NavigationGroup, event: MouseEvent<HTMLElement>) {
     setOpenNavigationGroup(group);
     setNavigationAnchorEl(event.currentTarget);
@@ -1264,51 +1287,135 @@ export function SpaHomeScreen() {
     closeNavigationMenu();
   }
 
+  const activeNavigationGroup = TAB_CONFIG[tab].group;
+  const activeNavigationTabs = groupedNavigationTabs[activeNavigationGroup];
+  const activeNavigationLabel = NAVIGATION_GROUP_LABEL[activeNavigationGroup];
+  const normalizedRoleLabel = (effectiveRole || "ADMINISTRADOR").replace(/_/g, " ");
+
   return (
     <Box component="section">
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1.5 }}>
-        Herramienta para coordinar salas Zoom
-      </Typography>
-
-      <Stack
-        direction="row"
-        spacing={1}
-        useFlexGap
-        flexWrap="wrap"
+      <Paper
+        variant="outlined"
         sx={{
           mb: 2,
-          p: 1,
-          border: "1px solid",
-          borderColor: "divider",
-          borderRadius: 2,
+          p: { xs: 1, sm: 1.5 },
+          borderRadius: 3,
           backgroundColor: "background.paper"
         }}
       >
-        {NAVIGATION_GROUP_ORDER.map((group) => {
-          const groupTabs = groupedNavigationTabs[group];
-          if (groupTabs.length === 0) return null;
-
-          const isGroupActive = groupTabs.includes(tab);
-
-          return (
-            <Button
-              key={group}
-              variant={isGroupActive ? "contained" : "outlined"}
-              color={isGroupActive ? "primary" : "inherit"}
-              startIcon={getNavigationGroupIcon(group)}
-              endIcon={<ArrowDropDownIcon />}
-              onClick={(event) => openNavigationMenu(group, event)}
+        <Stack
+          direction={{ xs: "column", lg: "row" }}
+          spacing={1.4}
+          justifyContent="space-between"
+          alignItems={{ xs: "flex-start", lg: "center" }}
+          sx={{ mb: 1.2 }}
+        >
+          <Box>
+            <Typography variant="overline" color="text.secondary">
+              Panel principal
+            </Typography>
+            <Typography
+              variant="h5"
               sx={{
-                textTransform: "none",
-                borderRadius: 2,
-                fontWeight: 700
+                fontWeight: 700,
+                lineHeight: 1.15,
+                fontSize: { xs: "1.2rem", sm: "1.5rem" }
               }}
             >
-              {NAVIGATION_GROUP_LABEL[group]}
-            </Button>
-          );
-        })}
-      </Stack>
+              {TAB_CONFIG[tab].label}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Seccion activa: {activeNavigationLabel}
+            </Typography>
+          </Box>
+          <Stack
+            direction="row"
+            spacing={0.8}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ width: { xs: "100%", lg: "auto" } }}
+          >
+            <Chip size="small" variant="outlined" label={`Rol: ${normalizedRoleLabel}`} />
+            <Chip
+              size="small"
+              color="primary"
+              variant="outlined"
+              label={`Grupo: ${activeNavigationLabel}`}
+            />
+          </Stack>
+        </Stack>
+
+        <Box
+          sx={{
+            mb: 1.1,
+            overflowX: { xs: "auto", md: "visible" },
+            pb: { xs: 0.5, md: 0 },
+            mx: { xs: -0.2, md: 0 },
+            px: { xs: 0.2, md: 0 }
+          }}
+        >
+          <Stack direction="row" spacing={1} useFlexGap flexWrap={{ xs: "nowrap", md: "wrap" }}>
+            {NAVIGATION_GROUP_ORDER.map((group) => {
+              const groupTabs = groupedNavigationTabs[group];
+              if (groupTabs.length === 0) return null;
+
+              const isGroupActive = groupTabs.includes(tab);
+
+              return (
+                <Button
+                  key={group}
+                  size="small"
+                  variant={isGroupActive ? "contained" : "outlined"}
+                  color={isGroupActive ? "primary" : "inherit"}
+                  startIcon={getNavigationGroupIcon(group)}
+                  endIcon={<ArrowDropDownIcon />}
+                  onClick={(event) => openNavigationMenu(group, event)}
+                  sx={{
+                    textTransform: "none",
+                    borderRadius: 2,
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                    flexShrink: 0
+                  }}
+                >
+                  {NAVIGATION_GROUP_LABEL[group]} ({groupTabs.length})
+                </Button>
+              );
+            })}
+          </Stack>
+        </Box>
+
+        <Box
+          sx={{
+            overflowX: { xs: "auto", md: "visible" },
+            pb: { xs: 0.5, md: 0 },
+            mx: { xs: -0.2, md: 0 },
+            px: { xs: 0.2, md: 0 }
+          }}
+        >
+          <Stack direction="row" spacing={0.8} useFlexGap flexWrap={{ xs: "nowrap", md: "wrap" }}>
+            {activeNavigationTabs.map((navigationTab) => (
+              <Button
+                key={navigationTab}
+                size="small"
+                variant={tab === navigationTab ? "contained" : "text"}
+                color={tab === navigationTab ? "primary" : "inherit"}
+                startIcon={getTabIcon(navigationTab)}
+                onClick={() => setTab(navigationTab)}
+                sx={{
+                  textTransform: "none",
+                  borderRadius: 2,
+                  fontWeight: tab === navigationTab ? 700 : 600,
+                  whiteSpace: "nowrap",
+                  flexShrink: 0
+                }}
+              >
+                {TAB_CONFIG[navigationTab].label}
+              </Button>
+            ))}
+          </Stack>
+        </Box>
+      </Paper>
 
       <Menu
         anchorEl={navigationAnchorEl}
@@ -1358,6 +1465,19 @@ export function SpaHomeScreen() {
           docenteSolicitudesView={docenteSolicitudesView}
           setDocenteSolicitudesView={setDocenteSolicitudesView}
           onSubmit={submitDocenteSolicitud}
+        />
+      )}
+
+      {tab === "programas" && canSeeProgramas && (
+        <SpaTabProgramas
+          programas={programas}
+          solicitudes={solicitudes}
+          isCreatingPrograma={isCreatingPrograma}
+          isRefreshing={isRefreshingProgramas}
+          onCreatePrograma={createProgramaOnDemand}
+          onRefresh={() => {
+            void refreshProgramasView();
+          }}
         />
       )}
 
@@ -1554,10 +1674,32 @@ export function SpaHomeScreen() {
           }}
         />
       )}
-
-
-
-      {message && <Alert sx={{ mt: 1.8 }} severity="info">{message}</Alert>}
+      <Snackbar
+        open={Boolean(message)}
+        anchorOrigin={{ vertical: "top", horizontal: "right" }}
+        onClose={(_, reason) => {
+          if (reason === "clickaway") return;
+          setMessage("");
+        }}
+        sx={{
+          mt: { xs: 7, sm: 8 },
+          width: { xs: "calc(100% - 16px)", sm: "auto" },
+          maxWidth: { xs: "calc(100% - 16px)", sm: 860 }
+        }}
+      >
+        <Alert
+          severity="info"
+          variant="filled"
+          onClose={() => setMessage("")}
+          sx={{
+            width: "100%",
+            alignItems: "center",
+            boxShadow: 4
+          }}
+        >
+          {message}
+        </Alert>
+      </Snackbar>
 
       <Backdrop
         open={isGlobalBusy}
