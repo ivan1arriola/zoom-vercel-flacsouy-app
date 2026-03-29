@@ -14,15 +14,16 @@ const rolePriority: Record<UserRole, number> = {
 
 const ADMIN_VIEW_ROLE_COOKIE = "zoom_view_as";
 
+function normalizeOperationalRole(role: UserRole): UserRole {
+  return role === UserRole.SOPORTE_ZOOM ? UserRole.ASISTENTE_ZOOM : role;
+}
+
 function normalizeAdminViewRole(raw: string): UserRole | null {
   const normalized = raw.trim().toUpperCase();
   if (!normalized) return null;
   if (normalized === UserRole.ADMINISTRADOR) return UserRole.ADMINISTRADOR;
   if (normalized === UserRole.DOCENTE) return UserRole.DOCENTE;
   if (normalized === UserRole.CONTADURIA) return UserRole.CONTADURIA;
-  if (normalized === UserRole.SOPORTE_ZOOM || normalized === UserRole.ASISTENTE_ZOOM) {
-    return UserRole.SOPORTE_ZOOM;
-  }
   return null;
 }
 
@@ -69,7 +70,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 
   const adminViewRole =
     dbUser.role === UserRole.ADMINISTRADOR ? await getAdminViewRoleFromCookie() : null;
-  const effectiveRole = adminViewRole ?? dbUser.role;
+  const effectiveRole = normalizeOperationalRole(adminViewRole ?? dbUser.role);
 
   return {
     id: dbUser.id,
@@ -94,7 +95,10 @@ export async function isRoleAuthorized(minRole: UserRole): Promise<boolean> {
   const user = await getSessionUser();
   const sessionRole = user?.role;
   if (!sessionRole) return false;
-  return rolePriority[sessionRole] >= rolePriority[minRole];
+  return (
+    rolePriority[normalizeOperationalRole(sessionRole)] >=
+    rolePriority[normalizeOperationalRole(minRole)]
+  );
 }
 
 export async function isAdminAuthorized(): Promise<boolean> {
@@ -102,14 +106,14 @@ export async function isAdminAuthorized(): Promise<boolean> {
 }
 
 export async function isOperatorAuthorized(): Promise<boolean> {
-  return isRoleAuthorized(UserRole.SOPORTE_ZOOM);
+  return isRoleAuthorized(UserRole.ASISTENTE_ZOOM);
 }
 
 export async function hasAnyRole(roles: UserRole[]): Promise<boolean> {
   const user = await getSessionUser();
   if (!user) return false;
   if (user.role === UserRole.ADMINISTRADOR) return true;
-  return roles.includes(user.role);
+  return roles.map(normalizeOperationalRole).includes(normalizeOperationalRole(user.role));
 }
 
 export function isCronAuthorized(request: Request): boolean {

@@ -84,7 +84,7 @@ export async function assignAssistantToEvent(
   if (!response.ok) {
     return {
       success: false,
-      error: data.error ?? "No se pudo asignar soporte."
+      error: data.error ?? "No se pudo asignar asistencia."
     };
   }
   return { success: true };

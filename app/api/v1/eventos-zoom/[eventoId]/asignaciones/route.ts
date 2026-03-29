@@ -27,7 +27,7 @@ export async function POST(request: Request, context: Params) {
     return NextResponse.json({ assignment });
   } catch (error) {
     return NextResponse.json(
-      { error: (error as Error).message || "No se pudo asignar soporte." },
+      { error: (error as Error).message || "No se pudo asignar asistencia." },
       { status: 400 }
     );
   }

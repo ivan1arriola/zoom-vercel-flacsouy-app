@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LaunchIcon from "@mui/icons-material/Launch";
+import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EventBusyOutlinedIcon from "@mui/icons-material/EventBusyOutlined";
 import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSendOutlined";
@@ -175,6 +176,7 @@ export function SpaTabSolicitudes({
   const [createProgramaOpen, setCreateProgramaOpen] = useState(false);
   const [newProgramaNombre, setNewProgramaNombre] = useState("");
   const [solicitudesListScope, setSolicitudesListScope] = useState<SolicitudesListScope>("ACTIVAS");
+  const [specificDateInput, setSpecificDateInput] = useState("");
 
   function syncDurationFromTimes(startTime: string, endTime: string): string {
     const startMinutes = parseTimeToMinutes(startTime);
@@ -234,6 +236,36 @@ export function SpaTabSolicitudes({
   function handleRecurringDurationChange(nextDuration: string) {
     updateForm("duracionRecurrente", nextDuration);
     updateForm("horaFinRecurrente", syncEndFromDuration(form.horaInicioRecurrente, nextDuration));
+  }
+
+  function getSpecificDatesFallbackYear(): number {
+    if (form.primerDiaRecurrente && /^\d{4}-\d{2}-\d{2}$/.test(form.primerDiaRecurrente)) {
+      const parsedYear = Number(form.primerDiaRecurrente.slice(0, 4));
+      if (Number.isInteger(parsedYear)) return parsedYear;
+    }
+    return new Date().getFullYear();
+  }
+
+  function parseSpecificDatesFromForm(): string[] {
+    return parseSpecificDatesInput(form.fechasEspecificas, getSpecificDatesFallbackYear()).dates;
+  }
+
+  function persistSpecificDates(dates: string[]) {
+    const sortedUnique = [...new Set(dates)].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    updateForm("fechasEspecificas", sortedUnique.join("\n"));
+  }
+
+  function handleAddSpecificDate() {
+    if (!specificDateInput) return;
+    const parsedInput = parseSpecificDatesInput(specificDateInput, getSpecificDatesFallbackYear());
+    const dateToAdd = parsedInput.dates[0];
+    if (!dateToAdd) return;
+    persistSpecificDates([...parseSpecificDatesFromForm(), dateToAdd]);
+    setSpecificDateInput("");
+  }
+
+  function handleRemoveSpecificDate(dateIso: string) {
+    persistSpecificDates(parseSpecificDatesFromForm().filter((item) => item !== dateIso));
   }
 
   const recurrencePreview = useMemo(() => {
@@ -351,10 +383,7 @@ export function SpaTabSolicitudes({
       return { dates: [] as string[], error: "" };
     }
 
-    const fallbackYear = form.primerDiaRecurrente
-      ? Number(form.primerDiaRecurrente.slice(0, 4))
-      : new Date().getFullYear();
-    const parsed = parseSpecificDatesInput(form.fechasEspecificas, fallbackYear);
+    const parsed = parseSpecificDatesInput(form.fechasEspecificas, getSpecificDatesFallbackYear());
     if (parsed.errors.length > 0) {
       return { dates: [] as string[], error: parsed.errors[0] ?? "Hay fechas invalidas." };
     }
@@ -374,6 +403,11 @@ export function SpaTabSolicitudes({
     form.primerDiaRecurrente,
     form.fechasEspecificas
   ]);
+
+  const isSpecificDatesModeInvalid =
+    form.unaOVarias === "VARIAS" &&
+    form.variasModo === "FECHAS_ESPECIFICAS" &&
+    (Boolean(specificDatesPreview.error) || specificDatesPreview.dates.length < 2);
 
   function mapSolicitudStatus(estado: string): { label: string; color: "default" | "warning" | "success" | "error" | "info" } {
     if (estado === "PROVISIONADA") return { label: "Provisionada", color: "success" };
@@ -1080,33 +1114,41 @@ export function SpaTabSolicitudes({
                 </>
               ) : (
                 <>
-                  <TextField
-                    label="Ancla de anio (opcional)"
-                    type="date"
-                    fullWidth
-                    InputLabelProps={{ shrink: true }}
-                    value={form.primerDiaRecurrente}
-                    onChange={(e) => updateForm("primerDiaRecurrente", e.target.value)}
-                    helperText="Si escribes fechas como 11/04 sin anio, se usa este anio como referencia."
-                  />
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} alignItems={{ sm: "flex-end" }}>
+                    <TextField
+                      label="Fecha puntual"
+                      type="date"
+                      fullWidth
+                      InputLabelProps={{ shrink: true }}
+                      value={specificDateInput}
+                      onChange={(e) => setSpecificDateInput(e.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        handleAddSpecificDate();
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      disabled={!specificDateInput}
+                      onClick={handleAddSpecificDate}
+                      sx={{ minWidth: { sm: 170 } }}
+                    >
+                      Agregar fecha
+                    </Button>
+                  </Stack>
 
-                  <TextField
-                    label="Fechas puntuales"
-                    multiline
-                    minRows={5}
-                    required
-                    fullWidth
-                    value={form.fechasEspecificas}
-                    onChange={(e) => updateForm("fechasEspecificas", e.target.value)}
-                    placeholder={"11/04\n02/05\n23/05\n20/06\n27/06"}
-                    helperText="Ingresa una fecha por linea. Formatos permitidos: DD/MM, DD/MM/AAAA o AAAA-MM-DD."
-                  />
+                  <Typography variant="body2" color="text.secondary">
+                    Agrega las fechas una por una con el boton +.
+                  </Typography>
 
                   <Paper
                     variant="outlined"
                     sx={{ mb: 1, p: 1.2, borderRadius: 2, backgroundColor: "grey.50" }}
                   >
-                    <Typography variant="subtitle2">Previsualizacion de fechas puntuales</Typography>
+                    <Typography variant="subtitle2">Fechas puntuales cargadas</Typography>
                     {specificDatesPreview.error ? (
                       <Typography variant="body2" color="error.main" sx={{ mt: 0.8 }}>
                         {specificDatesPreview.error}
@@ -1116,17 +1158,44 @@ export function SpaTabSolicitudes({
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8, mb: 0.8 }}>
                           Se creara una recurrencia en Zoom con un unico ID y se ajustaran las ocurrencias necesarias.
                         </Typography>
-                        <Box sx={{ display: "grid", gap: 0.5, maxHeight: 220, overflowY: "auto" }}>
+                        <Box sx={{ display: "grid", gap: 0.6, maxHeight: 260, overflowY: "auto" }}>
                           {specificDatesPreview.dates.map((dateIso, index) => (
-                            <Typography key={`${dateIso}-${index}`} variant="body2">
-                              {index + 1}. {formatDateTime(`${dateIso}T${form.horaInicioRecurrente || "00:00"}`)}
-                            </Typography>
+                            <Paper
+                              key={`${dateIso}-${index}`}
+                              variant="outlined"
+                              sx={{
+                                px: 1,
+                                py: 0.8,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 1
+                              }}
+                            >
+                              <Typography variant="body2">
+                                {index + 1}. {formatDateTime(`${dateIso}T${form.horaInicioRecurrente || "00:00"}`)}
+                              </Typography>
+                              <Button
+                                type="button"
+                                size="small"
+                                color="inherit"
+                                startIcon={<DeleteOutlineIcon fontSize="small" />}
+                                onClick={() => handleRemoveSpecificDate(dateIso)}
+                              >
+                                Quitar
+                              </Button>
+                            </Paper>
                           ))}
                         </Box>
+                        {specificDatesPreview.dates.length < 2 ? (
+                          <Typography variant="body2" color="warning.main" sx={{ mt: 0.8 }}>
+                            Agrega al menos 2 fechas para enviar la solicitud.
+                          </Typography>
+                        ) : null}
                       </>
                     ) : (
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
-                        Carga al menos dos fechas para ver la previsualizacion.
+                        Todavia no agregaste fechas.
                       </Typography>
                     )}
                   </Paper>
@@ -1147,7 +1216,11 @@ export function SpaTabSolicitudes({
             sx={{ mt: 1 }}
           />
 
-          <Button type="submit" variant="contained" disabled={isSubmittingSolicitud}>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={isSubmittingSolicitud || isSpecificDatesModeInvalid}
+          >
             {isSubmittingSolicitud ? "Enviando solicitud..." : "Enviar solicitud"}
           </Button>
 

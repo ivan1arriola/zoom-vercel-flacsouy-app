@@ -29,8 +29,7 @@ export async function POST(request: Request) {
   const canCreate =
     user.role === UserRole.DOCENTE ||
     user.role === UserRole.ADMINISTRADOR ||
-    user.role === UserRole.ASISTENTE_ZOOM ||
-    user.role === UserRole.SOPORTE_ZOOM;
+    user.role === UserRole.ASISTENTE_ZOOM;
   if (!canCreate) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

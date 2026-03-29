@@ -3,20 +3,15 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormControl, InputLabel, MenuItem, Select } from "@mui/material";
 
-const SUPPORT_VIEW_ROLE = "SOPORTE_ZOOM";
 const VIEW_ROLE_COOKIE = "zoom_view_as";
 
 const viewOptions = [
   { value: "ADMINISTRADOR", label: "Administrador" },
   { value: "DOCENTE", label: "Docente" },
-  { value: SUPPORT_VIEW_ROLE, label: "Asistente Zoom" },
   { value: "CONTADURIA", label: "Contaduria" }
 ] as const;
 
 function normalizeViewRole(raw: string): string {
-  if (raw === "ASISTENTE_ZOOM" || raw === "SOPORTE_ZOOM") {
-    return SUPPORT_VIEW_ROLE;
-  }
   return raw;
 }
 

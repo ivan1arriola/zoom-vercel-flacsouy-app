@@ -20,7 +20,7 @@ import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import type { DashboardSummary } from "@/src/services/dashboardApi";
 
-type DashboardRole = "ADMINISTRADOR" | "DOCENTE" | "SOPORTE_ZOOM" | "CONTADURIA";
+type DashboardRole = "ADMINISTRADOR" | "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA";
 
 interface SpaTabDashboardProps {
   summary: DashboardSummary | null;
@@ -85,7 +85,7 @@ function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
   };
 }
 
-function deriveSupportStatus(summary: DashboardSummary): DashboardStatus {
+function deriveAssistantStatus(summary: DashboardSummary): DashboardStatus {
   const riskScore = summary.eventosSinSoporte * 5 + summary.agendaAbierta * 2 + summary.manualPendings;
 
   if (summary.eventosSinSoporte >= 4 || riskScore >= 30) {
@@ -179,7 +179,7 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
         {
           key: "agendaAbierta",
           title: "Agenda de asistencia",
-          description: "Eventos con agenda de soporte abierta (referencia global).",
+          description: "Eventos con agenda de asistencia abierta (referencia global).",
           color: "#2F855A",
           icon: <EventAvailableIcon fontSize="small" />
         }
@@ -197,7 +197,7 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
     };
   }
 
-  if (role === "SOPORTE_ZOOM") {
+  if (role === "ASISTENTE_ZOOM") {
     return {
       title: "Panel de asistencia",
       subtitle: "Foco en cobertura, agenda y eventos a tomar.",
@@ -226,10 +226,10 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
           icon: <BuildCircleIcon fontSize="small" />
         }
       ],
-      status: deriveSupportStatus(summary),
+      status: deriveAssistantStatus(summary),
       priorityItems: [
         `${summary.agendaAbierta} evento(s) en agenda abierta.`,
-        `${summary.eventosSinSoporte} evento(s) sin soporte asignado.`,
+        `${summary.eventosSinSoporte} evento(s) sin asistencia asignada.`,
         `${summary.manualPendings} caso(s) manual(es) pendientes de resolucion.`
       ]
     };
@@ -302,7 +302,7 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
       },
       {
         key: "eventosSinSoporte",
-        title: "Sin soporte",
+        title: "Sin asistencia",
         description: "Eventos con asistencia aun no cubierta.",
         color: "#C53030",
         icon: <Groups2Icon fontSize="small" />
@@ -318,8 +318,8 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
     status: deriveAdminStatus(summary),
     priorityItems: [
       summary.eventosSinSoporte > 0
-        ? `${summary.eventosSinSoporte} evento(s) sin soporte asignado.`
-        : "No hay eventos sin soporte.",
+        ? `${summary.eventosSinSoporte} evento(s) sin asistencia asignada.`
+        : "No hay eventos sin asistencia asignada.",
       summary.manualPendings > 0
         ? `${summary.manualPendings} solicitud(es) pendiente(s) de resolucion manual.`
         : "No hay pendientes manuales.",

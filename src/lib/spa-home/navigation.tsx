@@ -33,7 +33,7 @@ export const tabs = [
 ] as const;
 export type Tab = (typeof tabs)[number];
 
-export const VIEW_ROLES = ["ADMINISTRADOR", "DOCENTE", "SOPORTE_ZOOM", "CONTADURIA"] as const;
+export const VIEW_ROLES = ["ADMINISTRADOR", "DOCENTE", "ASISTENTE_ZOOM", "CONTADURIA"] as const;
 export type ViewRole = (typeof VIEW_ROLES)[number];
 const ALL_VIEW_ROLES = [...VIEW_ROLES] as ViewRole[];
 
@@ -77,7 +77,7 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
   agenda_libre: {
     label: "Agenda libre",
     visibleInNavigation: true,
-    roles: ["SOPORTE_ZOOM"],
+    roles: ["ASISTENTE_ZOOM"],
     group: "OPERACION"
   },
   asignacion: {
@@ -138,9 +138,9 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
 
 export const VIEW_ROLE_COOKIE = "zoom_view_as";
 
-export function normalizeSupportRole(role: string): string {
+export function normalizeAssistantRole(role: string): string {
   if (role === "ASISTENTE_ZOOM" || role === "SOPORTE_ZOOM") {
-    return "SOPORTE_ZOOM";
+    return "ASISTENTE_ZOOM";
   }
   return role;
 }

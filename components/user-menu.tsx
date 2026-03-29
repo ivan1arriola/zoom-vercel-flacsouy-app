@@ -24,20 +24,15 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import { UserAvatar } from "./user-avatar";
 
-const SUPPORT_VIEW_ROLE = "SOPORTE_ZOOM";
 const VIEW_ROLE_COOKIE = "zoom_view_as";
 
 const viewOptions = [
   { value: "ADMINISTRADOR", label: "Administrador" },
   { value: "DOCENTE", label: "Docente" },
-  { value: SUPPORT_VIEW_ROLE, label: "Asistente Zoom" },
   { value: "CONTADURIA", label: "Contaduria" }
 ] as const;
 
 function normalizeViewRole(raw: string): string {
-  if (raw === "ASISTENTE_ZOOM" || raw === SUPPORT_VIEW_ROLE) {
-    return SUPPORT_VIEW_ROLE;
-  }
   return raw;
 }
 

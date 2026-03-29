@@ -30,7 +30,7 @@ import {
   getNavigationGroupIcon,
   getTabIcon,
   isViewRole,
-  normalizeSupportRole,
+  normalizeAssistantRole,
   type NavigationGroup,
   type Tab,
   type ViewRole,
@@ -239,13 +239,14 @@ export function SpaHomeScreen() {
   const { searchParams } = useUIState();
   
   const adminViewRole = useMemo<ViewRole>(() => {
-    const rawRole = normalizeSupportRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
-    return isViewRole(rawRole) ? rawRole : "ADMINISTRADOR";
+    const rawRole = normalizeAssistantRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
+    if (rawRole === "DOCENTE" || rawRole === "CONTADURIA") return rawRole;
+    return "ADMINISTRADOR";
   }, [searchParams]);
 
   const effectiveRole = useMemo<ViewRole | "">(() => {
     if (!user?.role) return "";
-    const normalizedUserRole = normalizeSupportRole(user.role);
+    const normalizedUserRole = normalizeAssistantRole(user.role);
     if (!isViewRole(normalizedUserRole)) return "";
     if (normalizedUserRole !== "ADMINISTRADOR") return normalizedUserRole;
     return adminViewRole;
@@ -385,12 +386,8 @@ export function SpaHomeScreen() {
     };
 
     for (const managedUser of users) {
-      if (!["ASISTENTE_ZOOM", "SOPORTE_ZOOM", "ADMINISTRADOR"].includes(managedUser.role)) continue;
+      if (normalizeAssistantRole(managedUser.role) !== "ASISTENTE_ZOOM") continue;
       addMonitor(managedUser.email, managedUser.firstName, managedUser.lastName);
-    }
-
-    if (user?.role === "ADMINISTRADOR") {
-      addMonitor(user.email, user.firstName, user.lastName);
     }
 
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "es"));
@@ -422,13 +419,13 @@ export function SpaHomeScreen() {
   // requestedTab is already provided by useUIState hook
 
   useEffect(() => {
-    const rawViewAs = normalizeSupportRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
+    const rawViewAs = normalizeAssistantRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
     if (rawViewAs === "ADMINISTRADOR") {
       document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
       return;
     }
 
-    const allowedViewAs = ["DOCENTE", "SOPORTE_ZOOM", "CONTADURIA"];
+    const allowedViewAs = ["DOCENTE", "CONTADURIA"];
     if (!allowedViewAs.includes(rawViewAs)) {
       document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
       return;
@@ -479,7 +476,7 @@ export function SpaHomeScreen() {
         })()
       ];
 
-      if (["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(normalizeSupportRole(meJson.user.role))) {
+      if (["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(normalizeAssistantRole(meJson.user.role))) {
         loaders.push(
           (async () => {
             const solicitudes = await loadSolicitudes();
@@ -518,7 +515,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (["SOPORTE_ZOOM", "ASISTENTE_ZOOM"].includes(meJson.user.role)) {
+      if (normalizeAssistantRole(meJson.user.role) === "ASISTENTE_ZOOM") {
         loaders.push(
           (async () => {
             const agenda = await loadAgendaLibre();
@@ -851,7 +848,7 @@ export function SpaHomeScreen() {
     try {
       const response = await assignAssistantToEventApi(eventoId, asistenteZoomId);
       if (!response.success) {
-        setMessage(response.error ?? "No se pudo asignar soporte.");
+        setMessage(response.error ?? "No se pudo asignar asistencia.");
         return;
       }
 
@@ -863,7 +860,7 @@ export function SpaHomeScreen() {
       }
       if (summaryData) setSummary(summaryData);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No se pudo asignar soporte.");
+      setMessage(error instanceof Error ? error.message : "No se pudo asignar asistencia.");
     } finally {
       setAssigningEventId(null);
     }

@@ -76,6 +76,8 @@ type ProvisionedEventPlan = {
   zoomPayloadUltimo: Prisma.InputJsonValue | undefined;
 };
 
+const LEGACY_ASSISTANT_ROLES: UserRole[] = [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM];
+
 export type CreateSolicitudInput = {
   titulo: string;
   responsableNombre?: string;
@@ -698,7 +700,7 @@ async function listAssistantPoolEmails(): Promise<string[]> {
   const users = await db.user.findMany({
     where: {
       emailVerified: { not: null },
-      role: { in: [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM] },
+      role: { in: [...LEGACY_ASSISTANT_ROLES] },
       email: { not: "" }
     },
     select: { email: true }
@@ -1267,6 +1269,12 @@ async function getOrCreateAsistente(user: SessionUser) {
   const existing = await db.asistenteZoom.findUnique({ where: { usuarioId: user.id } });
   if (existing) return existing;
   return db.asistenteZoom.create({ data: { usuarioId: user.id } });
+}
+
+function assertAssistantEligibleRole(user: SessionUser) {
+  if (user.role !== UserRole.ASISTENTE_ZOOM) {
+    throw new Error("Solo usuarios con rol Asistente Zoom pueden operar como asistentes.");
+  }
 }
 
 async function getActiveRate(modality: ModalidadReunion) {
@@ -2162,26 +2170,6 @@ function buildSingleMeetingInputForSpecificDates(
   };
 }
 
-function zoomSnapshotContainsRequestedMinuteKeys(
-  zoomSnapshot: ZoomMeetingSnapshot,
-  requestedMinuteKeys: Set<number>
-): boolean {
-  if (requestedMinuteKeys.size === 0) return true;
-
-  const snapshotMinuteKeys = new Set<number>();
-  for (const item of zoomSnapshot.instances) {
-    const start = new Date(item.startTime);
-    if (Number.isNaN(start.getTime())) continue;
-    snapshotMinuteKeys.add(toMinuteKey(start));
-  }
-
-  for (const key of requestedMinuteKeys) {
-    if (!snapshotMinuteKeys.has(key)) return false;
-  }
-
-  return true;
-}
-
 async function cancelZoomOccurrencesOutsideRequestedSchedule(
   zoomClient: ZoomMeetingsClient,
   zoomSnapshot: ZoomMeetingSnapshot,
@@ -2196,9 +2184,11 @@ async function cancelZoomOccurrencesOutsideRequestedSchedule(
     if (requestedMinuteKeys.has(minuteKey)) continue;
     if (item.status === "deleted") continue;
     if (!item.occurrenceId) {
-      throw new Error(
-        "Zoom no devolvio occurrence_id para una instancia extra; no se puede depurar la recurrencia automaticamente."
-      );
+      logger.warn("No se pudo cancelar una ocurrencia extra porque Zoom no devolvio occurrence_id.", {
+        meetingId: zoomSnapshot.meetingId,
+        startTime: item.startTime
+      });
+      continue;
     }
     occurrenceIdsToCancel.add(item.occurrenceId);
   }
@@ -2777,56 +2767,24 @@ export class SalasService {
               throw new Error("No se pudo resolver un plan de recurrencia para las fechas puntuales.");
             }
 
-            if (
-              !zoomSnapshotContainsRequestedMinuteKeys(
+            try {
+              const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+              await cancelZoomOccurrencesOutsideRequestedSchedule(
+                zoomClient,
                 resolvedSnapshot,
                 specificDatesSyntheticPlan.requestedMinuteKeys
-              )
-            ) {
-              lastProvisionError =
-                "Zoom no devolvio una recurrencia que cubra todas las fechas solicitadas con un unico meeting ID.";
-              try {
-                const rollbackClient = await ZoomMeetingsClient.fromAccountCredentials();
-                await rollbackClient.deleteMeeting(resolvedSnapshot.meetingId, {
-                  schedule_for_reminder: false,
-                  cancel_meeting_reminder: false
-                });
-              } catch {
-                // If rollback fails, continue trying another account.
+              );
+
+              const refreshedSnapshot = await fetchZoomMeetingSnapshot(zoomClient, resolvedSnapshot.meetingId);
+              if (refreshedSnapshot) {
+                resolvedSnapshot = refreshedSnapshot;
               }
-              continue;
-            }
-
-            const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
-            await cancelZoomOccurrencesOutsideRequestedSchedule(
-              zoomClient,
-              resolvedSnapshot,
-              specificDatesSyntheticPlan.requestedMinuteKeys
-            );
-
-            const refreshedSnapshot = await fetchZoomMeetingSnapshot(zoomClient, resolvedSnapshot.meetingId);
-            if (refreshedSnapshot) {
-              resolvedSnapshot = refreshedSnapshot;
-            }
-
-            if (
-              !zoomSnapshotContainsRequestedMinuteKeys(
-                resolvedSnapshot,
-                specificDatesSyntheticPlan.requestedMinuteKeys
-              )
-            ) {
-              lastProvisionError =
-                "Tras cancelar las ocurrencias extra, Zoom no mantuvo todas las fechas solicitadas.";
-              try {
-                const rollbackClient = await ZoomMeetingsClient.fromAccountCredentials();
-                await rollbackClient.deleteMeeting(resolvedSnapshot.meetingId, {
-                  schedule_for_reminder: false,
-                  cancel_meeting_reminder: false
-                });
-              } catch {
-                // If rollback fails, continue trying another account.
-              }
-              continue;
+            } catch (error) {
+              logger.warn("No se pudieron cancelar automaticamente las ocurrencias extra en Zoom.", {
+                meetingId: resolvedSnapshot.meetingId,
+                ownerEmail: candidate.ownerEmail,
+                error: error instanceof Error ? error.message : String(error)
+              });
             }
           } else if (
             input.tipoInstancias === TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM &&
@@ -3754,6 +3712,7 @@ export class SalasService {
   }
 
   async listOpenAgenda(user: SessionUser) {
+    assertAssistantEligibleRole(user);
     const assistant = await getOrCreateAsistente(user);
 
     const events = await db.eventoZoom.findMany({
@@ -3894,7 +3853,7 @@ export class SalasService {
         where: {
           disponibleGeneral: true,
           usuario: {
-            role: { in: [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM] }
+            role: { in: [...LEGACY_ASSISTANT_ROLES] }
           }
         },
         include: {
@@ -3969,6 +3928,7 @@ export class SalasService {
     eventoId: string,
     input: { estadoInteres: EstadoInteresAsistente; comentario?: string }
   ) {
+    assertAssistantEligibleRole(user);
     const assistant = await getOrCreateAsistente(user);
 
     const event = await db.eventoZoom.findUnique({
@@ -4093,6 +4053,7 @@ export class SalasService {
         usuario: {
           select: {
             email: true,
+            role: true,
             name: true,
             firstName: true,
             lastName: true
@@ -4102,6 +4063,11 @@ export class SalasService {
     });
     if (!selectedAssistant?.usuario?.email) {
       throw new Error("No existe el asistente seleccionado.");
+    }
+    if (
+      !LEGACY_ASSISTANT_ROLES.includes(selectedAssistant.usuario.role)
+    ) {
+      throw new Error("Solo se puede asignar personal con rol de asistencia Zoom.");
     }
 
     const rate = await getActiveRate(event.modalidadReunion);
@@ -4318,13 +4284,8 @@ export class SalasService {
     if (!monitorUser) {
       throw new Error("No existe un usuario de monitoreo con ese email.");
     }
-    const validMonitorRoles: UserRole[] = [
-      UserRole.ASISTENTE_ZOOM,
-      UserRole.SOPORTE_ZOOM,
-      UserRole.ADMINISTRADOR
-    ];
-    if (!validMonitorRoles.includes(monitorUser.role)) {
-      throw new Error("El usuario de monitoreo debe tener rol ASISTENTE_ZOOM, SOPORTE_ZOOM o ADMINISTRADOR.");
+    if (!LEGACY_ASSISTANT_ROLES.includes(monitorUser.role)) {
+      throw new Error("El usuario de monitoreo debe tener rol de Asistente Zoom.");
     }
 
     const account = await getOrCreateCuentaZoomDefault();
@@ -4566,7 +4527,7 @@ export class SalasService {
   async listPersonMeetingHours(input: { userId?: string | null }) {
     const peopleRows = await db.user.findMany({
       where: {
-        role: { in: [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM, UserRole.ADMINISTRADOR] }
+        role: { in: [...LEGACY_ASSISTANT_ROLES] }
       },
       select: {
         id: true,

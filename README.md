@@ -1,6 +1,6 @@
 # FLACSO Zoom Salas (Next.js + Prisma)
 
-Sistema web para gestión institucional de solicitudes Zoom, cobertura de soporte, asignaciones y base económica.
+Sistema web para gestión institucional de solicitudes Zoom, cobertura de asistencia, asignaciones y base económica.
 
 ## Estado actual
 
@@ -15,8 +15,8 @@ Sistema web para gestión institucional de solicitudes Zoom, cobertura de soport
 - `ADMINISTRADOR` (usuario maestro, puede actuar como todos)
 - `CONTADURIA`
 - `DOCENTE`
-- `ASISTENTE_ZOOM`
-- `SOPORTE_ZOOM` (operación de soporte)
+- `ASISTENTE_ZOOM` (operación de asistencia)
+- Alias legacy: `SOPORTE_ZOOM` se normaliza automáticamente a `ASISTENTE_ZOOM`
 
 ## Reglas centrales implementadas
 
