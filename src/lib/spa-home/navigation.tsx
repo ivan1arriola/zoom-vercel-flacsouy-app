@@ -66,14 +66,14 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
   solicitudes: {
     label: "Solicitudes",
     visibleInNavigation: true,
-    roles: ["ADMINISTRADOR", "DOCENTE", "CONTADURIA"],
+    roles: ["ADMINISTRADOR", "DOCENTE"],
     group: "OPERACION"
   },
   programas: {
     label: "Programas",
     visibleInNavigation: true,
-    roles: ["ADMINISTRADOR", "DOCENTE", "CONTADURIA"],
-    group: "OPERACION"
+    roles: ["ADMINISTRADOR", "DOCENTE"],
+    group: "ADMIN"
   },
   agenda_libre: {
     label: "Agenda libre",
@@ -97,13 +97,13 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     label: "Asociacion manual",
     visibleInNavigation: true,
     roles: ["ADMINISTRADOR"],
-    group: "ZOOM"
+    group: "OPERACION"
   },
   historico: {
     label: "Registro historico",
     visibleInNavigation: true,
     roles: ["ADMINISTRADOR"],
-    group: "ZOOM"
+    group: "OPERACION"
   },
   cuentas: {
     label: "Cuentas Zoom",

@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  Button,
   Card,
   CardContent,
   Chip,
@@ -31,6 +32,8 @@ type DashboardMetricKey = Exclude<keyof DashboardSummary, "scope">;
 interface SpaTabDashboardProps {
   summary: DashboardSummary | null;
   role: DashboardRole;
+  onGoToCreateMeeting?: () => void;
+  onGoToAssignAssistants?: () => void;
 }
 
 type MetricCardItem = {
@@ -245,6 +248,12 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
     const agendaDisponible = metricValue(summary, "agendaDisponible");
     const misPostulaciones = metricValue(summary, "misPostulaciones");
     const misAsignacionesProximas = metricValue(summary, "misAsignacionesProximas");
+    const misHorasMes = metricValue(summary, "misHorasMes");
+    const misHorasVirtualesMes = metricValue(summary, "misHorasVirtualesMes");
+    const misHorasPresencialesMes = metricValue(summary, "misHorasPresencialesMes");
+    const misHorasMesAnterior = metricValue(summary, "misHorasMesAnterior");
+    const misHorasVirtualesMesAnterior = metricValue(summary, "misHorasVirtualesMesAnterior");
+    const misHorasPresencialesMesAnterior = metricValue(summary, "misHorasPresencialesMesAnterior");
 
     return {
       title: "Mi panel de asistencia",
@@ -272,13 +281,31 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
           description: "Reuniones futuras ya asignadas a tu perfil.",
           color: "#2B6CB0",
           icon: <ScheduleIcon fontSize="small" />
+        },
+        {
+          key: "misHorasMes",
+          title: "Horas del mes",
+          description: `Virtual ${formatHours(misHorasVirtualesMes)} | Presencial ${formatHours(misHorasPresencialesMes)}.`,
+          color: "#2F855A",
+          icon: <ScheduleIcon fontSize="small" />,
+          formatValue: formatHours
+        },
+        {
+          key: "misHorasMesAnterior",
+          title: "Horas del mes pasado",
+          description: `Virtual ${formatHours(misHorasVirtualesMesAnterior)} | Presencial ${formatHours(misHorasPresencialesMesAnterior)}.`,
+          color: "#6B46C1",
+          icon: <EventNoteIcon fontSize="small" />,
+          formatValue: formatHours
         }
       ],
       status: deriveAssistantStatus(summary),
       priorityItems: [
         `${agendaDisponible} evento(s) abiertos para tomar.`,
         `${misPostulaciones} postulacion(es) activas registradas.`,
-        `${misAsignacionesProximas} reunion(es) futura(s) asignadas a tu perfil.`
+        `${misAsignacionesProximas} reunion(es) futura(s) asignadas a tu perfil.`,
+        `Mes actual: ${formatHours(misHorasVirtualesMes)} virtuales y ${formatHours(misHorasPresencialesMes)} presenciales.`,
+        `Mes pasado: ${formatHours(misHorasVirtualesMesAnterior)} virtuales y ${formatHours(misHorasPresencialesMesAnterior)} presenciales.`
       ]
     };
   }
@@ -382,7 +409,12 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
   };
 }
 
-export function SpaTabDashboard({ summary, role }: SpaTabDashboardProps) {
+export function SpaTabDashboard({
+  summary,
+  role,
+  onGoToCreateMeeting,
+  onGoToAssignAssistants
+}: SpaTabDashboardProps) {
   if (!summary) {
     return (
       <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -392,6 +424,157 @@ export function SpaTabDashboard({ summary, role }: SpaTabDashboardProps) {
           </Typography>
         </CardContent>
       </Card>
+    );
+  }
+
+  if (role === "CONTADURIA") {
+    const rows = summary.contaduriaHorasPorAsistente ?? [];
+    const horasVirtualesMes = Number(summary.horasVirtualesMes ?? 0);
+    const horasPresencialesMes = Number(summary.horasPresencialesMes ?? 0);
+    const horasTotalesMes = Number(summary.horasCompletadasMes ?? 0);
+
+    return (
+      <Stack spacing={2}>
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={1}
+              alignItems={{ xs: "flex-start", md: "center" }}
+              justifyContent="space-between"
+            >
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                  Horas por asistente
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Contaduria: horas ejecutadas del mes, separadas entre virtual y presencial (hibrida).
+                </Typography>
+              </Box>
+              <Chip
+                size="small"
+                color={rows.length > 0 ? "success" : "warning"}
+                label={rows.length > 0 ? "Con actividad" : "Sin actividad"}
+              />
+            </Stack>
+          </CardContent>
+        </Card>
+
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: {
+              xs: "repeat(2, minmax(0, 1fr))",
+              md: "repeat(4, minmax(0, 1fr))"
+            },
+            gap: 1.2
+          }}
+        >
+          <Card variant="outlined" sx={{ borderRadius: 3 }}>
+            <CardContent>
+              <Typography variant="caption" color="text.secondary">
+                Horas virtuales
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800 }}>
+                {formatHours(horasVirtualesMes)}
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card variant="outlined" sx={{ borderRadius: 3 }}>
+            <CardContent>
+              <Typography variant="caption" color="text.secondary">
+                Horas presenciales
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800 }}>
+                {formatHours(horasPresencialesMes)}
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card variant="outlined" sx={{ borderRadius: 3 }}>
+            <CardContent>
+              <Typography variant="caption" color="text.secondary">
+                Horas totales
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800 }}>
+                {formatHours(horasTotalesMes)}
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card variant="outlined" sx={{ borderRadius: 3 }}>
+            <CardContent>
+              <Typography variant="caption" color="text.secondary">
+                Asistentes con horas
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800 }}>
+                {rows.length}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Box>
+
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
+              Detalle por asistente
+            </Typography>
+            {rows.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                Todavia no hay horas ejecutadas para este periodo.
+              </Typography>
+            ) : (
+              <Stack spacing={1}>
+                {rows.map((row) => (
+                  <Box
+                    key={row.asistenteZoomId}
+                    sx={{
+                      p: 1.2,
+                      borderRadius: 1.8,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      display: "grid",
+                      gridTemplateColumns: { xs: "1fr", md: "minmax(220px, 2fr) repeat(3, minmax(110px, 1fr))" },
+                      gap: 1
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {row.asistenteNombre}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {row.asistenteEmail || row.asistenteZoomId}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Virtual
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {formatHours(row.horasVirtuales)}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Presencial
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {formatHours(row.horasPresenciales)}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Total
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {formatHours(row.horasTotales)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </CardContent>
+        </Card>
+      </Stack>
     );
   }
 
@@ -432,6 +615,24 @@ export function SpaTabDashboard({ summary, role }: SpaTabDashboardProps) {
           <Alert severity={config.status.color} sx={{ mt: 1.5 }}>
             {config.status.message}
           </Alert>
+          {role === "ADMINISTRADOR" ? (
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
+              <Button
+                variant="contained"
+                onClick={onGoToCreateMeeting}
+                disabled={!onGoToCreateMeeting}
+              >
+                Crear reuniones
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={onGoToAssignAssistants}
+                disabled={!onGoToAssignAssistants}
+              >
+                Asignar asistentes
+              </Button>
+            </Stack>
+          ) : null}
         </CardContent>
       </Card>
 

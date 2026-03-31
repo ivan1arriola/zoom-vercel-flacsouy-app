@@ -6,11 +6,13 @@ export type Solicitud = {
   modalidadReunion: string;
   tipoInstancias: string;
   estadoSolicitud: string;
+  estadoSolicitudVista?: string;
   requestedBy?: {
     id: string;
     email: string;
     name: string;
   } | null;
+  requiereAsistencia?: boolean;
   requiresAsistencia?: boolean;
   meetingPrincipalId?: string | null;
   zoomJoinUrl?: string | null;
@@ -24,6 +26,7 @@ export type Solicitud = {
     endTime?: string;
     durationMinutes: number;
     estadoEvento?: string | null;
+    estadoCobertura?: string | null;
     status?: string | null;
     joinUrl?: string | null;
     requiereAsistencia?: boolean | null;
@@ -42,6 +45,7 @@ export type PastMeeting = {
   id: string;
   solicitudId: string;
   titulo: string;
+  programaNombre: string | null;
   modalidadReunion: string;
   zoomMeetingId: string;
   zoomJoinUrl: string | null;
@@ -220,6 +224,35 @@ export async function submitPastMeeting(payload: Record<string, unknown>): Promi
   };
 }
 
+export async function updatePastMeeting(input: {
+  eventoId: string;
+  programaNombre: string;
+  monitorEmail?: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const result = await requestJson<{ error?: string }>(
+    `/api/v1/reuniones-pasadas/${encodeURIComponent(input.eventoId)}`,
+    {
+      method: "PATCH",
+      ...withJsonBody({
+        programaNombre: input.programaNombre,
+        monitorEmail: input.monitorEmail
+      })
+    }
+  );
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: result.data.error ?? "No se pudo actualizar la reunion."
+    };
+  }
+
+  return { success: true };
+}
+
 export async function deleteSolicitud(solicitudId: string): Promise<{
   success: boolean;
   requestId?: string;
@@ -346,5 +379,89 @@ export async function sendSolicitudReminder(input: {
   return {
     success: true,
     sentTo: result.data.result?.sentTo
+  };
+}
+
+export async function enableSolicitudAsistencia(input: {
+  solicitudId: string;
+  motivo?: string;
+}): Promise<{
+  success: boolean;
+  updatedEvents?: number;
+  alreadyEnabled?: boolean;
+  error?: string;
+}> {
+  const result = await requestJson<{
+    error?: string;
+    result?: {
+      updatedEvents?: number;
+      alreadyEnabled?: boolean;
+    };
+  }>(`/api/v1/solicitudes-sala/${encodeURIComponent(input.solicitudId)}`, {
+    method: "PATCH",
+    ...withJsonBody({
+      motivo: input.motivo
+    })
+  });
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: result.data.error ?? "No se pudo habilitar asistencia Zoom."
+    };
+  }
+
+  return {
+    success: true,
+    updatedEvents: result.data.result?.updatedEvents,
+    alreadyEnabled: result.data.result?.alreadyEnabled
+  };
+}
+
+export async function addSolicitudInstancia(input: {
+  solicitudId: string;
+  inicioProgramadoAt: string;
+  finProgramadoAt: string;
+}): Promise<{
+  success: boolean;
+  result?: {
+    solicitudId: string;
+    eventoId: string;
+    cantidadInstancias: number;
+    usaMeetingPrincipal?: boolean;
+    zoomMeetingId?: string | null;
+  };
+  error?: string;
+}> {
+  const result = await requestJson<{
+    error?: string;
+    result?: {
+      solicitudId: string;
+      eventoId: string;
+      cantidadInstancias: number;
+      usaMeetingPrincipal?: boolean;
+      zoomMeetingId?: string | null;
+    };
+  }>(
+    `/api/v1/solicitudes-sala/${encodeURIComponent(input.solicitudId)}/instancias`,
+    {
+      method: "POST",
+      ...withJsonBody({
+        inicioProgramadoAt: input.inicioProgramadoAt,
+        finProgramadoAt: input.finProgramadoAt
+      })
+    }
+  );
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: result.data.error ?? "No se pudo agregar la instancia."
+    };
+  }
+
+  return {
+    success: true,
+    result: result.data.result
   };
 }

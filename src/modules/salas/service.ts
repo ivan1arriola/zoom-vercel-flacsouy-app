@@ -51,6 +51,7 @@ type ZoomOccurrenceSnapshot = {
   endTime?: string;
   durationMinutes: number;
   estadoEvento?: string | null;
+  estadoCobertura?: string | null;
   status: string | null;
   joinUrl: string | null;
   requiereAsistencia?: boolean | null;
@@ -170,6 +171,22 @@ function extractZoomMeetingIdFromJoinUrl(joinUrl?: string | null): string | null
 
 function buildZoomJoinUrlFromMeetingId(meetingId: string): string {
   return `https://zoom.us/j/${meetingId}`;
+}
+
+function normalizeZoomHostAccountLabel(value?: string | null): string | null {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return null;
+  const lowered = normalized.toLowerCase();
+  if (lowered.includes("flacso.local")) return null;
+  return normalized;
+}
+
+function pickZoomHostAccountLabel(...candidates: Array<string | null | undefined>): string | null {
+  for (const candidate of candidates) {
+    const normalized = normalizeZoomHostAccountLabel(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 function calculateEstimatedCost(minutes: number, rate: number): Prisma.Decimal {
@@ -345,6 +362,89 @@ function formatDateTimeForEmail(date: Date, timezone: string): string {
   } catch {
     return date.toISOString();
   }
+}
+
+function getSolicitudStatusLabel(status: EstadoSolicitudSala | "PENDIENTE_ASISTENCIA_ZOOM"): string {
+  switch (status) {
+    case "PENDIENTE_ASISTENCIA_ZOOM":
+      return "PENDIENTE_ASISTENCIA_ZOOM";
+    case EstadoSolicitudSala.PROVISIONADA:
+      return "LISTO";
+    case EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID:
+      return "Pendiente manual";
+    case EstadoSolicitudSala.CANCELADA_DOCENTE:
+    case EstadoSolicitudSala.CANCELADA_ADMIN:
+      return "Cancelada";
+    default:
+      return status;
+  }
+}
+
+function resolveOccurrenceEndMs(occurrence: ZoomOccurrenceSnapshot): number | null {
+  const parsedEnd = occurrence.endTime ? new Date(occurrence.endTime).getTime() : Number.NaN;
+  if (Number.isFinite(parsedEnd)) return parsedEnd;
+
+  const parsedStart = new Date(occurrence.startTime).getTime();
+  if (!Number.isFinite(parsedStart)) return null;
+
+  const durationMinutes = Number(occurrence.durationMinutes);
+  if (Number.isFinite(durationMinutes) && durationMinutes > 0) {
+    return parsedStart + durationMinutes * 60_000;
+  }
+
+  return parsedStart;
+}
+
+function isOccurrenceActiveOrUpcoming(occurrence: ZoomOccurrenceSnapshot, nowMs: number): boolean {
+  if (occurrence.estadoEvento === EstadoEventoZoom.CANCELADO || occurrence.status === "deleted") {
+    return false;
+  }
+  if (occurrence.estadoEvento === EstadoEventoZoom.FINALIZADO) {
+    return false;
+  }
+
+  const endMs = resolveOccurrenceEndMs(occurrence);
+  if (endMs === null) return true;
+  return endMs >= nowMs;
+}
+
+function isPendingAsistenciaOccurrence(occurrence: ZoomOccurrenceSnapshot, nowMs: number): boolean {
+  if (!isOccurrenceActiveOrUpcoming(occurrence, nowMs)) return false;
+  if (!occurrence.requiereAsistencia) return false;
+
+  const monitorLabel = (occurrence.monitorNombre ?? occurrence.monitorEmail ?? "").trim();
+  const coverage = occurrence.estadoCobertura ?? null;
+
+  if (
+    coverage === EstadoCoberturaSoporte.CONFIRMADO ||
+    coverage === EstadoCoberturaSoporte.ASIGNADO
+  ) {
+    return false;
+  }
+  if (coverage === EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR) {
+    return true;
+  }
+  if (coverage === EstadoCoberturaSoporte.NO_REQUIERE || coverage === EstadoCoberturaSoporte.CANCELADO) {
+    return false;
+  }
+
+  return monitorLabel.length === 0;
+}
+
+function resolveSolicitudDisplayStatus(
+  estadoSolicitud: EstadoSolicitudSala,
+  zoomInstances: ZoomOccurrenceSnapshot[]
+): EstadoSolicitudSala | "PENDIENTE_ASISTENCIA_ZOOM" {
+  if (estadoSolicitud !== EstadoSolicitudSala.PROVISIONADA) {
+    return estadoSolicitud;
+  }
+
+  const nowMs = Date.now();
+  const hasPendingAsistencia = zoomInstances.some((occurrence) =>
+    isPendingAsistenciaOccurrence(occurrence, nowMs)
+  );
+
+  return hasPendingAsistencia ? "PENDIENTE_ASISTENCIA_ZOOM" : EstadoSolicitudSala.PROVISIONADA;
 }
 
 function escapeHtml(value: string): string {
@@ -999,6 +1099,7 @@ function buildSolicitudReminderEmailHtml(input: {
   estadoSolicitud: EstadoSolicitudSala;
   meetingId: string | null;
   joinUrl: string | null;
+  meetingPassword: string | null;
   hostAccount: string | null;
   timezone: string;
   recordatorioMensaje?: string | null;
@@ -1008,18 +1109,20 @@ function buildSolicitudReminderEmailHtml(input: {
     inicio: Date;
     fin: Date;
     estadoEvento: EstadoEventoZoom;
+    requiereAsistencia: boolean;
     monitorLabel: string | null;
     joinUrl: string | null;
   }>;
 }): string {
   const titleLabel = escapeHtml(input.titulo);
-  const solicitudLabel = escapeHtml(input.solicitudId);
   const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
   const responsableLabel = escapeHtml(input.responsableNombre?.trim() || "-");
   const modalidadLabel = escapeHtml(input.modalidad);
-  const estadoLabel = escapeHtml(input.estadoSolicitud);
+  const estadoLabel = escapeHtml(getSolicitudStatusLabel(input.estadoSolicitud));
   const meetingLabel = escapeHtml(input.meetingId ?? "-");
+  const meetingPasswordLabel = escapeHtml(input.meetingPassword ?? "No disponible");
   const hostLabel = escapeHtml(input.hostAccount ?? "-");
+  const joinUrlLabel = escapeHtml(input.joinUrl ?? "No disponible");
   const actorNombreLabel = escapeHtml(input.actorNombre);
   const actorEmailLabel = escapeHtml(input.actorEmail);
   const previewCount = Math.min(input.instancias.length, 40);
@@ -1028,41 +1131,56 @@ function buildSolicitudReminderEmailHtml(input: {
     .map((item, index) => {
       const rango = `${formatDateTimeForEmail(item.inicio, input.timezone)} - ${formatDateTimeForEmail(item.fin, input.timezone)}`;
       const statusLabel = item.estadoEvento === EstadoEventoZoom.CANCELADO ? "Cancelada" : "Programada";
-      const monitorLabel = item.monitorLabel?.trim() || "Sin asignar";
-      const linkLabel = item.joinUrl
-        ? ` | <a href="${escapeHtml(item.joinUrl)}" target="_blank" rel="noreferrer">Abrir</a>`
+      const monitorLine = item.requiereAsistencia
+        ? `<p style="margin: 0 0 6px; color: #334155;"><strong>Asistencia Zoom:</strong> ${escapeHtml(item.monitorLabel?.trim() || "Pendiente")}</p>`
         : "";
-      return `<li>${index + 1}. ${escapeHtml(rango)} | ${escapeHtml(statusLabel)} | Asistencia: ${escapeHtml(monitorLabel)}${linkLabel}</li>`;
+      const linkLine = item.joinUrl
+        ? `<p style="margin: 0;"><a href="${escapeHtml(item.joinUrl)}" target="_blank" rel="noreferrer" style="color: #1d4ed8; text-decoration: underline;">Abrir instancia</a></p>`
+        : "";
+      return `
+        <li style="margin: 0 0 12px;">
+          <div style="border: 1px solid #dbe5f3; border-radius: 10px; padding: 10px 12px; background: #ffffff;">
+            <p style="margin: 0 0 6px; font-weight: 700; color: #0f172a;">Instancia ${index + 1}</p>
+            <p style="margin: 0 0 6px; color: #334155;">${escapeHtml(rango)}</p>
+            <p style="margin: 0 0 6px; color: #334155;"><strong>Estado:</strong> ${escapeHtml(statusLabel)}</p>
+            ${monitorLine}
+            ${linkLine}
+          </div>
+        </li>
+      `;
     })
     .join("");
   const extraCount = input.instancias.length - previewCount;
   const reminderMessage = (input.recordatorioMensaje ?? "").trim();
 
   return `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 760px;">
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 760px; width: 100%; margin: 0 auto;">
       <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
       <h2 style="margin: 0 0 6px;">Recordatorio de reunion</h2>
       <p style="margin: 0 0 16px; color: #334155;">
-        Te compartimos nuevamente la informacion operativa de esta solicitud.
+        Te compartimos nuevamente la informacion operativa de esta reunion.
       </p>
 
-      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
-        <p style="margin: 0 0 8px;"><strong>${titleLabel}</strong></p>
-        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Responsable:</strong> ${responsableLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Estado:</strong> ${estadoLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>ID de reunion:</strong> ${meetingLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
+      <div style="border: 1px solid #dbe5f3; border-radius: 12px; padding: 14px; background: #f1f7ff; margin: 0 0 14px;">
+        <p style="margin: 0 0 8px; font-size: 18px; font-weight: 700; color: #0b2c5e;">${titleLabel}</p>
+        <p style="margin: 0 0 6px;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
+        <p style="margin: 0 0 6px;"><strong>ID de acceso:</strong> ${meetingLabel}</p>
+        <p style="margin: 0 0 6px;"><strong>Enlace de acceso:</strong></p>
+        ${
+          input.joinUrl
+            ? `<p style="margin: 0 0 6px; word-break: break-all;"><a href="${escapeHtml(input.joinUrl)}" target="_blank" rel="noreferrer" style="color: #1d4ed8; text-decoration: underline;">${joinUrlLabel}</a></p>`
+            : `<p style="margin: 0 0 6px;">${joinUrlLabel}</p>`
+        }
+        <p style="margin: 0 0 6px;"><strong>Contrasena de acceso:</strong> ${meetingPasswordLabel}</p>
         <p style="margin: 0;"><strong>Instancias:</strong> ${input.instancias.length}</p>
       </div>
 
-      ${
-        input.joinUrl
-          ? `<p style="margin: 0 0 16px;"><a href="${escapeHtml(input.joinUrl)}" target="_blank" rel="noreferrer" style="display: inline-block; padding: 10px 14px; border-radius: 8px; background: #1f4b8f; color: #ffffff; text-decoration: none; font-weight: 700;">Abrir reunion en Zoom</a></p>`
-          : ""
-      }
+      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #ffffff; margin: 0 0 14px;">
+        <p style="margin: 0 0 6px;"><strong>Programa:</strong> ${programaLabel}</p>
+        <p style="margin: 0 0 6px;"><strong>Responsable:</strong> ${responsableLabel}</p>
+        <p style="margin: 0 0 6px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+        <p style="margin: 0;"><strong>Estado:</strong> ${estadoLabel}</p>
+      </div>
 
       ${
         reminderMessage
@@ -1074,9 +1192,9 @@ function buildSolicitudReminderEmailHtml(input: {
       }
 
       <p style="margin: 0 0 8px;"><strong>Detalle de instancias</strong></p>
-      <ol style="margin: 0 0 12px; padding-left: 20px;">
+      <ul style="margin: 0; padding: 0; list-style: none;">
         ${previewRows}
-      </ol>
+      </ul>
       ${
         extraCount > 0
           ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
@@ -1415,6 +1533,154 @@ async function getOrCreateCuentaZoomDefault() {
   });
 }
 
+type ZoomGroupMember = {
+  zoomAccountId: string;
+  ownerEmail: string;
+  nombreCuenta: string;
+};
+
+function normalizeZoomGroupMembers(members: Array<Record<string, unknown>>): ZoomGroupMember[] {
+  const normalized: ZoomGroupMember[] = [];
+  for (const member of members) {
+    const zoomAccountId = typeof member.id === "string" ? member.id.trim() : "";
+    const ownerEmail =
+      typeof member.email === "string" ? member.email.trim().toLowerCase() : "";
+    if (!zoomAccountId || !ownerEmail) continue;
+
+    const firstName = typeof member.first_name === "string" ? member.first_name.trim() : "";
+    const lastName = typeof member.last_name === "string" ? member.last_name.trim() : "";
+    const nombreCuenta = [firstName, lastName].filter(Boolean).join(" ").trim() || ownerEmail;
+
+    normalized.push({
+      zoomAccountId,
+      ownerEmail,
+      nombreCuenta
+    });
+  }
+  return normalized;
+}
+
+function resolveZoomUserRefForCuenta(account: CuentaZoom): string | null {
+  const zoomAccountId = (account.zoomAccountId ?? "").trim();
+  if (zoomAccountId) return zoomAccountId;
+
+  const ownerEmail = (account.ownerEmail ?? "").trim();
+  if (!ownerEmail) return null;
+  if (ownerEmail.toLowerCase().endsWith("@flacso.local")) return null;
+  return ownerEmail;
+}
+
+async function syncCuentaZoomAccountsFromGroup(
+  zoomClient: ZoomMeetingsClient
+): Promise<CuentaZoom[] | null> {
+  if (!env.ZOOM_GROUP_ID) return null;
+
+  const membersRaw = await zoomClient.listGroupMembers(env.ZOOM_GROUP_ID, 300).catch(() => []);
+  const members = normalizeZoomGroupMembers(membersRaw);
+  if (members.length === 0) return [];
+
+  for (const member of members) {
+    try {
+      const existing = await db.cuentaZoom.findUnique({
+        where: { zoomAccountId: member.zoomAccountId }
+      });
+      if (existing) {
+        if (
+          existing.ownerEmail !== member.ownerEmail ||
+          (existing.nombreCuenta || "").trim() !== member.nombreCuenta ||
+          !existing.activa
+        ) {
+          await db.cuentaZoom.update({
+            where: { id: existing.id },
+            data: {
+              ownerEmail: member.ownerEmail,
+              nombreCuenta: member.nombreCuenta,
+              activa: true
+            }
+          });
+        }
+        continue;
+      }
+
+      if (!env.ZOOM_CLIENT_ID || !env.ZOOM_CLIENT_SECRET) {
+        logger.warn("No se pudo crear cuenta Zoom local para miembro del grupo (faltan credenciales).", {
+          zoomAccountId: member.zoomAccountId,
+          ownerEmail: member.ownerEmail
+        });
+        continue;
+      }
+
+      await db.cuentaZoom.create({
+        data: {
+          nombreCuenta: member.nombreCuenta,
+          zoomAccountId: member.zoomAccountId,
+          ownerEmail: member.ownerEmail,
+          clientId: env.ZOOM_CLIENT_ID,
+          clientSecretRef: "env:ZOOM_CLIENT_SECRET",
+          activa: true,
+          prioridad: 100
+        }
+      });
+    } catch (error) {
+      logger.warn("No se pudo sincronizar una cuenta Zoom del grupo en la base local.", {
+        zoomAccountId: member.zoomAccountId,
+        ownerEmail: member.ownerEmail,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  const memberIds = members.map((member) => member.zoomAccountId);
+  return db.cuentaZoom.findMany({
+    where: {
+      activa: true,
+      zoomAccountId: { in: memberIds }
+    },
+    orderBy: [{ prioridad: "asc" }, { createdAt: "asc" }]
+  });
+}
+
+async function resolveActiveCuentaZoomBySelector(selector: string): Promise<CuentaZoom | null> {
+  const normalizedSelector = selector.trim();
+  if (!normalizedSelector) return null;
+
+  const directMatch = await db.cuentaZoom.findFirst({
+    where: {
+      activa: true,
+      OR: [
+        { id: normalizedSelector },
+        { zoomAccountId: normalizedSelector },
+        { ownerEmail: { equals: normalizedSelector, mode: "insensitive" } }
+      ]
+    }
+  });
+  if (directMatch) return directMatch;
+
+  if (!env.ZOOM_GROUP_ID) return null;
+
+  try {
+    const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+    await syncCuentaZoomAccountsFromGroup(zoomClient);
+  } catch (error) {
+    logger.warn("No se pudo sincronizar cuentas Zoom del grupo al resolver cuenta seleccionada.", {
+      selector: normalizedSelector,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+
+  return db.cuentaZoom.findFirst({
+    where: {
+      activa: true,
+      OR: [
+        { id: normalizedSelector },
+        { zoomAccountId: normalizedSelector },
+        { ownerEmail: { equals: normalizedSelector, mode: "insensitive" } }
+      ]
+    }
+  });
+}
+
 function hasTimeOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
   if (!aStart || !aEnd || !bStart || !bEnd) return false;
   if (aEnd <= aStart || bEnd <= bStart) return false;
@@ -1494,12 +1760,33 @@ async function listZoomBusyWindowsForOwner(
 }
 
 async function listAvailableCuentaZoomCandidatesForAllInstances(instancePlans: InstancePlan[]): Promise<CuentaZoom[]> {
-  let activeAccounts = await db.cuentaZoom.findMany({
-    where: { activa: true },
-    orderBy: [{ prioridad: "asc" }, { createdAt: "asc" }]
-  });
+  const enforceGroupAccounts = Boolean(env.ZOOM_GROUP_ID);
+  let zoomClient: ZoomMeetingsClient | null = null;
+  try {
+    zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+  } catch (error) {
+    logger.warn("No se pudo inicializar cliente Zoom para validar disponibilidad por cuenta.", {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 
-  if (activeAccounts.length === 0) {
+  let activeAccounts: CuentaZoom[] = [];
+
+  if (enforceGroupAccounts) {
+    if (!zoomClient) {
+      logger.warn("No se pueden validar cuentas del grupo Streaming FLACSO sin cliente Zoom.", {});
+      return [];
+    }
+    const syncedGroupAccounts = await syncCuentaZoomAccountsFromGroup(zoomClient);
+    activeAccounts = syncedGroupAccounts ?? [];
+  } else {
+    activeAccounts = await db.cuentaZoom.findMany({
+      where: { activa: true },
+      orderBy: [{ prioridad: "asc" }, { createdAt: "asc" }]
+    });
+  }
+
+  if (activeAccounts.length === 0 && !enforceGroupAccounts) {
     const created = await getOrCreateCuentaZoomDefault();
     if (created) {
       activeAccounts = [created];
@@ -1513,15 +1800,6 @@ async function listAvailableCuentaZoomCandidatesForAllInstances(instancePlans: I
     start: plan.inicio,
     end: plan.fin
   }));
-
-  let zoomClient: ZoomMeetingsClient | null = null;
-  try {
-    zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
-  } catch (error) {
-    logger.warn("No se pudo inicializar cliente Zoom para validar disponibilidad por cuenta.", {
-      error: error instanceof Error ? error.message : String(error)
-    });
-  }
 
   const evaluations = await Promise.all(
     activeAccounts.map(async (account): Promise<AccountCandidateEvaluation> => {
@@ -1563,12 +1841,29 @@ async function listAvailableCuentaZoomCandidatesForAllInstances(instancePlans: I
 
       let zoomBusyWindows: BusyWindow[] = [];
       if (zoomClient) {
+        const zoomUserRef = resolveZoomUserRefForCuenta(account);
+        if (!zoomUserRef) {
+          logger.warn("Cuenta Zoom sin referencia válida para validar disponibilidad.", {
+            cuentaZoomId: account.id,
+            ownerEmail: account.ownerEmail,
+            zoomAccountId: account.zoomAccountId
+          });
+          return {
+            account,
+            supportsAllInstances: false,
+            loadScore: Number.MAX_SAFE_INTEGER,
+            dbFutureEventsCount,
+            zoomFutureMeetingsCount: 0
+          };
+        }
+
         try {
-          zoomBusyWindows = await listZoomBusyWindowsForOwner(zoomClient, account.ownerEmail);
+          zoomBusyWindows = await listZoomBusyWindowsForOwner(zoomClient, zoomUserRef);
         } catch (error) {
           logger.warn("No se pudo validar disponibilidad Zoom para una cuenta, se descarta como candidata.", {
             cuentaZoomId: account.id,
             ownerEmail: account.ownerEmail,
+            zoomAccountId: account.zoomAccountId,
             error: error instanceof Error ? error.message : String(error)
           });
           return {
@@ -1746,6 +2041,29 @@ function buildInstancePlans(input: CreateSolicitudInput, durationMinutes: number
     inicio,
     fin: new Date(inicio.getTime() + durationMinutes * 60000)
   }));
+}
+
+function parseStoredInstanceStarts(value: Prisma.JsonValue | null | undefined): Date[] {
+  if (!Array.isArray(value)) return [];
+
+  const starts: Date[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const parsed = new Date(item);
+    if (Number.isNaN(parsed.getTime())) continue;
+    starts.push(parsed);
+  }
+
+  starts.sort((a, b) => a.getTime() - b.getTime());
+  const deduped: Date[] = [];
+  const seen = new Set<number>();
+  for (const start of starts) {
+    const key = start.getTime();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(start);
+  }
+  return deduped;
 }
 
 function validateZoomRecurrenceRestrictions(input: CreateSolicitudInput) {
@@ -2394,47 +2712,141 @@ export class SalasService {
 
     if (user.role === UserRole.ASISTENTE_ZOOM) {
       const assistant = await getOrCreateAsistente(user);
-      const [agendaDisponible, misPostulaciones, misAsignacionesProximas] = await Promise.all([
-        db.eventoZoom.count({
-          where: {
-            requiereAsistencia: true,
-            estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR,
-            agendaAbiertaAt: { not: null },
-            agendaCierraAt: { gt: now },
-            inicioProgramadoAt: { gte: now },
-            estadoEvento: { not: EstadoEventoZoom.CANCELADO }
-          }
-        }),
-        db.interesAsistenteEvento.count({
-          where: {
-            asistenteZoomId: assistant.id,
-            estadoInteres: EstadoInteresAsistente.ME_INTERESA,
-            evento: {
+      const monthStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)
+      );
+      const nextMonthStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0)
+      );
+      const previousMonthStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0, 0)
+      );
+
+      const [agendaDisponible, misPostulaciones, misAsignacionesProximas, executedAssignments] =
+        await Promise.all([
+          db.eventoZoom.count({
+            where: {
+              requiereAsistencia: true,
+              estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR,
+              agendaAbiertaAt: { not: null },
+              agendaCierraAt: { gt: now },
               inicioProgramadoAt: { gte: now },
               estadoEvento: { not: EstadoEventoZoom.CANCELADO }
             }
-          }
-        }),
-        db.asignacionAsistente.count({
-          where: {
-            asistenteZoomId: assistant.id,
-            tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
-            estadoAsignacion: {
-              in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO]
+          }),
+          db.interesAsistenteEvento.count({
+            where: {
+              asistenteZoomId: assistant.id,
+              estadoInteres: EstadoInteresAsistente.ME_INTERESA,
+              evento: {
+                inicioProgramadoAt: { gte: now },
+                estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+              }
+            }
+          }),
+          db.asignacionAsistente.count({
+            where: {
+              asistenteZoomId: assistant.id,
+              tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+              estadoAsignacion: {
+                in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO]
+              },
+              evento: {
+                inicioProgramadoAt: { gte: now },
+                estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+              }
+            }
+          }),
+          db.asignacionAsistente.findMany({
+            where: {
+              asistenteZoomId: assistant.id,
+              tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+              estadoAsignacion: {
+                in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO]
+              },
+              evento: {
+                requiereAsistencia: true,
+                estadoEjecucion: EstadoEjecucionEvento.EJECUTADO,
+                estadoEvento: { not: EstadoEventoZoom.CANCELADO },
+                inicioProgramadoAt: {
+                  gte: previousMonthStart,
+                  lt: nextMonthStart
+                }
+              }
             },
-            evento: {
-              inicioProgramadoAt: { gte: now },
-              estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            select: {
+              evento: {
+                select: {
+                  modalidadReunion: true,
+                  inicioProgramadoAt: true,
+                  finProgramadoAt: true,
+                  inicioRealAt: true,
+                  finRealAt: true,
+                  minutosReales: true
+                }
+              }
             }
-          }
-        })
-      ]);
+          })
+        ]);
+
+      let misMinutosVirtualesMes = 0;
+      let misMinutosPresencialesMes = 0;
+      let misMinutosVirtualesMesAnterior = 0;
+      let misMinutosPresencialesMesAnterior = 0;
+
+      for (const assignment of executedAssignments) {
+        const event = assignment.evento;
+        const minutes =
+          event.minutosReales ??
+          Math.max(
+            0,
+            Math.round(
+              ((event.finRealAt ?? event.finProgramadoAt).getTime() -
+                (event.inicioRealAt ?? event.inicioProgramadoAt).getTime()) /
+                60000
+            )
+          );
+
+        const isCurrentMonth =
+          event.inicioProgramadoAt >= monthStart && event.inicioProgramadoAt < nextMonthStart;
+        const isPreviousMonth =
+          event.inicioProgramadoAt >= previousMonthStart && event.inicioProgramadoAt < monthStart;
+        if (!isCurrentMonth && !isPreviousMonth) continue;
+
+        if (event.modalidadReunion === ModalidadReunion.VIRTUAL) {
+          if (isCurrentMonth) misMinutosVirtualesMes += minutes;
+          else misMinutosVirtualesMesAnterior += minutes;
+          continue;
+        }
+
+        if (isCurrentMonth) misMinutosPresencialesMes += minutes;
+        else misMinutosPresencialesMesAnterior += minutes;
+      }
+
+      const misHorasVirtualesMes = Number((misMinutosVirtualesMes / 60).toFixed(1));
+      const misHorasPresencialesMes = Number((misMinutosPresencialesMes / 60).toFixed(1));
+      const misHorasMes = Number(
+        ((misMinutosVirtualesMes + misMinutosPresencialesMes) / 60).toFixed(1)
+      );
+      const misHorasVirtualesMesAnterior = Number((misMinutosVirtualesMesAnterior / 60).toFixed(1));
+      const misHorasPresencialesMesAnterior = Number(
+        (misMinutosPresencialesMesAnterior / 60).toFixed(1)
+      );
+      const misHorasMesAnterior = Number(
+        ((misMinutosVirtualesMesAnterior + misMinutosPresencialesMesAnterior) / 60).toFixed(1)
+      );
 
       return {
         scope: UserRole.ASISTENTE_ZOOM,
         agendaDisponible,
         misPostulaciones,
-        misAsignacionesProximas
+        misAsignacionesProximas,
+        misHorasMes,
+        misHorasVirtualesMes,
+        misHorasPresencialesMes,
+        misHorasMesAnterior,
+        misHorasVirtualesMesAnterior,
+        misHorasPresencialesMesAnterior
       };
     }
 
@@ -2461,9 +2873,22 @@ export class SalasService {
       },
       select: {
         asistenteZoomId: true,
+        asistente: {
+          select: {
+            usuario: {
+              select: {
+                email: true,
+                name: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        },
         evento: {
           select: {
             id: true,
+            modalidadReunion: true,
             inicioProgramadoAt: true,
             finProgramadoAt: true,
             inicioRealAt: true,
@@ -2477,6 +2902,20 @@ export class SalasService {
     const eventIds = new Set<string>();
     const assistantIds = new Set<string>();
     let completedMinutes = 0;
+    let virtualMinutes = 0;
+    let presencialMinutes = 0;
+    const perAssistant = new Map<
+      string,
+      {
+        asistenteZoomId: string;
+        asistenteNombre: string;
+        asistenteEmail: string;
+        minutosVirtuales: number;
+        minutosPresenciales: number;
+        reunionesVirtuales: number;
+        reunionesPresenciales: number;
+      }
+    >();
 
     for (const assignment of executedAssignments) {
       eventIds.add(assignment.evento.id);
@@ -2495,13 +2934,77 @@ export class SalasService {
           )
         );
       completedMinutes += minutes;
+
+      if (assignment.evento.modalidadReunion === ModalidadReunion.VIRTUAL) {
+        virtualMinutes += minutes;
+      } else {
+        presencialMinutes += minutes;
+      }
+
+      const user = assignment.asistente?.usuario;
+      const asistenteNombre =
+        user?.name ||
+        [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() ||
+        user?.email ||
+        assignment.asistenteZoomId;
+      const asistenteEmail = user?.email ?? "";
+      const key = assignment.asistenteZoomId;
+      const existing = perAssistant.get(key);
+      if (existing) {
+        if (assignment.evento.modalidadReunion === ModalidadReunion.VIRTUAL) {
+          existing.minutosVirtuales += minutes;
+          existing.reunionesVirtuales += 1;
+        } else {
+          existing.minutosPresenciales += minutes;
+          existing.reunionesPresenciales += 1;
+        }
+      } else {
+        perAssistant.set(key, {
+          asistenteZoomId: key,
+          asistenteNombre,
+          asistenteEmail,
+          minutosVirtuales: assignment.evento.modalidadReunion === ModalidadReunion.VIRTUAL ? minutes : 0,
+          minutosPresenciales: assignment.evento.modalidadReunion === ModalidadReunion.VIRTUAL ? 0 : minutes,
+          reunionesVirtuales: assignment.evento.modalidadReunion === ModalidadReunion.VIRTUAL ? 1 : 0,
+          reunionesPresenciales: assignment.evento.modalidadReunion === ModalidadReunion.VIRTUAL ? 0 : 1
+        });
+      }
     }
+
+    const contaduriaHorasPorAsistente = Array.from(perAssistant.values())
+      .map((item) => {
+        const horasVirtuales = Number((item.minutosVirtuales / 60).toFixed(1));
+        const horasPresenciales = Number((item.minutosPresenciales / 60).toFixed(1));
+        const horasTotales = Number(((item.minutosVirtuales + item.minutosPresenciales) / 60).toFixed(1));
+        const reunionesTotales = item.reunionesVirtuales + item.reunionesPresenciales;
+
+        return {
+          asistenteZoomId: item.asistenteZoomId,
+          asistenteNombre: item.asistenteNombre,
+          asistenteEmail: item.asistenteEmail,
+          horasVirtuales,
+          horasPresenciales,
+          horasTotales,
+          reunionesVirtuales: item.reunionesVirtuales,
+          reunionesPresenciales: item.reunionesPresenciales,
+          reunionesTotales
+        };
+      })
+      .sort((left, right) => {
+        if (right.horasTotales !== left.horasTotales) {
+          return right.horasTotales - left.horasTotales;
+        }
+        return left.asistenteNombre.localeCompare(right.asistenteNombre, "es");
+      });
 
     return {
       scope: UserRole.CONTADURIA,
       reunionesCompletadasMes: eventIds.size,
       horasCompletadasMes: Number((completedMinutes / 60).toFixed(1)),
-      personasActivasMes: assistantIds.size
+      personasActivasMes: assistantIds.size,
+      horasVirtualesMes: Number((virtualMinutes / 60).toFixed(1)),
+      horasPresencialesMes: Number((presencialMinutes / 60).toFixed(1)),
+      contaduriaHorasPorAsistente
     };
   }
 
@@ -2621,6 +3124,7 @@ export class SalasService {
             Math.floor((event.finProgramadoAt.getTime() - event.inicioProgramadoAt.getTime()) / 60000)
           ),
           estadoEvento: event.estadoEvento,
+          estadoCobertura: event.estadoCobertura,
           status: null,
           joinUrl: event.zoomJoinUrl ?? null,
           requiereAsistencia: event.requiereAsistencia,
@@ -2651,6 +3155,7 @@ export class SalasService {
                 Math.floor((solicitud.fechaFinSolicitada.getTime() - solicitud.fechaInicioSolicitada.getTime()) / 60000)
               ),
               estadoEvento: null,
+              estadoCobertura: null,
               status: null,
               joinUrl: null,
               requiereAsistencia: solicitud.requiereAsistencia,
@@ -2708,6 +3213,7 @@ export class SalasService {
             ).toISOString(),
           durationMinutes: Math.max(1, snapshotInstance.durationMinutes || matchedFallback?.durationMinutes || 60),
           estadoEvento: matchedFallback?.estadoEvento ?? null,
+          estadoCobertura: matchedFallback?.estadoCobertura ?? null,
           status: snapshotInstance.status ?? matchedFallback?.status ?? null,
           joinUrl:
             snapshotInstance.joinUrl ??
@@ -2727,11 +3233,12 @@ export class SalasService {
         snapshot?.joinUrl ??
         zoomInstances.find((event) => event.joinUrl)?.joinUrl ??
         null;
-      const zoomHostAccount =
-        snapshot?.hostEmail ??
-        solicitud.cuentaZoomAsignada?.ownerEmail ??
-        solicitud.cuentaZoomAsignada?.nombreCuenta ??
-        null;
+      const zoomHostAccount = pickZoomHostAccountLabel(
+        snapshot?.hostEmail,
+        solicitud.cuentaZoomAsignada?.ownerEmail,
+        solicitud.cuentaZoomAsignada?.nombreCuenta
+      );
+      const estadoSolicitudVista = resolveSolicitudDisplayStatus(solicitud.estadoSolicitud, zoomInstances);
 
       return {
         ...solicitud,
@@ -2746,10 +3253,174 @@ export class SalasService {
         zoomJoinUrl,
         zoomHostAccount,
         zoomInstanceCount: zoomInstances.length || solicitud.cantidadInstancias || 1,
+        estadoSolicitudVista,
         zoomInstances,
         zoomReadFromApi: Boolean(snapshot)
       };
     });
+  }
+
+  async enableSolicitudAssistance(
+    admin: SessionUser,
+    solicitudId: string,
+    input?: { motivo?: string | null }
+  ) {
+    if (admin.role !== UserRole.ADMINISTRADOR) {
+      throw new Error("Solo administracion puede editar asistencia Zoom en solicitudes.");
+    }
+
+    const solicitud = await db.solicitudSala.findUnique({
+      where: { id: solicitudId },
+      select: {
+        id: true,
+        titulo: true,
+        programaNombre: true,
+        responsableNombre: true,
+        modalidadReunion: true,
+        timezone: true,
+        estadoSolicitud: true,
+        requiereAsistencia: true,
+        motivoAsistencia: true,
+        eventos: {
+          orderBy: { inicioProgramadoAt: "asc" },
+          select: {
+            id: true,
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            estadoEvento: true,
+            requiereAsistencia: true,
+            estadoCobertura: true,
+            agendaAbiertaAt: true,
+            agendaCierraAt: true
+          }
+        }
+      }
+    });
+
+    if (!solicitud) {
+      throw new Error("Solicitud no encontrada.");
+    }
+
+    if (
+      solicitud.estadoSolicitud === EstadoSolicitudSala.CANCELADA_ADMIN ||
+      solicitud.estadoSolicitud === EstadoSolicitudSala.CANCELADA_DOCENTE
+    ) {
+      throw new Error("No se puede editar asistencia en una solicitud cancelada.");
+    }
+
+    const now = new Date();
+    const activeEvents = solicitud.eventos.filter((event) => {
+      if (event.estadoEvento === EstadoEventoZoom.CANCELADO) return false;
+      if (event.estadoEvento === EstadoEventoZoom.FINALIZADO) return false;
+      return event.finProgramadoAt > now;
+    });
+
+    if (activeEvents.length === 0) {
+      throw new Error("No hay instancias activas o futuras para habilitar asistencia Zoom.");
+    }
+
+    const eventsToUpdate = activeEvents.filter((event) => {
+      if (!event.requiereAsistencia) return true;
+      if (event.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE) return true;
+      if (event.estadoCobertura === EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR) {
+        return !event.agendaAbiertaAt || !event.agendaCierraAt || event.agendaCierraAt <= now;
+      }
+      return false;
+    });
+
+    if (solicitud.requiereAsistencia && eventsToUpdate.length === 0) {
+      return {
+        solicitudId: solicitud.id,
+        updatedEvents: 0,
+        alreadyEnabled: true
+      };
+    }
+
+    const motivo = (input?.motivo ?? "").trim() ||
+      "Asistencia Zoom habilitada desde la pestana Solicitudes.";
+
+    await db.$transaction(async (tx) => {
+      await tx.solicitudSala.update({
+        where: { id: solicitud.id },
+        data: {
+          requiereAsistencia: true,
+          motivoAsistencia: solicitud.motivoAsistencia?.trim() ? solicitud.motivoAsistencia : motivo
+        }
+      });
+
+      for (const event of eventsToUpdate) {
+        const closeAtBase = new Date(event.inicioProgramadoAt.getTime() - 24 * 60 * 60000);
+        const minCloseAt = new Date(now.getTime() + 30 * 60 * 1000);
+        const agendaCierraAt = closeAtBase > minCloseAt ? closeAtBase : minCloseAt;
+
+        await tx.eventoZoom.update({
+          where: { id: event.id },
+          data: {
+            requiereAsistencia: true,
+            estadoCobertura:
+              event.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE
+                ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+                : event.estadoCobertura,
+            agendaAbiertaAt: now,
+            agendaCierraAt
+          }
+        });
+      }
+
+      await tx.auditoria.create({
+        data: {
+          actorUsuarioId: admin.id,
+          accion: "SOLICITUD_HABILITA_ASISTENCIA",
+          entidadTipo: "SolicitudSala",
+          entidadId: solicitud.id,
+          valorAnterior: {
+            requiereAsistencia: solicitud.requiereAsistencia,
+            estadoSolicitud: solicitud.estadoSolicitud
+          },
+          valorNuevo: {
+            requiereAsistencia: true,
+            updatedEvents: eventsToUpdate.length,
+            eventsUpdatedIds: eventsToUpdate.map((event) => event.id)
+          }
+        }
+      });
+    });
+
+    await notifyAdminTelegramMovement({
+      action: "SOLICITUD_HABILITA_ASISTENCIA",
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      entityType: "SolicitudSala",
+      entityId: solicitud.id,
+      summary: solicitud.titulo,
+      details: {
+        updatedEvents: eventsToUpdate.length
+      }
+    });
+
+    if (eventsToUpdate.length > 0) {
+      await sendMonitoringRequiredEmailToAssistantPool({
+        solicitudId: solicitud.id,
+        titulo: solicitud.titulo,
+        modalidad: solicitud.modalidadReunion,
+        programaNombre: solicitud.programaNombre ?? null,
+        responsableNombre: solicitud.responsableNombre ?? null,
+        timezone: solicitud.timezone || "America/Montevideo",
+        instanceStarts: eventsToUpdate.map((event) => event.inicioProgramadoAt),
+        estadoSolicitud: solicitud.estadoSolicitud
+      }).catch((error) => {
+        logger.warn("No se pudo enviar correo al pool de asistentes Zoom (edicion de asistencia).", {
+          solicitudId: solicitud.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
+
+    return {
+      solicitudId: solicitud.id,
+      updatedEvents: eventsToUpdate.length,
+      alreadyEnabled: false
+    };
   }
 
   async sendSolicitudReminder(
@@ -2796,8 +3467,10 @@ export class SalasService {
             inicioProgramadoAt: true,
             finProgramadoAt: true,
             estadoEvento: true,
+            requiereAsistencia: true,
             zoomJoinUrl: true,
             zoomMeetingId: true,
+            zoomPayloadUltimo: true,
             asignaciones: {
               where: {
                 tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
@@ -2865,6 +3538,7 @@ export class SalasService {
         inicio: event.inicioProgramadoAt,
         fin: event.finProgramadoAt,
         estadoEvento: event.estadoEvento,
+        requiereAsistencia: event.requiereAsistencia,
         monitorLabel: monitor ? getUserDisplayName(monitor) : null,
         joinUrl: event.zoomJoinUrl ?? null
       };
@@ -2877,10 +3551,18 @@ export class SalasService {
       solicitud.meetingPrincipalId ??
       solicitud.eventos.find((event) => (event.zoomMeetingId ?? "").trim())?.zoomMeetingId ??
       null;
-    const hostAccount =
-      solicitud.cuentaZoomAsignada?.ownerEmail ??
-      solicitud.cuentaZoomAsignada?.nombreCuenta ??
-      null;
+    const hostAccount = pickZoomHostAccountLabel(
+      solicitud.cuentaZoomAsignada?.ownerEmail,
+      solicitud.cuentaZoomAsignada?.nombreCuenta
+    );
+    const rawPayload =
+      solicitud.eventos.find((event) => Boolean(event.zoomPayloadUltimo))?.zoomPayloadUltimo ??
+      undefined;
+    const meetingPassword = await resolveMeetingPassword({
+      hostAccount,
+      joinUrl,
+      rawPayload
+    });
 
     const actorNombre =
       getUserDisplayName({
@@ -2899,6 +3581,7 @@ export class SalasService {
       estadoSolicitud: solicitud.estadoSolicitud,
       meetingId,
       joinUrl,
+      meetingPassword,
       hostAccount,
       timezone: solicitud.timezone,
       recordatorioMensaje: input.mensaje,
@@ -2910,7 +3593,7 @@ export class SalasService {
     const client = new EmailClient();
     await client.send({
       to,
-      subject: `Recordatorio de solicitud: ${solicitud.titulo}`,
+      subject: `Recordatorio de reunion: ${solicitud.titulo}`,
       html
     });
 
@@ -2956,6 +3639,7 @@ export class SalasService {
           select: {
             id: true,
             titulo: true,
+            programaNombre: true,
             docente: {
               select: {
                 usuario: {
@@ -3021,6 +3705,7 @@ export class SalasService {
           id: event.id,
           solicitudId: event.solicitud.id,
           titulo: event.solicitud.titulo,
+          programaNombre: event.solicitud.programaNombre ?? null,
           modalidadReunion: event.modalidadReunion,
           zoomMeetingId: meetingId,
           zoomJoinUrl: event.zoomJoinUrl ?? buildZoomJoinUrlFromMeetingId(meetingId),
@@ -3036,6 +3721,221 @@ export class SalasService {
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
+  }
+
+  async updatePastMeeting(
+    admin: SessionUser,
+    eventoId: string,
+    input: {
+      programaNombre?: string;
+      monitorEmail?: string;
+    }
+  ) {
+    if (admin.role !== UserRole.ADMINISTRADOR) {
+      throw new Error("Forbidden");
+    }
+
+    const event = await db.eventoZoom.findUnique({
+      where: { id: eventoId },
+      select: {
+        id: true,
+        solicitudSalaId: true,
+        modalidadReunion: true,
+        inicioProgramadoAt: true,
+        finProgramadoAt: true,
+        inicioRealAt: true,
+        finRealAt: true,
+        minutosReales: true,
+        solicitud: {
+          select: {
+            id: true,
+            titulo: true,
+            programaNombre: true,
+            requiereAsistencia: true
+          }
+        },
+        asignaciones: {
+          where: {
+            tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+            estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+          },
+          orderBy: { fechaAsignacionAt: "desc" },
+          take: 1,
+          select: {
+            id: true,
+            asistente: {
+              select: {
+                usuario: {
+                  select: {
+                    email: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!event) {
+      throw new Error("Reunion no encontrada.");
+    }
+
+    const eventEnd = event.finRealAt ?? event.finProgramadoAt;
+    if (eventEnd > new Date()) {
+      throw new Error("Solo se pueden editar reuniones que ya finalizaron.");
+    }
+
+    const normalizedProgramaNombre =
+      typeof input.programaNombre === "string" ? input.programaNombre.trim() : "";
+    const programaNombreFinal =
+      normalizedProgramaNombre || event.solicitud.programaNombre || null;
+
+    const normalizedMonitorEmail =
+      typeof input.monitorEmail === "string" ? input.monitorEmail.trim().toLowerCase() : "";
+    const currentMonitorEmail =
+      event.asignaciones[0]?.asistente.usuario.email?.trim().toLowerCase() ?? null;
+    const shouldUpdateMonitor = Boolean(normalizedMonitorEmail) && normalizedMonitorEmail !== currentMonitorEmail;
+
+    let monitorUser:
+      | {
+          id: string;
+          email: string;
+          role: UserRole;
+        }
+      | null = null;
+    let rate:
+      | {
+          valorHora: Prisma.Decimal;
+          moneda: string;
+        }
+      | null = null;
+
+    if (shouldUpdateMonitor) {
+      monitorUser = await db.user.findUnique({
+        where: { email: normalizedMonitorEmail },
+        select: { id: true, email: true, role: true }
+      });
+      if (!monitorUser) {
+        throw new Error("No existe un usuario de asistencia con ese email.");
+      }
+      if (!LEGACY_ASSISTANT_ROLES.includes(monitorUser.role)) {
+        throw new Error("El usuario seleccionado debe tener rol de Asistente Zoom.");
+      }
+
+      const activeRate = await getActiveRate(event.modalidadReunion);
+      if (!activeRate) {
+        throw new Error("No hay tarifa activa para actualizar la asistencia.");
+      }
+      rate = {
+        valorHora: activeRate.valorHora,
+        moneda: activeRate.moneda
+      };
+    }
+
+    const start = event.inicioRealAt ?? event.inicioProgramadoAt;
+    const end = event.finRealAt ?? event.finProgramadoAt;
+    const durationMinutes =
+      event.minutosReales ?? Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
+    const amount =
+      rate != null
+        ? calculateEstimatedCost(durationMinutes, Number(rate.valorHora))
+        : null;
+
+    await db.$transaction(async (tx) => {
+      await tx.solicitudSala.update({
+        where: { id: event.solicitud.id },
+        data: {
+          programaNombre: programaNombreFinal,
+          requiereAsistencia: normalizedMonitorEmail ? true : undefined,
+          motivoAsistencia:
+            normalizedMonitorEmail && !event.solicitud.requiereAsistencia
+              ? "Ajuste administrativo de reunion pasada."
+              : undefined
+        }
+      });
+
+      if (shouldUpdateMonitor && monitorUser && rate && amount) {
+        const assistant = await tx.asistenteZoom.upsert({
+          where: { usuarioId: monitorUser.id },
+          create: { usuarioId: monitorUser.id },
+          update: {}
+        });
+
+        const previousAssignmentId = event.asignaciones[0]?.id ?? null;
+
+        await tx.asignacionAsistente.updateMany({
+          where: {
+            eventoZoomId: eventoId,
+            tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+            estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+          },
+          data: {
+            estadoAsignacion: EstadoAsignacion.REASIGNADO
+          }
+        });
+
+        await tx.asignacionAsistente.create({
+          data: {
+            eventoZoomId: eventoId,
+            asistenteZoomId: assistant.id,
+            tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+            estadoAsignacion: EstadoAsignacion.ACEPTADO,
+            asignadoPorUsuarioId: admin.id,
+            motivoAsignacion: "Ajuste administrativo de reunion pasada.",
+            reasignacionDeId: previousAssignmentId ?? undefined,
+            fechaRespuestaAt: new Date(),
+            modalidadSnapshot: event.modalidadReunion,
+            tarifaAplicadaHora: rate.valorHora,
+            moneda: rate.moneda,
+            montoEstimado: amount,
+            montoConfirmado: amount
+          }
+        });
+
+        await tx.eventoZoom.update({
+          where: { id: eventoId },
+          data: {
+            requiereAsistencia: true,
+            estadoCobertura: EstadoCoberturaSoporte.CONFIRMADO,
+            costoEstimado: amount,
+            costoReal: amount
+          }
+        });
+      }
+
+      await tx.auditoria.create({
+        data: {
+          actorUsuarioId: admin.id,
+          accion: "EDICION_REUNION_PASADA",
+          entidadTipo: "EventoZoom",
+          entidadId: eventoId,
+          valorAnterior: {
+            programaNombre: event.solicitud.programaNombre ?? null,
+            monitorEmail: currentMonitorEmail
+          },
+          valorNuevo: {
+            programaNombre: programaNombreFinal,
+            monitorEmail: normalizedMonitorEmail || currentMonitorEmail
+          }
+        }
+      });
+    });
+
+    await notifyAdminTelegramMovement({
+      action: "EDICION_REUNION_PASADA",
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      entityType: "EventoZoom",
+      entityId: eventoId,
+      summary: event.solicitud.titulo,
+      details: {
+        programaNombre: programaNombreFinal,
+        monitorEmail: normalizedMonitorEmail || currentMonitorEmail
+      }
+    });
+
+    return { ok: true };
   }
 
   async createSolicitud(user: SessionUser, input: CreateSolicitudInput) {
@@ -3195,8 +4095,14 @@ export class SalasService {
       for (const candidate of availableAccounts) {
         const candidateSnapshots: ZoomMeetingSnapshot[] = [];
         try {
+          const candidateZoomUserRef = resolveZoomUserRefForCuenta(candidate);
+          if (!candidateZoomUserRef) {
+            lastProvisionError = "La cuenta Zoom candidata no tiene una referencia válida para provisionar.";
+            continue;
+          }
+
           const createdSnapshot = await createZoomMeetingForSolicitud({
-            accountOwnerEmail: candidate.ownerEmail,
+            accountOwnerEmail: candidateZoomUserRef,
             input: inputForZoomProvisioning,
             start: instancePlans[0]?.inicio ?? start,
             durationMinutes,
@@ -3571,6 +4477,259 @@ export class SalasService {
     return result;
   }
 
+  async addSolicitudInstance(
+    admin: SessionUser,
+    solicitudId: string,
+    input: {
+      inicioProgramadoAt: string;
+      finProgramadoAt: string;
+    }
+  ) {
+    if (admin.role !== UserRole.ADMINISTRADOR) {
+      throw new Error("Solo administracion puede agregar instancias.");
+    }
+
+    const inicio = toDate(input.inicioProgramadoAt, "inicioProgramadoAt");
+    const fin = toDate(input.finProgramadoAt, "finProgramadoAt");
+    if (fin <= inicio) {
+      throw new Error("finProgramadoAt debe ser mayor que inicioProgramadoAt.");
+    }
+    if (fin <= new Date()) {
+      throw new Error("La nueva instancia debe terminar en el futuro.");
+    }
+
+    const solicitud = await db.solicitudSala.findUnique({
+      where: { id: solicitudId },
+      select: {
+        id: true,
+        titulo: true,
+        estadoSolicitud: true,
+        modalidadReunion: true,
+        tipoInstancias: true,
+        timezone: true,
+        meetingPrincipalId: true,
+        requiereAsistencia: true,
+        requiereGrabacion: true,
+        cuentaZoomAsignadaId: true,
+        fechaInicioSolicitada: true,
+        fechaFinSolicitada: true,
+        eventos: {
+          orderBy: { inicioProgramadoAt: "asc" },
+          select: {
+            id: true,
+            cuentaZoomId: true,
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            estadoEvento: true,
+            zoomMeetingId: true,
+            zoomJoinUrl: true
+          }
+        }
+      }
+    });
+
+    if (!solicitud) {
+      throw new Error("Solicitud no encontrada.");
+    }
+    if (
+      solicitud.estadoSolicitud === EstadoSolicitudSala.CANCELADA_ADMIN ||
+      solicitud.estadoSolicitud === EstadoSolicitudSala.CANCELADA_DOCENTE
+    ) {
+      throw new Error("No se pueden agregar instancias en solicitudes canceladas.");
+    }
+
+    const isDuplicateStart = solicitud.eventos.some((event) => (
+      Math.abs(event.inicioProgramadoAt.getTime() - inicio.getTime()) <= 60_000
+    ));
+    if (isDuplicateStart) {
+      throw new Error("Ya existe una instancia con ese mismo horario de inicio.");
+    }
+
+    const accountId = solicitud.cuentaZoomAsignadaId ?? solicitud.eventos[0]?.cuentaZoomId ?? null;
+    if (!accountId) {
+      throw new Error("No se pudo resolver la cuenta Zoom asignada para crear la instancia.");
+    }
+
+    const assignedAccount = await db.cuentaZoom.findUnique({
+      where: { id: accountId }
+    });
+    if (!assignedAccount) {
+      throw new Error("No se pudo resolver la cuenta Zoom asignada para crear la instancia.");
+    }
+
+    const primaryMeetingId = normalizeZoomMeetingId(solicitud.meetingPrincipalId);
+    const fallbackJoinUrl = primaryMeetingId ? buildZoomJoinUrlFromMeetingId(primaryMeetingId) : null;
+    const primaryJoinUrl =
+      solicitud.eventos.find((event) => (event.zoomJoinUrl ?? "").trim())?.zoomJoinUrl ??
+      fallbackJoinUrl;
+    const durationMinutes = Math.max(1, Math.floor((fin.getTime() - inicio.getTime()) / 60000));
+    const requiresAssistance = Boolean(solicitud.requiereAsistencia);
+    const nextInstanceCount = solicitud.eventos.length + 1;
+    const timezone = solicitud.timezone || "America/Montevideo";
+
+    const allInstances = [
+      ...solicitud.eventos.map((event) => ({
+        inicio: event.inicioProgramadoAt,
+        fin: event.finProgramadoAt
+      })),
+      { inicio, fin }
+    ].sort((left, right) => left.inicio.getTime() - right.inicio.getTime());
+
+    const firstInstance = allInstances[0] ?? { inicio, fin };
+    const lastInstance = allInstances[allInstances.length - 1] ?? { inicio, fin };
+    const recurringStarts = nextInstanceCount > 1
+      ? allInstances.map((item) => item.inicio.toISOString())
+      : undefined;
+
+    const overlapsInAssignedAccount = await db.eventoZoom.count({
+      where: {
+        cuentaZoomId: accountId,
+        estadoEvento: { not: EstadoEventoZoom.CANCELADO },
+        inicioProgramadoAt: { lt: fin },
+        finProgramadoAt: { gt: inicio }
+      }
+    });
+
+    // Regla operativa: usar el mismo ID siempre que sea posible.
+    const requiresNewMeetingId = overlapsInAssignedAccount > 0;
+
+    let selectedAccount = assignedAccount;
+    let eventMeetingId: string | null = null;
+    let eventJoinUrl: string | null = primaryJoinUrl;
+    let eventStartUrl: string | null = null;
+    let eventZoomPayload: Prisma.InputJsonValue | undefined;
+    let synchronizedAt: Date | null = null;
+
+    if (requiresNewMeetingId) {
+      const singlePlan: InstancePlan[] = [{ inicio, fin }];
+      const availableAccounts = await listAvailableCuentaZoomCandidatesForAllInstances(singlePlan);
+      const preferredAlternative =
+        availableAccounts.find((account) => account.id !== assignedAccount.id) ??
+        availableAccounts[0] ??
+        assignedAccount;
+      selectedAccount = preferredAlternative;
+
+      const zoomUserRef = resolveZoomUserRefForCuenta(selectedAccount);
+      if (!zoomUserRef) {
+        throw new Error("La cuenta Zoom seleccionada no tiene referencia valida para crear una reunion.");
+      }
+
+      const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+      const hostRef = await resolveZoomHostEmail(zoomUserRef, zoomClient);
+      const desiredAutoRecording = solicitud.requiereGrabacion ? "cloud" : "none";
+
+      const createdData = await zoomClient.createMeeting(hostRef, {
+        topic: solicitud.titulo,
+        type: 2,
+        start_time: formatZoomDateTimeInTimezone(inicio, timezone),
+        duration: durationMinutes,
+        timezone,
+        settings: {
+          waiting_room: true,
+          auto_recording: desiredAutoRecording
+        }
+      });
+
+      const createdSnapshot = parseZoomMeetingSnapshot(createdData);
+      const readSnapshot = await fetchZoomMeetingSnapshot(zoomClient, createdSnapshot.meetingId);
+      const effectiveSnapshot = readSnapshot ?? createdSnapshot;
+
+      eventMeetingId = effectiveSnapshot.meetingId;
+      eventJoinUrl = effectiveSnapshot.joinUrl ?? eventJoinUrl;
+      eventStartUrl = effectiveSnapshot.startUrl ?? null;
+      eventZoomPayload = effectiveSnapshot.rawPayload;
+      synchronizedAt = new Date();
+    }
+
+    const createdEvent = await db.$transaction(async (tx) => {
+      const event = await tx.eventoZoom.create({
+        data: {
+          solicitudSalaId: solicitud.id,
+          cuentaZoomId: selectedAccount.id,
+          tipoEvento: nextInstanceCount > 1 ? TipoEventoZoom.RECURRENCE_INSTANCE : TipoEventoZoom.SINGLE,
+          grupoRecurrenciaId: nextInstanceCount > 1 ? solicitud.id : null,
+          modalidadReunion: solicitud.modalidadReunion,
+          inicioProgramadoAt: inicio,
+          finProgramadoAt: fin,
+          timezone,
+          requiereAsistencia: requiresAssistance,
+          estadoCobertura: requiresAssistance
+            ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+            : EstadoCoberturaSoporte.NO_REQUIERE,
+          agendaAbiertaAt: requiresAssistance ? new Date() : null,
+          agendaCierraAt: requiresAssistance
+            ? new Date(inicio.getTime() - 24 * 60 * 60_000)
+            : null,
+          estadoEvento: EstadoEventoZoom.PROGRAMADO,
+          zoomMeetingId: eventMeetingId,
+          zoomJoinUrl: eventJoinUrl,
+          zoomStartUrl: eventStartUrl,
+          zoomPayloadUltimo: eventZoomPayload,
+          sincronizadoConZoomAt: synchronizedAt,
+          costoEstimado: calculateEstimatedCost(durationMinutes, 0)
+        }
+      });
+
+      await tx.solicitudSala.update({
+        where: { id: solicitud.id },
+        data: {
+          tipoInstancias:
+            nextInstanceCount > 1 ? TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM : solicitud.tipoInstancias,
+          cantidadInstancias: nextInstanceCount,
+          fechaInicioSolicitada: firstInstance.inicio,
+          fechaFinSolicitada: firstInstance.fin,
+          fechaFinRecurrencia: nextInstanceCount > 1 ? lastInstance.inicio : undefined,
+          fechasInstancias: recurringStarts
+        }
+      });
+
+      await tx.auditoria.create({
+        data: {
+          actorUsuarioId: admin.id,
+          accion: "SOLICITUD_INSTANCIA_AGREGADA",
+          entidadTipo: "EventoZoom",
+          entidadId: event.id,
+          valorNuevo: {
+            solicitudId: solicitud.id,
+            inicioProgramadoAt: inicio.toISOString(),
+            finProgramadoAt: fin.toISOString(),
+            requiresAssistance,
+            usaMeetingPrincipal: !requiresNewMeetingId,
+            nuevoMeetingId: eventMeetingId
+          }
+        }
+      });
+
+      return event;
+    });
+
+    await notifyAdminTelegramMovement({
+      action: "SOLICITUD_INSTANCIA_AGREGADA",
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      entityType: "EventoZoom",
+      entityId: createdEvent.id,
+      summary: solicitud.titulo,
+      details: {
+        solicitudId: solicitud.id,
+        inicioProgramadoAt: inicio.toISOString(),
+        finProgramadoAt: fin.toISOString(),
+        cantidadInstancias: nextInstanceCount,
+        usaMeetingPrincipal: !requiresNewMeetingId,
+        zoomMeetingId: eventMeetingId ?? primaryMeetingId ?? null,
+        cuentaZoomId: selectedAccount.id
+      }
+    });
+
+    return {
+      solicitudId: solicitud.id,
+      eventoId: createdEvent.id,
+      cantidadInstancias: nextInstanceCount,
+      usaMeetingPrincipal: !requiresNewMeetingId,
+      zoomMeetingId: eventMeetingId ?? primaryMeetingId ?? null
+    };
+  }
+
   async cancelSolicitud(
     user: SessionUser,
     solicitudId: string,
@@ -3741,20 +4900,29 @@ export class SalasService {
 
     let occurrenceId = input.occurrenceId?.trim() || null;
     let cancelledInZoom = false;
+    const targetMeetingId = normalizeZoomMeetingId(targetEvent.zoomMeetingId);
+    const zoomMeetingIdForCancel = targetMeetingId ?? zoomMeetingId;
 
-    if (zoomMeetingId) {
+    if (zoomMeetingIdForCancel) {
       try {
         const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
 
-        if (solicitud.tipoInstancias === TipoInstancias.UNICA || solicitud.eventos.length <= 1) {
-          await zoomClient.deleteMeeting(zoomMeetingId, {
+        // Si la instancia usa su propio meeting ID, se cancela esa reunión específica.
+        if (targetMeetingId && targetMeetingId !== zoomMeetingId) {
+          await zoomClient.deleteMeeting(targetMeetingId, {
+            schedule_for_reminder: false,
+            cancel_meeting_reminder: false
+          });
+          cancelledInZoom = true;
+        } else if (solicitud.tipoInstancias === TipoInstancias.UNICA || solicitud.eventos.length <= 1) {
+          await zoomClient.deleteMeeting(zoomMeetingIdForCancel, {
             schedule_for_reminder: false,
             cancel_meeting_reminder: false
           });
           cancelledInZoom = true;
         } else {
           if (!occurrenceId) {
-            const snapshot = await fetchZoomMeetingSnapshot(zoomClient, zoomMeetingId);
+            const snapshot = await fetchZoomMeetingSnapshot(zoomClient, zoomMeetingIdForCancel);
             const matched = snapshot?.instances.find((instance) => {
               const instanceStart = new Date(instance.startTime);
               return Math.abs(instanceStart.getTime() - targetEvent.inicioProgramadoAt.getTime()) <= 60_000;
@@ -3763,17 +4931,19 @@ export class SalasService {
           }
 
           if (!occurrenceId) {
-            throw new Error(
-              "No se pudo resolver el occurrence_id de Zoom para cancelar la instancia."
-            );
+            if (targetEvent.zoomMeetingId) {
+              throw new Error(
+                "No se pudo resolver el occurrence_id de Zoom para cancelar la instancia."
+              );
+            }
+          } else {
+            await zoomClient.deleteMeeting(zoomMeetingIdForCancel, {
+              occurrence_id: occurrenceId,
+              schedule_for_reminder: false,
+              cancel_meeting_reminder: false
+            });
+            cancelledInZoom = true;
           }
-
-          await zoomClient.deleteMeeting(zoomMeetingId, {
-            occurrence_id: occurrenceId,
-            schedule_for_reminder: false,
-            cancel_meeting_reminder: false
-          });
-          cancelledInZoom = true;
         }
       } catch (error) {
         if (error instanceof ZoomApiError && (error.status === 404 || error.code === 3001)) {
@@ -3824,7 +4994,7 @@ export class SalasService {
           valorNuevo: {
             solicitudId: solicitud.id,
             occurrenceId,
-            zoomMeetingId,
+            zoomMeetingId: zoomMeetingIdForCancel,
             cancelledInZoom
           }
         }
@@ -3845,7 +5015,7 @@ export class SalasService {
       details: {
         solicitudId: solicitud.id,
         occurrenceId,
-        zoomMeetingId,
+        zoomMeetingId: zoomMeetingIdForCancel,
         cancelledInZoom
       }
     });
@@ -3855,7 +5025,7 @@ export class SalasService {
       solicitudId: solicitud.id,
       eventoId: targetEvent.id,
       occurrenceId,
-      zoomMeetingId,
+      zoomMeetingId: zoomMeetingIdForCancel,
       cancelledInZoom,
       activeEvents: result.activeEvents
     };
@@ -4023,14 +5193,39 @@ export class SalasService {
       throw new Error("La solicitud no está pendiente de resolución manual.");
     }
 
-    const account = await db.cuentaZoom.findUnique({ where: { id: input.cuentaZoomAsignadaId } });
+    const cuentaZoomAsignadaId = input.cuentaZoomAsignadaId.trim();
+    const account = await resolveActiveCuentaZoomBySelector(cuentaZoomAsignadaId);
     if (!account || !account.activa) {
       throw new Error("Cuenta Zoom inválida para resolución manual.");
+    }
+
+    const manualMeetingId = normalizeZoomMeetingId(input.zoomMeetingIdManual);
+    if (!manualMeetingId) {
+      throw new Error("Zoom Meeting ID manual invalido.");
+    }
+
+    const existingMeetingEvent = await db.eventoZoom.findUnique({
+      where: { zoomMeetingId: manualMeetingId },
+      select: { id: true, solicitudSalaId: true }
+    });
+    if (existingMeetingEvent && existingMeetingEvent.solicitudSalaId !== solicitudId) {
+      throw new Error("Ese Zoom Meeting ID ya esta asociado a otra solicitud.");
     }
 
     const minutes = Math.floor(
       (solicitud.fechaFinSolicitada.getTime() - solicitud.fechaInicioSolicitada.getTime()) / 60000
     );
+    const manualInstanceStarts =
+      parseStoredInstanceStarts(solicitud.fechasInstancias) ?? [];
+    if (manualInstanceStarts.length === 0) {
+      manualInstanceStarts.push(new Date(solicitud.fechaInicioSolicitada));
+    }
+    const manualInstancePlans = manualInstanceStarts.map((inicio) => ({
+      inicio,
+      fin: new Date(inicio.getTime() + Math.max(1, minutes) * 60_000)
+    }));
+    const hasMultipleInstances = manualInstancePlans.length > 1;
+    const manualJoinUrl = input.zoomJoinUrlManual ?? `https://zoom.us/j/${manualMeetingId}`;
 
     const result = await db.$transaction(async (tx) => {
       const updated = await tx.solicitudSala.update({
@@ -4038,20 +5233,24 @@ export class SalasService {
         data: {
           estadoSolicitud: EstadoSolicitudSala.PROVISIONADA,
           cuentaZoomAsignadaId: account.id,
-          meetingPrincipalId: input.zoomMeetingIdManual,
+          meetingPrincipalId: manualMeetingId,
           observacionesAdmin: input.observaciones,
-          motivoMultiplesIds: null
+          motivoMultiplesIds: null,
+          cantidadInstancias: manualInstancePlans.length
         }
       });
 
-      await tx.eventoZoom.create({
-        data: {
+      await tx.eventoZoom.createMany({
+        data: manualInstancePlans.map((plan, index) => ({
           solicitudSalaId: solicitudId,
           cuentaZoomId: account.id,
-          tipoEvento: TipoEventoZoom.SINGLE,
+          tipoEvento: hasMultipleInstances
+            ? TipoEventoZoom.RECURRENCE_INSTANCE
+            : TipoEventoZoom.SINGLE,
+          grupoRecurrenciaId: hasMultipleInstances ? solicitudId : null,
           modalidadReunion: solicitud.modalidadReunion,
-          inicioProgramadoAt: solicitud.fechaInicioSolicitada,
-          finProgramadoAt: solicitud.fechaFinSolicitada,
+          inicioProgramadoAt: plan.inicio,
+          finProgramadoAt: plan.fin,
           timezone: solicitud.timezone,
           requiereAsistencia: solicitud.requiereAsistencia,
           estadoCobertura: solicitud.requiereAsistencia
@@ -4059,13 +5258,13 @@ export class SalasService {
             : EstadoCoberturaSoporte.NO_REQUIERE,
           agendaAbiertaAt: solicitud.requiereAsistencia ? new Date() : null,
           agendaCierraAt: solicitud.requiereAsistencia
-            ? new Date(solicitud.fechaInicioSolicitada.getTime() - 24 * 60 * 60000)
+            ? new Date(plan.inicio.getTime() - 24 * 60 * 60000)
             : null,
           estadoEvento: "PROGRAMADO",
-          zoomMeetingId: input.zoomMeetingIdManual,
-          zoomJoinUrl: input.zoomJoinUrlManual ?? `https://zoom.us/j/${input.zoomMeetingIdManual}`,
+          zoomMeetingId: index === 0 ? manualMeetingId : null,
+          zoomJoinUrl: manualJoinUrl,
           costoEstimado: calculateEstimatedCost(minutes, 0)
-        }
+        }))
       });
 
       await tx.resolucionManualProvision.create({
@@ -4075,7 +5274,7 @@ export class SalasService {
           cuentaZoomAsignadaId: account.id,
           motivoSistema: input.motivoSistema,
           accionTomada: input.accionTomada,
-          zoomMeetingIdManual: input.zoomMeetingIdManual,
+          zoomMeetingIdManual: manualMeetingId,
           zoomJoinUrlManual: input.zoomJoinUrlManual,
           observaciones: input.observaciones
         }
@@ -4089,7 +5288,8 @@ export class SalasService {
           entidadId: solicitudId,
           valorNuevo: {
             cuentaZoomAsignadaId: account.id,
-            meetingPrincipalId: input.zoomMeetingIdManual
+            meetingPrincipalId: manualMeetingId,
+            cantidadInstancias: manualInstancePlans.length
           }
         }
       });
@@ -4103,10 +5303,11 @@ export class SalasService {
       actorRole: user.role,
       entityType: "SolicitudSala",
       entityId: solicitudId,
-      summary: `meetingId=${input.zoomMeetingIdManual}`,
+      summary: `meetingId=${manualMeetingId}`,
       details: {
         cuentaZoomAsignadaId: account.id,
-        accionTomada: input.accionTomada
+        accionTomada: input.accionTomada,
+        cantidadInstancias: manualInstancePlans.length
       }
     });
 
@@ -4124,7 +5325,6 @@ export class SalasService {
       });
       docentesCopyEmails = [];
     }
-    const manualInstanceStarts = [new Date(solicitud.fechaInicioSolicitada)];
     const responsibleEmail = await resolveResponsibleNotificationEmail(solicitud.responsableNombre);
     const confirmationCc = [
       ...docentesCopyEmails,
@@ -4138,8 +5338,8 @@ export class SalasService {
         solicitudId: result.id,
         titulo: solicitud.titulo,
         modalidad: solicitud.modalidadReunion,
-        meetingId: input.zoomMeetingIdManual,
-        joinUrl: input.zoomJoinUrlManual ?? `https://zoom.us/j/${input.zoomMeetingIdManual}`,
+        meetingId: manualMeetingId,
+        joinUrl: manualJoinUrl,
         hostAccount: account.ownerEmail ?? account.nombreCuenta ?? null,
         timezone: solicitud.timezone,
         instanceStarts: manualInstanceStarts
@@ -4658,6 +5858,297 @@ export class SalasService {
     return assignment;
   }
 
+  async registerUpcomingMeetingInSystem(
+    admin: SessionUser,
+    input: {
+      titulo: string;
+      responsableNombre: string;
+      programaNombre: string;
+      modalidadReunion: ModalidadReunion;
+      inicioProgramadoAt: string;
+      finProgramadoAt: string;
+      timezone?: string;
+      zoomMeetingId?: string;
+      zoomJoinUrl?: string;
+      zoomAccountId?: string;
+      zoomAccountEmail?: string;
+      requiereAsistencia?: boolean;
+      descripcion?: string;
+    }
+  ) {
+    const titulo = input.titulo.trim();
+    if (!titulo) {
+      throw new Error("titulo es requerido.");
+    }
+
+    const responsableNombre = input.responsableNombre.trim();
+    if (!responsableNombre) {
+      throw new Error("responsableNombre es requerido.");
+    }
+
+    const programaNombre = input.programaNombre.trim();
+    if (!programaNombre) {
+      throw new Error("programaNombre es requerido.");
+    }
+
+    const start = toDate(input.inicioProgramadoAt, "inicioProgramadoAt");
+    const end = toDate(input.finProgramadoAt, "finProgramadoAt");
+    if (end <= start) {
+      throw new Error("finProgramadoAt debe ser mayor que inicioProgramadoAt.");
+    }
+    if (end <= new Date()) {
+      throw new Error(
+        "La reunión ya finalizó. Para este caso corresponde registrar una reunion pasada."
+      );
+    }
+
+    const meetingIdFromLink = extractZoomMeetingIdFromJoinUrl(input.zoomJoinUrl);
+    const meetingId = normalizeZoomMeetingId(input.zoomMeetingId) ?? meetingIdFromLink;
+    if (!meetingId) {
+      throw new Error("Debes indicar un Zoom Meeting ID valido (o un link que lo contenga).");
+    }
+
+    const existingEvent = await db.eventoZoom.findUnique({
+      where: { zoomMeetingId: meetingId },
+      select: { id: true }
+    });
+    if (existingEvent) {
+      throw new Error("Ese Zoom Meeting ID ya está registrado en el sistema.");
+    }
+
+    const normalizedZoomAccountId = input.zoomAccountId?.trim() ?? "";
+    const normalizedZoomAccountEmail = input.zoomAccountEmail?.trim().toLowerCase() ?? "";
+
+    const account =
+      (normalizedZoomAccountId
+        ? await resolveActiveCuentaZoomBySelector(normalizedZoomAccountId)
+        : null) ??
+      (normalizedZoomAccountEmail
+        ? await resolveActiveCuentaZoomBySelector(normalizedZoomAccountEmail)
+        : null);
+    if (!account) {
+      throw new Error(
+        "No se pudo identificar la cuenta anfitriona de Zoom en el sistema. Revisa la cuenta seleccionada."
+      );
+    }
+
+    const docente = await getOrCreateDocente(admin);
+    const timezone = input.timezone?.trim() || "America/Montevideo";
+    const requiereAsistencia = input.requiereAsistencia ?? false;
+    const baseDurationMinutes = Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
+    const joinUrl = input.zoomJoinUrl?.trim() || buildZoomJoinUrlFromMeetingId(meetingId);
+    let instancePlans: Array<{ inicio: Date; fin: Date; joinUrl: string }> = [
+      {
+        inicio: start,
+        fin: end,
+        joinUrl
+      }
+    ];
+
+    try {
+      const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+      const snapshot = await fetchZoomMeetingSnapshot(zoomClient, meetingId);
+      if (snapshot && snapshot.instances.length > 0) {
+        const now = new Date();
+        const mappedFromZoom = snapshot.instances
+          .map((instance) => {
+            const inicio = new Date(instance.startTime);
+            if (Number.isNaN(inicio.getTime())) return null;
+            const durationMinutes = Math.max(1, instance.durationMinutes || baseDurationMinutes);
+            const fin = new Date(inicio.getTime() + durationMinutes * 60_000);
+            if (fin <= now) return null;
+            return {
+              inicio,
+              fin,
+              joinUrl: instance.joinUrl ?? snapshot.joinUrl ?? joinUrl
+            };
+          })
+          .filter((item): item is { inicio: Date; fin: Date; joinUrl: string } => item !== null)
+          .sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
+
+        const dedupedFromZoom: Array<{ inicio: Date; fin: Date; joinUrl: string }> = [];
+        const seen = new Set<number>();
+        for (const item of mappedFromZoom) {
+          const key = item.inicio.getTime();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          dedupedFromZoom.push(item);
+        }
+
+        if (dedupedFromZoom.length > 0) {
+          instancePlans = dedupedFromZoom;
+        }
+      }
+    } catch (error) {
+      logger.warn("No se pudieron leer ocurrencias de Zoom para registro en sistema; se usa la instancia seleccionada.", {
+        meetingId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    const firstInstance = instancePlans[0] ?? { inicio: start, fin: end, joinUrl };
+    const lastInstance = instancePlans[instancePlans.length - 1] ?? firstInstance;
+    const totalInstances = instancePlans.length;
+    const hasMultipleInstances = totalInstances > 1;
+    const fechasInstancias = hasMultipleInstances
+      ? instancePlans.map((plan) => plan.inicio.toISOString())
+      : undefined;
+    const motivoAsistencia = requiereAsistencia
+      ? "Asistencia solicitada en registro administrativo de reunión ya programada en Zoom."
+      : null;
+
+    const result = await db.$transaction(async (tx) => {
+      const solicitud = await tx.solicitudSala.create({
+        data: {
+          docenteId: docente.id,
+          createdByUserId: admin.id,
+          cuentaZoomAsignadaId: account.id,
+          titulo,
+          responsableNombre,
+          programaNombre,
+          descripcion:
+            input.descripcion?.trim() ||
+            "Registro administrativo de reunión detectada en Zoom (sin reprovisionar).",
+          modalidadReunion: input.modalidadReunion,
+          tipoInstancias: hasMultipleInstances
+            ? TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM
+            : TipoInstancias.UNICA,
+          meetingIdEstrategia: MeetingIdEstrategia.UNICO_PREFERIDO,
+          meetingPrincipalId: meetingId,
+          fechaInicioSolicitada: firstInstance.inicio,
+          fechaFinSolicitada: firstInstance.fin,
+          fechaFinRecurrencia: hasMultipleInstances ? lastInstance.inicio : null,
+          timezone,
+          requiereAsistencia,
+          motivoAsistencia,
+          fechasInstancias,
+          cantidadInstancias: totalInstances,
+          estadoSolicitud: EstadoSolicitudSala.PROVISIONADA
+        }
+      });
+
+      const firstEvent = await tx.eventoZoom.create({
+        data: {
+          solicitudSalaId: solicitud.id,
+          cuentaZoomId: account.id,
+          tipoEvento: hasMultipleInstances
+            ? TipoEventoZoom.RECURRENCE_INSTANCE
+            : TipoEventoZoom.SINGLE,
+          grupoRecurrenciaId: hasMultipleInstances ? solicitud.id : null,
+          modalidadReunion: input.modalidadReunion,
+          inicioProgramadoAt: firstInstance.inicio,
+          finProgramadoAt: firstInstance.fin,
+          timezone,
+          requiereAsistencia,
+          estadoCobertura: requiereAsistencia
+            ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+            : EstadoCoberturaSoporte.NO_REQUIERE,
+          agendaAbiertaAt: requiereAsistencia ? new Date() : null,
+          agendaCierraAt: requiereAsistencia
+            ? new Date(firstInstance.inicio.getTime() - 24 * 60 * 60000)
+            : null,
+          estadoEvento: EstadoEventoZoom.PROGRAMADO,
+          zoomMeetingId: meetingId,
+          zoomJoinUrl: firstInstance.joinUrl ?? joinUrl,
+          sincronizadoConZoomAt: new Date(),
+          costoEstimado: calculateEstimatedCost(
+            Math.max(
+              1,
+              Math.floor((firstInstance.fin.getTime() - firstInstance.inicio.getTime()) / 60000)
+            ),
+            0
+          )
+        }
+      });
+
+      if (instancePlans.length > 1) {
+        await tx.eventoZoom.createMany({
+          data: instancePlans.slice(1).map((plan) => ({
+            solicitudSalaId: solicitud.id,
+            cuentaZoomId: account.id,
+            tipoEvento: TipoEventoZoom.RECURRENCE_INSTANCE,
+            grupoRecurrenciaId: solicitud.id,
+            modalidadReunion: input.modalidadReunion,
+            inicioProgramadoAt: plan.inicio,
+            finProgramadoAt: plan.fin,
+            timezone,
+            requiereAsistencia,
+            estadoCobertura: requiereAsistencia
+              ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+              : EstadoCoberturaSoporte.NO_REQUIERE,
+            agendaAbiertaAt: requiereAsistencia ? new Date() : null,
+            agendaCierraAt: requiereAsistencia
+              ? new Date(plan.inicio.getTime() - 24 * 60 * 60000)
+              : null,
+            estadoEvento: EstadoEventoZoom.PROGRAMADO,
+            zoomMeetingId: null,
+            zoomJoinUrl: plan.joinUrl ?? joinUrl,
+            sincronizadoConZoomAt: new Date(),
+            costoEstimado: calculateEstimatedCost(
+              Math.max(1, Math.floor((plan.fin.getTime() - plan.inicio.getTime()) / 60000)),
+              0
+            )
+          }))
+        });
+      }
+
+      await tx.auditoria.create({
+        data: {
+          actorUsuarioId: admin.id,
+          accion: "REGISTRO_MANUAL_REUNION_PROXIMA",
+          entidadTipo: "EventoZoom",
+          entidadId: firstEvent.id,
+          valorNuevo: {
+            solicitudId: solicitud.id,
+            meetingId,
+            zoomAccountId: account.id,
+            requiereAsistencia,
+            cantidadInstancias: totalInstances
+          }
+        }
+      });
+
+      return {
+        solicitudId: solicitud.id,
+        eventoId: firstEvent.id
+      };
+    });
+
+    await notifyAdminTelegramMovement({
+      action: "REGISTRO_MANUAL_REUNION_PROXIMA",
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      entityType: "EventoZoom",
+      entityId: result.eventoId,
+      summary: `${titulo} (${meetingId})`,
+      details: {
+        solicitudId: result.solicitudId,
+        zoomAccount: account.ownerEmail ?? account.nombreCuenta ?? account.id,
+        requiereAsistencia
+      }
+    });
+
+    if (requiereAsistencia) {
+      await sendMonitoringRequiredEmailToAssistantPool({
+        solicitudId: result.solicitudId,
+        titulo,
+        modalidad: input.modalidadReunion,
+        programaNombre: programaNombre || null,
+        responsableNombre: responsableNombre || null,
+        timezone,
+        instanceStarts: instancePlans.map((plan) => plan.inicio),
+        estadoSolicitud: EstadoSolicitudSala.PROVISIONADA
+      }).catch((error) => {
+        logger.warn("No se pudo enviar correo al pool de asistentes Zoom (registro manual proxima).", {
+          solicitudId: result.solicitudId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
+
+    return result;
+  }
+
   async registerPastMeeting(admin: SessionUser, input: {
     docenteEmail: string;
     responsableEmail: string;
@@ -5002,54 +6493,190 @@ export class SalasService {
       ? people.find((item) => item.userId === selectedUserId) ?? null
       : null;
 
-    if (!selectedUserId || !selectedPerson?.hasAssistantProfile) {
-      return {
-        people,
-        selectedUserId,
-        selectedPerson,
-        totals: {
-          meetingsTotal: 0,
-          completedMeetingsTotal: 0,
-          completedMinutesTotal: 0,
-          completedHoursTotal: 0
-        },
-        monthSummaries: [] as Array<{
-          monthKey: string;
-          year: number;
-          month: number;
-          meetingsCount: number;
-          totalMinutes: number;
-          totalHours: number;
-        }>,
-        meetings: [] as Array<{
-          assignmentId: string;
-          eventId: string;
-          solicitudId: string;
+    const now = new Date();
+
+    const buildMeetingFromAssignment = (assignment: {
+      id: string;
+      estadoAsignacion: EstadoAsignacion;
+      evento: {
+        id: string;
+        solicitudSalaId: string;
+        modalidadReunion: ModalidadReunion;
+        inicioProgramadoAt: Date;
+        finProgramadoAt: Date;
+        inicioRealAt: Date | null;
+        finRealAt: Date | null;
+        minutosReales: number | null;
+        estadoEvento: EstadoEventoZoom;
+        estadoEjecucion: EstadoEjecucionEvento;
+        timezone: string;
+        zoomMeetingId: string | null;
+        zoomJoinUrl: string | null;
+        solicitud: {
           titulo: string;
           programaNombre: string | null;
-          modalidadReunion: ModalidadReunion;
-          inicioAt: string;
-          finAt: string;
-          minutos: number;
-          estadoEvento: EstadoEventoZoom;
-          estadoEjecucion: EstadoEjecucionEvento;
-          estadoAsignacion: string;
-          zoomMeetingId: string | null;
-          zoomJoinUrl: string | null;
-          isCompleted: boolean;
-        }>
+        };
       };
+    }) => {
+      const event = assignment.evento;
+      const start = event.inicioRealAt ?? event.inicioProgramadoAt;
+      const end = event.finRealAt ?? event.finProgramadoAt;
+      const durationMinutes =
+        event.minutosReales ??
+        Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
+
+      const isCompleted =
+        event.estadoEvento !== EstadoEventoZoom.CANCELADO &&
+        (
+          event.estadoEjecucion === EstadoEjecucionEvento.EJECUTADO ||
+          (
+            end <= now &&
+            event.estadoEjecucion !== EstadoEjecucionEvento.NO_REALIZADO
+          )
+        );
+
+      return {
+        assignmentId: assignment.id,
+        eventId: event.id,
+        solicitudId: event.solicitudSalaId,
+        titulo: event.solicitud.titulo,
+        programaNombre: event.solicitud.programaNombre ?? null,
+        modalidadReunion: event.modalidadReunion,
+        inicioAt: start.toISOString(),
+        finAt: end.toISOString(),
+        minutos: durationMinutes,
+        estadoEvento: event.estadoEvento,
+        estadoEjecucion: event.estadoEjecucion,
+        estadoAsignacion: assignment.estadoAsignacion,
+        zoomMeetingId: event.zoomMeetingId,
+        zoomJoinUrl: event.zoomJoinUrl,
+        isCompleted,
+        timezone: event.timezone || "America/Montevideo"
+      };
+    };
+
+    const buildMonthSummaries = (
+      completedMeetings: Array<{ inicioAt: string; minutos: number; timezone: string }>
+    ) => {
+      const monthAccumulator = new Map<string, {
+        monthKey: string;
+        year: number;
+        month: number;
+        meetingsCount: number;
+        totalMinutes: number;
+      }>();
+
+      for (const meeting of completedMeetings) {
+        const monthKey = toMonthKey(new Date(meeting.inicioAt), meeting.timezone);
+        const [yearRaw = "0", monthRaw = "0"] = monthKey.split("-");
+        const year = Number(yearRaw);
+        const month = Number(monthRaw);
+        const current = monthAccumulator.get(monthKey) ?? {
+          monthKey,
+          year,
+          month,
+          meetingsCount: 0,
+          totalMinutes: 0
+        };
+        current.meetingsCount += 1;
+        current.totalMinutes += meeting.minutos;
+        monthAccumulator.set(monthKey, current);
+      }
+
+      return Array.from(monthAccumulator.values())
+        .sort((a, b) => b.monthKey.localeCompare(a.monthKey))
+        .map((item) => ({
+          ...item,
+          totalHours: Math.round((item.totalMinutes / 60) * 100) / 100
+        }));
+    };
+
+    const selectedUserHasProfile = Boolean(selectedUserId && selectedPerson?.hasAssistantProfile);
+    let meetings: Array<{
+      assignmentId: string;
+      eventId: string;
+      solicitudId: string;
+      titulo: string;
+      programaNombre: string | null;
+      modalidadReunion: ModalidadReunion;
+      inicioAt: string;
+      finAt: string;
+      minutos: number;
+      estadoEvento: EstadoEventoZoom;
+      estadoEjecucion: EstadoEjecucionEvento;
+      estadoAsignacion: EstadoAsignacion;
+      zoomMeetingId: string | null;
+      zoomJoinUrl: string | null;
+      isCompleted: boolean;
+      timezone: string;
+    }> = [];
+
+    if (selectedUserHasProfile && selectedUserId) {
+      const assignments = await db.asignacionAsistente.findMany({
+        where: {
+          tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+          estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] },
+          asistente: { usuarioId: selectedUserId }
+        },
+        select: {
+          id: true,
+          estadoAsignacion: true,
+          evento: {
+            select: {
+              id: true,
+              solicitudSalaId: true,
+              modalidadReunion: true,
+              inicioProgramadoAt: true,
+              finProgramadoAt: true,
+              inicioRealAt: true,
+              finRealAt: true,
+              minutosReales: true,
+              estadoEvento: true,
+              estadoEjecucion: true,
+              timezone: true,
+              zoomMeetingId: true,
+              zoomJoinUrl: true,
+              solicitud: {
+                select: {
+                  titulo: true,
+                  programaNombre: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          evento: {
+            inicioProgramadoAt: "desc"
+          }
+        }
+      });
+
+      meetings = assignments.map((assignment) => buildMeetingFromAssignment(assignment));
     }
 
-    const assignments = await db.asignacionAsistente.findMany({
+    const completedMeetings = meetings.filter((meeting) => meeting.isCompleted);
+    const monthSummaries = buildMonthSummaries(completedMeetings);
+    const completedMinutesTotal = completedMeetings.reduce((acc, meeting) => acc + meeting.minutos, 0);
+
+    const completedAssignmentsAll = await db.asignacionAsistente.findMany({
       where: {
         tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
-        estadoAsignacion: { in: ["ASIGNADO", "ACEPTADO"] },
-        asistente: { usuarioId: selectedUserId }
+        estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] },
+        asistente: {
+          usuario: {
+            role: { in: [...LEGACY_ASSISTANT_ROLES] }
+          }
+        }
       },
       select: {
         id: true,
         estadoAsignacion: true,
+        asistente: {
+          select: {
+            usuarioId: true
+          }
+        },
         evento: {
           select: {
             id: true,
@@ -5073,85 +6700,77 @@ export class SalasService {
             }
           }
         }
-      },
-      orderBy: {
-        evento: {
-          inicioProgramadoAt: "desc"
-        }
       }
     });
 
-    const now = new Date();
-    const meetings = assignments.map((assignment) => {
-      const event = assignment.evento;
-      const start = event.inicioRealAt ?? event.inicioProgramadoAt;
-      const end = event.finRealAt ?? event.finProgramadoAt;
-      const durationMinutes =
-        event.minutosReales ??
-        Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
+    const completedMeetingsAll = completedAssignmentsAll
+      .map((assignment) => ({
+        userId: assignment.asistente.usuarioId,
+        meeting: buildMeetingFromAssignment(assignment)
+      }))
+      .filter((item) => item.meeting.isCompleted);
 
-      const isCompleted =
-        event.estadoEjecucion === EstadoEjecucionEvento.EJECUTADO ||
-        (
-          end <= now &&
-          event.estadoEvento !== EstadoEventoZoom.CANCELADO &&
-          event.estadoEjecucion !== EstadoEjecucionEvento.NO_REALIZADO
-        );
-
-      return {
-        assignmentId: assignment.id,
-        eventId: event.id,
-        solicitudId: event.solicitudSalaId,
-        titulo: event.solicitud.titulo,
-        programaNombre: event.solicitud.programaNombre ?? null,
-        modalidadReunion: event.modalidadReunion,
-        inicioAt: start.toISOString(),
-        finAt: end.toISOString(),
-        minutos: durationMinutes,
-        estadoEvento: event.estadoEvento,
-        estadoEjecucion: event.estadoEjecucion,
-        estadoAsignacion: assignment.estadoAsignacion,
-        zoomMeetingId: event.zoomMeetingId,
-        zoomJoinUrl: event.zoomJoinUrl,
-        isCompleted,
-        timezone: event.timezone || "America/Montevideo"
-      };
-    });
-
-    const completedMeetings = meetings.filter((meeting) => meeting.isCompleted);
-    const monthAccumulator = new Map<string, {
+    const monthKeysSet = new Set<string>();
+    const monthMapByUser = new Map<string, Map<string, {
       monthKey: string;
       year: number;
       month: number;
       meetingsCount: number;
       totalMinutes: number;
-    }>();
+      totalHours: number;
+    }>>();
 
-    for (const meeting of completedMeetings) {
-      const monthKey = toMonthKey(new Date(meeting.inicioAt), meeting.timezone);
+    for (const item of completedMeetingsAll) {
+      const monthKey = toMonthKey(new Date(item.meeting.inicioAt), item.meeting.timezone);
+      monthKeysSet.add(monthKey);
+
       const [yearRaw = "0", monthRaw = "0"] = monthKey.split("-");
       const year = Number(yearRaw);
       const month = Number(monthRaw);
-      const current = monthAccumulator.get(monthKey) ?? {
+      const userMonths = monthMapByUser.get(item.userId) ?? new Map<string, {
+        monthKey: string;
+        year: number;
+        month: number;
+        meetingsCount: number;
+        totalMinutes: number;
+        totalHours: number;
+      }>();
+      const current = userMonths.get(monthKey) ?? {
         monthKey,
         year,
         month,
         meetingsCount: 0,
-        totalMinutes: 0
+        totalMinutes: 0,
+        totalHours: 0
       };
       current.meetingsCount += 1;
-      current.totalMinutes += meeting.minutos;
-      monthAccumulator.set(monthKey, current);
+      current.totalMinutes += item.meeting.minutos;
+      current.totalHours = Math.round((current.totalMinutes / 60) * 100) / 100;
+      userMonths.set(monthKey, current);
+      monthMapByUser.set(item.userId, userMonths);
     }
 
-    const monthSummaries = Array.from(monthAccumulator.values())
-      .sort((a, b) => b.monthKey.localeCompare(a.monthKey))
-      .map((item) => ({
-        ...item,
-        totalHours: Math.round((item.totalMinutes / 60) * 100) / 100
-      }));
-
-    const completedMinutesTotal = completedMeetings.reduce((acc, meeting) => acc + meeting.minutos, 0);
+    const availableMonthKeys = Array.from(monthKeysSet.values()).sort((a, b) => b.localeCompare(a));
+    const assistantSummaries = people
+      .map((person) => {
+        const months = Array.from((monthMapByUser.get(person.userId) ?? new Map()).values())
+          .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+        const totalCompletedMinutes = months.reduce((acc, month) => acc + month.totalMinutes, 0);
+        const totalCompletedMeetings = months.reduce((acc, month) => acc + month.meetingsCount, 0);
+        const totalCompletedHours = Math.round((totalCompletedMinutes / 60) * 100) / 100;
+        return {
+          userId: person.userId,
+          email: person.email,
+          role: person.role,
+          nombre: person.nombre,
+          hasAssistantProfile: person.hasAssistantProfile,
+          totalCompletedMeetings,
+          totalCompletedMinutes,
+          totalCompletedHours,
+          months
+        };
+      })
+      .sort((left, right) => left.nombre.localeCompare(right.nombre, "es"));
 
     return {
       people,
@@ -5164,7 +6783,9 @@ export class SalasService {
         completedHoursTotal: Math.round((completedMinutesTotal / 60) * 100) / 100
       },
       monthSummaries,
-      meetings: meetings.map(({ timezone: _timezone, ...meeting }) => meeting)
+      meetings: meetings.map(({ timezone: _timezone, ...meeting }) => meeting),
+      availableMonthKeys,
+      assistantSummaries
     };
   }
 

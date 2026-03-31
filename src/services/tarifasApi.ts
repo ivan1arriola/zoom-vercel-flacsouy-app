@@ -54,6 +54,18 @@ export type PersonHoursResponse = {
   };
   monthSummaries: PersonHoursMonthSummary[];
   meetings: PersonHoursMeeting[];
+  availableMonthKeys?: string[];
+  assistantSummaries?: Array<{
+    userId: string;
+    email: string;
+    role: string;
+    nombre: string;
+    hasAssistantProfile: boolean;
+    totalCompletedMeetings: number;
+    totalCompletedMinutes: number;
+    totalCompletedHours: number;
+    months: PersonHoursMonthSummary[];
+  }>;
 };
 
 export async function loadTarifas(): Promise<Tarifa[] | null> {

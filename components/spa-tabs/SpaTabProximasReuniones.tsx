@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
   MenuItem,
   Paper,
   Stack,
@@ -49,6 +55,15 @@ type MonthOption = {
   label: string;
 };
 
+type RegisterUpcomingMeetingInput = {
+  meeting: ZoomUpcomingMeeting;
+  responsableNombre: string;
+  programaNombre: string;
+  modalidadReunion: "VIRTUAL" | "HIBRIDA";
+  requiereAsistencia: boolean;
+  descripcion?: string;
+};
+
 interface SpaTabProximasReunionesProps {
   title?: string;
   subtitle?: string;
@@ -57,6 +72,11 @@ interface SpaTabProximasReunionesProps {
   isLoading: boolean;
   onRefresh: () => void;
   onCreatePostMeetingRecord?: (meeting: ZoomUpcomingMeeting) => void;
+  onRegisterUpcomingMeeting?: (input: RegisterUpcomingMeetingInput) => Promise<boolean>;
+  isRegisteringUpcomingMeeting?: boolean;
+  programaOptions?: string[];
+  responsableOptions?: Array<{ value: string; label: string }>;
+  defaultResponsableNombre?: string;
   enablePastMeetingDetails?: boolean;
   defaultDetailsExpanded?: boolean;
   defaultViewMode?: ZoomViewMode;
@@ -232,6 +252,11 @@ export function SpaTabProximasReuniones({
   isLoading,
   onRefresh,
   onCreatePostMeetingRecord,
+  onRegisterUpcomingMeeting,
+  isRegisteringUpcomingMeeting = false,
+  programaOptions = [],
+  responsableOptions = [],
+  defaultResponsableNombre = "",
   enablePastMeetingDetails = false,
   defaultDetailsExpanded = false,
   defaultViewMode = "CALENDAR",
@@ -245,10 +270,24 @@ export function SpaTabProximasReuniones({
 }: SpaTabProximasReunionesProps) {
   const [grouping, setGrouping] = useState<ZoomGroupingMode>("MONTH");
   const [viewMode, setViewMode] = useState<ZoomViewMode>(defaultViewMode);
+  const [registerDialogMeeting, setRegisterDialogMeeting] = useState<ZoomUpcomingMeeting | null>(null);
+  const [registerForm, setRegisterForm] = useState({
+    responsableNombre: "",
+    programaNombre: "",
+    modalidadReunion: "VIRTUAL" as "VIRTUAL" | "HIBRIDA",
+    requiereAsistencia: false,
+    descripcion: ""
+  });
   const [expandedDetailsByMeeting, setExpandedDetailsByMeeting] = useState<Record<string, boolean>>({});
   const [loadingDetailsByMeeting, setLoadingDetailsByMeeting] = useState<Record<string, boolean>>({});
   const [detailsByMeeting, setDetailsByMeeting] = useState<Record<string, ZoomPastMeetingDetails | null>>({});
   const [detailsErrorsByMeeting, setDetailsErrorsByMeeting] = useState<Record<string, string>>({});
+  const canSubmitRegisterDialog = Boolean(
+    registerDialogMeeting &&
+      registerDialogMeeting.meetingId &&
+      registerForm.responsableNombre.trim() &&
+      registerForm.programaNombre.trim()
+  );
 
   const groupedMeetings = useMemo(
     () => groupMeetingsByPeriod(meetings, grouping),
@@ -363,6 +402,48 @@ export function SpaTabProximasReuniones({
     visibleMeetings
   ]);
 
+  function openRegisterDialog(meeting: ZoomUpcomingMeeting) {
+    if (!onRegisterUpcomingMeeting) return;
+
+    const defaultResponsable =
+      defaultResponsableNombre.trim() ||
+      responsableOptions[0]?.value ||
+      "";
+    const defaultPrograma = programaOptions[0] ?? "";
+
+    setRegisterForm({
+      responsableNombre: defaultResponsable,
+      programaNombre: defaultPrograma,
+      modalidadReunion: "VIRTUAL",
+      requiereAsistencia: false,
+      descripcion: `Registro administrativo desde Zoom (${meeting.accountEmail || "sin cuenta"}).`
+    });
+    setRegisterDialogMeeting(meeting);
+  }
+
+  function closeRegisterDialog() {
+    if (isRegisteringUpcomingMeeting) return;
+    setRegisterDialogMeeting(null);
+  }
+
+  async function submitRegisterDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onRegisterUpcomingMeeting || !registerDialogMeeting || !registerDialogMeeting.meetingId) return;
+
+    const created = await onRegisterUpcomingMeeting({
+      meeting: registerDialogMeeting,
+      responsableNombre: registerForm.responsableNombre.trim(),
+      programaNombre: registerForm.programaNombre.trim(),
+      modalidadReunion: registerForm.modalidadReunion,
+      requiereAsistencia: registerForm.requiereAsistencia,
+      descripcion: registerForm.descripcion.trim() || undefined
+    });
+
+    if (created) {
+      setRegisterDialogMeeting(null);
+    }
+  }
+
   function renderMeetingCard(meeting: ZoomUpcomingMeeting, showTopic = true) {
     const accountKey = `${meeting.accountId}:${meeting.accountEmail}`.trim().toLowerCase();
     const meetingKey = getMeetingCardKey(meeting);
@@ -432,7 +513,17 @@ export function SpaTabProximasReuniones({
                 Abrir en Zoom
               </Button>
             ) : null}
-            {!meeting.association.linked && onCreatePostMeetingRecord ? (
+            {!meeting.association.linked && onRegisterUpcomingMeeting ? (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => openRegisterDialog(meeting)}
+                disabled={!meeting.meetingId}
+              >
+                Registrar en sistema
+              </Button>
+            ) : null}
+            {!meeting.association.linked && !onRegisterUpcomingMeeting && onCreatePostMeetingRecord ? (
               <Button
                 size="small"
                 variant="outlined"
@@ -805,6 +896,154 @@ export function SpaTabProximasReuniones({
                 })}
           </Stack>
         )}
+
+        <Dialog
+          open={Boolean(registerDialogMeeting)}
+          onClose={closeRegisterDialog}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Registrar reunion en sistema</DialogTitle>
+          <Box component="form" onSubmit={submitRegisterDialog}>
+            <DialogContent dividers>
+              <Stack spacing={1.25}>
+                <Typography variant="body2" color="text.secondary">
+                  Se registrará la reunion existente de Zoom sin crear una nueva.
+                </Typography>
+                <TextField
+                  label="Reunion seleccionada"
+                  value={
+                    registerDialogMeeting
+                      ? `${formatZoomDateTime(registerDialogMeeting.startTime)} | ${registerDialogMeeting.topic} | ID ${registerDialogMeeting.meetingId ?? "-"}`
+                      : ""
+                  }
+                  InputProps={{ readOnly: true }}
+                />
+                <TextField
+                  label="Cuenta anfitriona"
+                  value={registerDialogMeeting?.accountEmail ?? "-"}
+                  InputProps={{ readOnly: true }}
+                />
+                {programaOptions.length > 0 ? (
+                  <TextField
+                    select
+                    required
+                    label="Programa"
+                    value={registerForm.programaNombre}
+                    onChange={(event) =>
+                      setRegisterForm((prev) => ({
+                        ...prev,
+                        programaNombre: event.target.value
+                      }))
+                    }
+                  >
+                    {programaOptions.map((programa) => (
+                      <MenuItem key={programa} value={programa}>
+                        {programa}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ) : (
+                  <TextField
+                    required
+                    label="Programa"
+                    value={registerForm.programaNombre}
+                    onChange={(event) =>
+                      setRegisterForm((prev) => ({
+                        ...prev,
+                        programaNombre: event.target.value
+                      }))
+                    }
+                  />
+                )}
+                {responsableOptions.length > 0 ? (
+                  <TextField
+                    select
+                    required
+                    label="Responsable"
+                    value={registerForm.responsableNombre}
+                    onChange={(event) =>
+                      setRegisterForm((prev) => ({
+                        ...prev,
+                        responsableNombre: event.target.value
+                      }))
+                    }
+                  >
+                    {responsableOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ) : (
+                  <TextField
+                    required
+                    label="Responsable"
+                    value={registerForm.responsableNombre}
+                    onChange={(event) =>
+                      setRegisterForm((prev) => ({
+                        ...prev,
+                        responsableNombre: event.target.value
+                      }))
+                    }
+                  />
+                )}
+                <TextField
+                  select
+                  label="Modalidad"
+                  value={registerForm.modalidadReunion}
+                  onChange={(event) =>
+                    setRegisterForm((prev) => ({
+                      ...prev,
+                      modalidadReunion: event.target.value as "VIRTUAL" | "HIBRIDA"
+                    }))
+                  }
+                >
+                  <MenuItem value="VIRTUAL">Virtual</MenuItem>
+                  <MenuItem value="HIBRIDA">Hibrida</MenuItem>
+                </TextField>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={registerForm.requiereAsistencia}
+                      onChange={(event) =>
+                        setRegisterForm((prev) => ({
+                          ...prev,
+                          requiereAsistencia: event.target.checked
+                        }))
+                      }
+                    />
+                  }
+                  label="Requiere asistencia de monitoreo (quedará visible para asistentes Zoom)."
+                />
+                <TextField
+                  label="Descripcion (opcional)"
+                  multiline
+                  minRows={2}
+                  value={registerForm.descripcion}
+                  onChange={(event) =>
+                    setRegisterForm((prev) => ({
+                      ...prev,
+                      descripcion: event.target.value
+                    }))
+                  }
+                />
+              </Stack>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={closeRegisterDialog} disabled={isRegisteringUpcomingMeeting}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={!canSubmitRegisterDialog || isRegisteringUpcomingMeeting}
+              >
+                {isRegisteringUpcomingMeeting ? "Guardando..." : "Registrar"}
+              </Button>
+            </DialogActions>
+          </Box>
+        </Dialog>
       </CardContent>
     </Card>
   );

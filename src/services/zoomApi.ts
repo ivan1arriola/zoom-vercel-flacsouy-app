@@ -77,6 +77,22 @@ export type ZoomPastMeetingDetails = {
   endTime: string | null;
 };
 
+export type RegisterUpcomingMeetingInSystemPayload = {
+  titulo: string;
+  responsableNombre: string;
+  programaNombre: string;
+  modalidadReunion: "VIRTUAL" | "HIBRIDA";
+  inicioProgramadoAt: string;
+  finProgramadoAt: string;
+  timezone?: string;
+  zoomMeetingId?: string;
+  zoomJoinUrl?: string;
+  zoomAccountId?: string;
+  zoomAccountEmail?: string;
+  requiereAsistencia?: boolean;
+  descripcion?: string;
+};
+
 export async function loadZoomAccounts(): Promise<{
   accounts: ZoomAccount[];
   groupName: string;
@@ -314,5 +330,37 @@ export async function loadZoomPastMeetingDetails(input: {
   return {
     details: json.details ?? null,
     error: undefined
+  };
+}
+
+export async function registerUpcomingMeetingInSystem(
+  payload: RegisterUpcomingMeetingInSystemPayload
+): Promise<{
+  success: boolean;
+  solicitudId?: string;
+  eventoId?: string;
+  error?: string;
+}> {
+  const res = await fetch("/api/v1/zoom/proximas-reuniones/registrar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const json = (await res.json()) as {
+    error?: string;
+    result?: { solicitudId: string; eventoId: string };
+  };
+
+  if (!res.ok) {
+    return {
+      success: false,
+      error: json.error ?? "No se pudo registrar la reunion en el sistema."
+    };
+  }
+
+  return {
+    success: true,
+    solicitudId: json.result?.solicitudId,
+    eventoId: json.result?.eventoId
   };
 }

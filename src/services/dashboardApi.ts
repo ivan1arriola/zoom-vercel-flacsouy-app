@@ -1,3 +1,15 @@
+export type DashboardAccountingAssistantSummary = {
+  asistenteZoomId: string;
+  asistenteNombre: string;
+  asistenteEmail: string;
+  horasVirtuales: number;
+  horasPresenciales: number;
+  horasTotales: number;
+  reunionesVirtuales: number;
+  reunionesPresenciales: number;
+  reunionesTotales: number;
+};
+
 export type DashboardSummary = {
   scope: "ADMINISTRADOR" | "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA";
   solicitudesTotales?: number;
@@ -10,9 +22,18 @@ export type DashboardSummary = {
   agendaDisponible?: number;
   misPostulaciones?: number;
   misAsignacionesProximas?: number;
+  misHorasMes?: number;
+  misHorasVirtualesMes?: number;
+  misHorasPresencialesMes?: number;
+  misHorasMesAnterior?: number;
+  misHorasVirtualesMesAnterior?: number;
+  misHorasPresencialesMesAnterior?: number;
   reunionesCompletadasMes?: number;
   horasCompletadasMes?: number;
   personasActivasMes?: number;
+  horasVirtualesMes?: number;
+  horasPresencialesMes?: number;
+  contaduriaHorasPorAsistente?: DashboardAccountingAssistantSummary[];
 };
 
 export async function loadSummary(): Promise<DashboardSummary | null> {

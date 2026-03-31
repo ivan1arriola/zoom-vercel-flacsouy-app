@@ -24,6 +24,13 @@ type ManualAccountOption = {
   label: string;
 };
 
+export type ManualMeetingOption = {
+  id: string;
+  label: string;
+  zoomMeetingId: string;
+  zoomJoinUrl?: string;
+};
+
 export type ManualResolutionInput = {
   solicitudId: string;
   cuentaZoomAsignadaId: string;
@@ -35,6 +42,7 @@ export type ManualResolutionInput = {
 interface SpaTabManualProps {
   manualPendings: ManualPending[];
   accountOptions: ManualAccountOption[];
+  meetingOptionsByAccountId: Record<string, ManualMeetingOption[]>;
   isLoadingAccounts: boolean;
   resolvingSolicitudId: string | null;
   onRefresh: () => void;
@@ -43,14 +51,14 @@ interface SpaTabManualProps {
 
 type ManualFormState = {
   cuentaZoomAsignadaId: string;
-  zoomMeetingIdManual: string;
-  zoomJoinUrlManual: string;
+  selectedMeetingOptionId: string;
   observaciones: string;
 };
 
 export function SpaTabManual({
   manualPendings,
   accountOptions,
+  meetingOptionsByAccountId,
   isLoadingAccounts,
   resolvingSolicitudId,
   onRefresh,
@@ -65,16 +73,23 @@ export function SpaTabManual({
       const next: Record<string, ManualFormState> = {};
       for (const pending of manualPendings) {
         const existing = prev[pending.id];
-        next[pending.id] = existing ?? {
-          cuentaZoomAsignadaId: defaultAccountId,
-          zoomMeetingIdManual: "",
-          zoomJoinUrlManual: "",
-          observaciones: ""
+        const selectedAccountId = existing?.cuentaZoomAsignadaId || defaultAccountId;
+        const meetingOptions = meetingOptionsByAccountId[selectedAccountId] ?? [];
+        const hasExistingMeeting = existing?.selectedMeetingOptionId
+          ? meetingOptions.some((option) => option.id === existing.selectedMeetingOptionId)
+          : false;
+
+        next[pending.id] = {
+          cuentaZoomAsignadaId: selectedAccountId,
+          selectedMeetingOptionId: hasExistingMeeting
+            ? existing?.selectedMeetingOptionId ?? ""
+            : meetingOptions[0]?.id ?? "",
+          observaciones: existing?.observaciones ?? ""
         };
       }
       return next;
     });
-  }, [manualPendings, defaultAccountId]);
+  }, [manualPendings, defaultAccountId, meetingOptionsByAccountId]);
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -95,7 +110,7 @@ export function SpaTabManual({
         </Stack>
 
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.6 }}>
-          Resuelve cada solicitud manualmente asignando cuenta Zoom y Meeting ID.
+          Resuelve cada solicitud asignando cuenta y una reunion existente de esa cuenta.
         </Typography>
 
         {isLoadingAccounts ? (
@@ -119,14 +134,17 @@ export function SpaTabManual({
             {manualPendings.map((item) => {
               const formState = formBySolicitudId[item.id] ?? {
                 cuentaZoomAsignadaId: defaultAccountId,
-                zoomMeetingIdManual: "",
-                zoomJoinUrlManual: "",
+                selectedMeetingOptionId: "",
                 observaciones: ""
               };
+              const meetingOptions = meetingOptionsByAccountId[formState.cuentaZoomAsignadaId] ?? [];
+              const selectedMeeting = meetingOptions.find(
+                (option) => option.id === formState.selectedMeetingOptionId
+              );
               const isResolving = resolvingSolicitudId === item.id;
               const canSubmit =
                 Boolean(formState.cuentaZoomAsignadaId) &&
-                formState.zoomMeetingIdManual.trim().length > 0 &&
+                Boolean(selectedMeeting?.zoomMeetingId.trim()) &&
                 !isResolving &&
                 accountOptions.length > 0;
 
@@ -146,12 +164,14 @@ export function SpaTabManual({
                       label="Cuenta Zoom"
                       value={formState.cuentaZoomAsignadaId}
                       onChange={(event) => {
-                        const value = String(event.target.value);
+                        const selectedAccountId = String(event.target.value);
+                        const nextMeetingOptions = meetingOptionsByAccountId[selectedAccountId] ?? [];
                         setFormBySolicitudId((prev) => ({
                           ...prev,
                           [item.id]: {
                             ...formState,
-                            cuentaZoomAsignadaId: value
+                            cuentaZoomAsignadaId: selectedAccountId,
+                            selectedMeetingOptionId: nextMeetingOptions[0]?.id ?? ""
                           }
                         }));
                       }}
@@ -167,43 +187,56 @@ export function SpaTabManual({
                     <Box
                       sx={{
                         display: "grid",
-                        gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+                        gridTemplateColumns: { xs: "1fr" },
                         gap: 1
                       }}
                     >
                       <TextField
+                        select
                         size="small"
-                        label="Meeting ID (manual)"
-                        value={formState.zoomMeetingIdManual}
+                        label="Meeting ID disponible"
+                        value={formState.selectedMeetingOptionId}
                         onChange={(event) => {
                           const value = event.target.value;
                           setFormBySolicitudId((prev) => ({
                             ...prev,
                             [item.id]: {
                               ...formState,
-                              zoomMeetingIdManual: value
+                              selectedMeetingOptionId: value
                             }
                           }));
                         }}
-                        disabled={isResolving}
-                      />
+                        disabled={isResolving || meetingOptions.length === 0}
+                      >
+                        {meetingOptions.map((option) => (
+                          <MenuItem key={option.id} value={option.id}>
+                            {option.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+
                       <TextField
                         size="small"
-                        label="Join URL (opcional)"
-                        value={formState.zoomJoinUrlManual}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setFormBySolicitudId((prev) => ({
-                            ...prev,
-                            [item.id]: {
-                              ...formState,
-                              zoomJoinUrlManual: value
-                            }
-                          }));
-                        }}
-                        disabled={isResolving}
+                        label="Meeting ID"
+                        value={selectedMeeting?.zoomMeetingId ?? ""}
+                        InputProps={{ readOnly: true }}
+                        disabled
+                      />
+
+                      <TextField
+                        size="small"
+                        label="Join URL"
+                        value={selectedMeeting?.zoomJoinUrl ?? ""}
+                        InputProps={{ readOnly: true }}
+                        disabled
                       />
                     </Box>
+
+                    {formState.cuentaZoomAsignadaId && meetingOptions.length === 0 ? (
+                      <Alert severity="warning">
+                        La cuenta seleccionada no tiene reuniones disponibles para asociar.
+                      </Alert>
+                    ) : null}
 
                     <TextField
                       size="small"
@@ -228,13 +261,15 @@ export function SpaTabManual({
                         color="primary"
                         disabled={!canSubmit}
                         onClick={() =>
-                          void onResolve({
-                            solicitudId: item.id,
-                            cuentaZoomAsignadaId: formState.cuentaZoomAsignadaId.trim(),
-                            zoomMeetingIdManual: formState.zoomMeetingIdManual.trim(),
-                            zoomJoinUrlManual: formState.zoomJoinUrlManual.trim() || undefined,
-                            observaciones: formState.observaciones.trim() || undefined
-                          })
+                          selectedMeeting
+                            ? void onResolve({
+                                solicitudId: item.id,
+                                cuentaZoomAsignadaId: formState.cuentaZoomAsignadaId.trim(),
+                                zoomMeetingIdManual: selectedMeeting.zoomMeetingId.trim(),
+                                zoomJoinUrlManual: selectedMeeting.zoomJoinUrl?.trim() || undefined,
+                                observaciones: formState.observaciones.trim() || undefined
+                              })
+                            : undefined
                         }
                       >
                         {isResolving ? "Resolviendo..." : "Resolver pendiente"}

@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { signIn } from "next-auth/react";
 import {
   Alert,
@@ -44,8 +44,11 @@ import {
   deleteSolicitud as deleteSolicitudApi,
   cancelSolicitudSerie as cancelSolicitudSerieApi,
   cancelSolicitudInstancia as cancelSolicitudInstanciaApi,
+  addSolicitudInstancia as addSolicitudInstanciaApi,
   submitPastMeeting as submitPastMeetingApi,
-  sendSolicitudReminder as sendSolicitudReminderApi
+  sendSolicitudReminder as sendSolicitudReminderApi,
+  updatePastMeeting as updatePastMeetingApi,
+  enableSolicitudAsistencia as enableSolicitudAsistenciaApi
 } from "@/src/services/solicitudesApi";
 import {
   createPrograma as createProgramaApi,
@@ -76,6 +79,7 @@ import {
   loadManualPendings,
   loadZoomUpcomingMeetings,
   loadZoomPastMeetings,
+  registerUpcomingMeetingInSystem as registerUpcomingMeetingInSystemApi,
   type ZoomUpcomingMeeting
 } from "@/src/services/zoomApi";
 import { useSolicitudes } from "@/src/hooks/useSolicitudes";
@@ -96,7 +100,11 @@ import { SpaTabProgramas } from "@/components/spa-tabs/SpaTabProgramas";
 import { SpaTabAgendaLibre } from "@/components/spa-tabs/SpaTabAgendaLibre";
 import { SpaTabMisAsistencias } from "@/components/spa-tabs/SpaTabMisAsistencias";
 import { SpaTabAsignacion } from "@/components/spa-tabs/SpaTabAsignacion";
-import { SpaTabManual, type ManualResolutionInput } from "@/components/spa-tabs/SpaTabManual";
+import {
+  SpaTabManual,
+  type ManualMeetingOption,
+  type ManualResolutionInput
+} from "@/components/spa-tabs/SpaTabManual";
 import { SpaTabHistorico } from "@/components/spa-tabs/SpaTabHistorico";
 import { SpaTabTarifas } from "@/components/spa-tabs/SpaTabTarifas";
 import { SpaTabCuentas } from "@/components/spa-tabs/SpaTabCuentas";
@@ -195,6 +203,7 @@ export function SpaHomeScreen() {
     setForm,
     updateForm
   } = useSolicitudes();
+  const [addingInstanciaSolicitudId, setAddingInstanciaSolicitudId] = useState<string | null>(null);
   
   // Dashboard
   const { summary, setSummary, manualPendings, setManualPendings } = useDashboard();
@@ -264,6 +273,9 @@ export function SpaHomeScreen() {
     setPastMeetingForm
   } = usePastMeetings();
   const [pastMeetingZoomSeed, setPastMeetingZoomSeed] = useState<PastMeetingZoomSeed | null>(null);
+  const [updatingPastMeetingId, setUpdatingPastMeetingId] = useState<string | null>(null);
+  const [isRegisteringUpcomingMeeting, setIsRegisteringUpcomingMeeting] = useState(false);
+  const [updatingAsistenciaSolicitudId, setUpdatingAsistenciaSolicitudId] = useState<string | null>(null);
   
   // User Profile & Auth
   const { user, setUser, googleLinked, setGoogleLinked, hasPassword, setHasPassword, isLoadingGoogleStatus, setIsLoadingGoogleStatus, isSyncingGoogleProfile, setIsSyncingGoogleProfile, isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount, isUpdatingProfile, setIsUpdatingProfile, profileForm, setProfileForm, showProfileForm, setShowProfileForm } = useUserProfile();
@@ -296,11 +308,15 @@ export function SpaHomeScreen() {
   const canSeeProgramas = canAccessTabForRole("programas", effectiveRole);
   const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
   const canSendSolicitudReminder = useMemo(
-    () => ["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(effectiveRole),
+    () => ["DOCENTE", "ADMINISTRADOR"].includes(effectiveRole),
     [effectiveRole]
   );
   const canCreateSolicitudShortcut = useMemo(
     () => ["DOCENTE", "ADMINISTRADOR"].includes(effectiveRole),
+    [effectiveRole]
+  );
+  const canEditSolicitudAssistance = useMemo(
+    () => effectiveRole === "ADMINISTRADOR",
     [effectiveRole]
   );
   const canDelegateSolicitudResponsable = useMemo(
@@ -445,6 +461,53 @@ export function SpaHomeScreen() {
       })),
     [zoomAccounts]
   );
+  const manualMeetingOptionsByAccountId = useMemo<Record<string, ManualMeetingOption[]>>(() => {
+    const byAccountId: Record<string, ManualMeetingOption[]> = {};
+    for (const account of zoomAccounts) {
+      const byMeetingId = new Map<
+        string,
+        {
+          zoomMeetingId: string;
+          zoomJoinUrl?: string;
+          topic: string;
+          firstStartTime: string;
+          instancesCount: number;
+        }
+      >();
+
+      for (const event of account.pendingEvents) {
+        const zoomMeetingId = (event.meetingId ?? "").trim();
+        if (!zoomMeetingId) continue;
+
+        const existing = byMeetingId.get(zoomMeetingId);
+        if (existing) {
+          existing.instancesCount += 1;
+          continue;
+        }
+
+        byMeetingId.set(zoomMeetingId, {
+          zoomMeetingId,
+          zoomJoinUrl: event.joinUrl || undefined,
+          topic: event.topic || "Sin titulo",
+          firstStartTime: event.startTime,
+          instancesCount: 1
+        });
+      }
+
+      const options = Array.from(byMeetingId.values()).map((meeting) => ({
+        id: meeting.zoomMeetingId,
+        zoomMeetingId: meeting.zoomMeetingId,
+        zoomJoinUrl: meeting.zoomJoinUrl,
+        label:
+          meeting.instancesCount > 1
+            ? `ID ${meeting.zoomMeetingId} | ${meeting.topic} | ${meeting.instancesCount} instancias`
+            : `ID ${meeting.zoomMeetingId} | ${meeting.topic} | ${formatDateTime(meeting.firstStartTime)}`
+      }));
+
+      byAccountId[account.id] = options;
+    }
+    return byAccountId;
+  }, [zoomAccounts]);
 
   const isGlobalBusy = useMemo(
     () =>
@@ -452,8 +515,16 @@ export function SpaHomeScreen() {
       isSubmittingSolicitud ||
       Boolean(deletingSolicitudId) ||
       Boolean(cancellingSerieSolicitudId) ||
-      Boolean(cancellingInstanciaKey),
-    [loading, isSubmittingSolicitud, deletingSolicitudId, cancellingSerieSolicitudId, cancellingInstanciaKey]
+      Boolean(cancellingInstanciaKey) ||
+      Boolean(updatingAsistenciaSolicitudId),
+    [
+      loading,
+      isSubmittingSolicitud,
+      deletingSolicitudId,
+      cancellingSerieSolicitudId,
+      cancellingInstanciaKey,
+      updatingAsistenciaSolicitudId
+    ]
   );
 
   const globalBusyLabel = useMemo(() => {
@@ -461,8 +532,15 @@ export function SpaHomeScreen() {
     if (deletingSolicitudId) return "Eliminando solicitud...";
     if (cancellingSerieSolicitudId) return "Cancelando serie...";
     if (cancellingInstanciaKey) return "Cancelando instancia...";
+    if (updatingAsistenciaSolicitudId) return "Actualizando asistencia Zoom...";
     return "Cargando...";
-  }, [isSubmittingSolicitud, deletingSolicitudId, cancellingSerieSolicitudId, cancellingInstanciaKey]);
+  }, [
+    isSubmittingSolicitud,
+    deletingSolicitudId,
+    cancellingSerieSolicitudId,
+    cancellingInstanciaKey,
+    updatingAsistenciaSolicitudId
+  ]);
 
   // currentTarifaByModalidad is already provided by useTarifas hook
   // requestedTab is already provided by useUIState hook
@@ -532,7 +610,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(normalizedRole)) {
+      if (["DOCENTE", "ADMINISTRADOR"].includes(normalizedRole)) {
         loaders.push(
           (async () => {
             const loadedProgramas = await loadProgramas();
@@ -541,7 +619,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(normalizedRole)) {
+      if (["DOCENTE", "ADMINISTRADOR"].includes(normalizedRole)) {
         loaders.push(
           (async () => {
             const solicitudes = await loadSolicitudes();
@@ -925,6 +1003,52 @@ export function SpaHomeScreen() {
     }
   }
 
+  async function addSolicitudInstancia(input: {
+    solicitudId: string;
+    titulo: string;
+    inicioProgramadoAt: string;
+    finProgramadoAt: string;
+  }): Promise<boolean> {
+    setMessage("");
+    setAddingInstanciaSolicitudId(input.solicitudId);
+
+    try {
+      const response = await addSolicitudInstanciaApi({
+        solicitudId: input.solicitudId,
+        inicioProgramadoAt: input.inicioProgramadoAt,
+        finProgramadoAt: input.finProgramadoAt
+      });
+
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo agregar la instancia.");
+        return false;
+      }
+
+      const usedPrimaryMeeting = response.result?.usaMeetingPrincipal !== false;
+      const resolvedMeetingId = (response.result?.zoomMeetingId ?? "").trim();
+      if (usedPrimaryMeeting) {
+        setMessage(
+          resolvedMeetingId
+            ? `Instancia agregada en "${input.titulo}" usando el mismo ID (${resolvedMeetingId}).`
+            : `Instancia agregada en "${input.titulo}" usando el mismo ID.`
+        );
+      } else {
+        setMessage(
+          resolvedMeetingId
+            ? `Instancia agregada en "${input.titulo}" con nuevo ID (${resolvedMeetingId}) por superposición de horario.`
+            : `Instancia agregada en "${input.titulo}" con nuevo ID por superposición de horario.`
+        );
+      }
+      await refreshAfterSolicitudMutation();
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo agregar la instancia.");
+      return false;
+    } finally {
+      setAddingInstanciaSolicitudId(null);
+    }
+  }
+
   async function sendSolicitudReminder(input: {
     solicitudId: string;
     toEmail?: string;
@@ -956,11 +1080,70 @@ export function SpaHomeScreen() {
     }
   }
 
+  async function enableSolicitudAssistance(input: { solicitudId: string; titulo: string }) {
+    if (
+      !window.confirm(
+        `Se habilitara asistencia Zoom para "${input.titulo}" en sus instancias activas. ¿Continuar?`
+      )
+    ) {
+      return;
+    }
+
+    setMessage("");
+    setUpdatingAsistenciaSolicitudId(input.solicitudId);
+
+    try {
+      const response = await enableSolicitudAsistenciaApi({
+        solicitudId: input.solicitudId
+      });
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo habilitar asistencia Zoom.");
+        return;
+      }
+
+      if (response.alreadyEnabled) {
+        setMessage("La solicitud ya tenia asistencia Zoom habilitada.");
+      } else {
+        const updatedCount = response.updatedEvents ?? 0;
+        setMessage(
+          updatedCount > 0
+            ? `Asistencia Zoom habilitada. Se actualizaron ${updatedCount} instancia(s).`
+            : "Asistencia Zoom habilitada."
+        );
+      }
+
+      await refreshAfterSolicitudMutation();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo habilitar asistencia Zoom.");
+    } finally {
+      setUpdatingAsistenciaSolicitudId(null);
+    }
+  }
+
   async function setInterest(eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA") {
     setUpdatingInterestId(eventoId);
+    const previousAgenda = agendaLibre;
+    const optimisticAnsweredAt = new Date().toISOString();
+    setAgendaLibre((current) =>
+      current.map((event) => {
+        if (event.id !== eventoId) return event;
+        return {
+          ...event,
+          intereses: [
+            {
+              id: event.intereses[0]?.id ?? `temp-${eventoId}`,
+              estadoInteres,
+              fechaRespuestaAt: optimisticAnsweredAt
+            }
+          ]
+        };
+      })
+    );
+
     try {
       const response = await setInterestApi(eventoId, estadoInteres);
       if (!response.success) {
+        setAgendaLibre(previousAgenda);
         setMessage(response.error ?? "No se pudo registrar interés.");
         return;
       }
@@ -971,6 +1154,9 @@ export function SpaHomeScreen() {
         setAssignmentBoardEvents(assignmentData.events ?? []);
         setAssignableAssistants(assignmentData.assistants ?? []);
       }
+    } catch (error) {
+      setAgendaLibre(previousAgenda);
+      setMessage(error instanceof Error ? error.message : "No se pudo registrar interés.");
     } finally {
       setUpdatingInterestId(null);
     }
@@ -1207,6 +1393,48 @@ export function SpaHomeScreen() {
     }
   }
 
+  async function registerUpcomingMeetingInSystem(input: {
+    meeting: ZoomUpcomingMeeting;
+    responsableNombre: string;
+    programaNombre: string;
+    modalidadReunion: "VIRTUAL" | "HIBRIDA";
+    requiereAsistencia: boolean;
+    descripcion?: string;
+  }): Promise<boolean> {
+    setMessage("");
+    setIsRegisteringUpcomingMeeting(true);
+    try {
+      const response = await registerUpcomingMeetingInSystemApi({
+        titulo: input.meeting.topic || "Sin titulo",
+        responsableNombre: input.responsableNombre,
+        programaNombre: input.programaNombre,
+        modalidadReunion: input.modalidadReunion,
+        inicioProgramadoAt: input.meeting.startTime,
+        finProgramadoAt: input.meeting.endTime,
+        timezone: input.meeting.timezone || "America/Montevideo",
+        zoomMeetingId: input.meeting.meetingId ?? undefined,
+        zoomJoinUrl: input.meeting.joinUrl || undefined,
+        zoomAccountId: input.meeting.accountId || undefined,
+        zoomAccountEmail: input.meeting.accountEmail || undefined,
+        requiereAsistencia: input.requiereAsistencia,
+        descripcion: input.descripcion
+      });
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo registrar la reunion en sistema.");
+        return false;
+      }
+
+      setMessage("Reunion registrada en sistema correctamente.");
+      await Promise.all([refreshAfterSolicitudMutation(), refreshZoomUpcomingMeetings()]);
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo registrar la reunion en sistema.");
+      return false;
+    } finally {
+      setIsRegisteringUpcomingMeeting(false);
+    }
+  }
+
   async function refreshZoomPastMeetings(monthsBack = selectedZoomPastMonthsBack) {
     setIsLoadingZoomPastMeetings(true);
     try {
@@ -1272,6 +1500,40 @@ export function SpaHomeScreen() {
       setPastMeetings(meetings);
     } finally {
       setIsLoadingPastMeetings(false);
+    }
+  }
+
+  async function updatePastMeetingRecord(input: {
+    eventoId: string;
+    programaNombre: string;
+    monitorEmail?: string;
+  }): Promise<boolean> {
+    setMessage("");
+    setUpdatingPastMeetingId(input.eventoId);
+    try {
+      const response = await updatePastMeetingApi({
+        eventoId: input.eventoId,
+        programaNombre: input.programaNombre,
+        monitorEmail: input.monitorEmail
+      });
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo actualizar la reunion.");
+        return false;
+      }
+
+      const meetings = await loadPastMeetings();
+      if (!meetings) {
+        setMessage("Reunion actualizada, pero no se pudo refrescar la lista.");
+        return true;
+      }
+      setPastMeetings(meetings);
+      setMessage("Reunion actualizada correctamente.");
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar la reunion.");
+      return false;
+    } finally {
+      setUpdatingPastMeetingId(null);
     }
   }
 
@@ -1427,6 +1689,133 @@ export function SpaHomeScreen() {
   const activeNavigationTabs = groupedNavigationTabs[activeNavigationGroup];
   const activeNavigationLabel = NAVIGATION_GROUP_LABEL[activeNavigationGroup];
   const normalizedRoleLabel = (effectiveRole || "ADMINISTRADOR").replace(/_/g, " ");
+  const isAdminWorkspace = !effectiveRole || effectiveRole === "ADMINISTRADOR";
+
+  const roleWorkspaceTitle = useMemo(() => {
+    if (effectiveRole === "DOCENTE") return "Espacio docente";
+    if (effectiveRole === "ASISTENTE_ZOOM") return "Espacio asistencias";
+    if (effectiveRole === "CONTADURIA") return "Espacio contaduria";
+    return "Panel principal";
+  }, [effectiveRole]);
+
+  const roleWorkspaceDescription = useMemo(() => {
+    if (effectiveRole === "DOCENTE") {
+      return "Solicitar, editar y seguir tus reuniones.";
+    }
+    if (effectiveRole === "ASISTENTE_ZOOM") {
+      return "Tomar agenda disponible y gestionar tus asistencias asignadas.";
+    }
+    if (effectiveRole === "CONTADURIA") {
+      return "Control mensual de horas por asistente y tarifas.";
+    }
+    return `Seccion activa: ${activeNavigationLabel}`;
+  }, [effectiveRole, activeNavigationLabel]);
+
+  type RoleQuickAction = {
+    id: string;
+    label: string;
+    description: string;
+    icon: ReactNode;
+    active: boolean;
+    onClick: () => void;
+  };
+
+  const roleQuickActions = useMemo<RoleQuickAction[]>(() => {
+    if (effectiveRole === "DOCENTE") {
+      return [
+        {
+          id: "docente-inicio",
+          label: "Inicio",
+          description: "Resumen de actividad",
+          icon: getTabIcon("dashboard"),
+          active: tab === "dashboard",
+          onClick: () => setTab("dashboard")
+        },
+        {
+          id: "docente-nueva",
+          label: "Nueva solicitud",
+          description: "Crear reunion",
+          icon: getTabIcon("solicitudes"),
+          active: tab === "solicitudes" && docenteSolicitudesView === "form",
+          onClick: () => {
+            setDocenteSolicitudesView("form");
+            setTab("solicitudes");
+          }
+        },
+        {
+          id: "docente-lista",
+          label: "Mis solicitudes",
+          description: "Ver y editar",
+          icon: getTabIcon("solicitudes"),
+          active: tab === "solicitudes" && docenteSolicitudesView === "list",
+          onClick: () => {
+            setDocenteSolicitudesView("list");
+            setTab("solicitudes");
+          }
+        },
+        {
+          id: "docente-programas",
+          label: "Programas",
+          description: "Catalogo academico",
+          icon: getTabIcon("programas"),
+          active: tab === "programas",
+          onClick: () => setTab("programas")
+        }
+      ];
+    }
+
+    if (effectiveRole === "ASISTENTE_ZOOM") {
+      return [
+        {
+          id: "asistente-inicio",
+          label: "Inicio",
+          description: "Estado general",
+          icon: getTabIcon("dashboard"),
+          active: tab === "dashboard",
+          onClick: () => setTab("dashboard")
+        },
+        {
+          id: "asistente-agenda",
+          label: "Agenda libre",
+          description: "Reuniones para tomar",
+          icon: getTabIcon("agenda_libre"),
+          active: tab === "agenda_libre",
+          onClick: () => setTab("agenda_libre")
+        },
+        {
+          id: "asistente-mis",
+          label: "Mis asistencias",
+          description: "Reuniones asignadas",
+          icon: getTabIcon("mis_asistencias"),
+          active: tab === "mis_asistencias",
+          onClick: () => setTab("mis_asistencias")
+        }
+      ];
+    }
+
+    if (effectiveRole === "CONTADURIA") {
+      return [
+        {
+          id: "conta-inicio",
+          label: "Horas del mes",
+          description: "Resumen por asistente",
+          icon: getTabIcon("dashboard"),
+          active: tab === "dashboard",
+          onClick: () => setTab("dashboard")
+        },
+        {
+          id: "conta-tarifas",
+          label: "Tarifas",
+          description: "Valores vigentes",
+          icon: getTabIcon("tarifas"),
+          active: tab === "tarifas",
+          onClick: () => setTab("tarifas")
+        }
+      ];
+    }
+
+    return [];
+  }, [effectiveRole, tab, docenteSolicitudesView, setDocenteSolicitudesView, setTab]);
 
   return (
     <Box component="section">
@@ -1448,7 +1837,7 @@ export function SpaHomeScreen() {
         >
           <Box>
             <Typography variant="overline" color="text.secondary">
-              Panel principal
+              {isAdminWorkspace ? "Panel principal" : "Vista por rol"}
             </Typography>
             <Typography
               variant="h5"
@@ -1458,10 +1847,10 @@ export function SpaHomeScreen() {
                 fontSize: { xs: "1.2rem", sm: "1.5rem" }
               }}
             >
-              {TAB_CONFIG[tab].label}
+              {isAdminWorkspace ? TAB_CONFIG[tab].label : roleWorkspaceTitle}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Seccion activa: {activeNavigationLabel}
+              {roleWorkspaceDescription}
             </Typography>
           </Box>
           <Stack
@@ -1472,84 +1861,138 @@ export function SpaHomeScreen() {
             sx={{ width: { xs: "100%", lg: "auto" } }}
           >
             <Chip size="small" variant="outlined" label={`Rol: ${normalizedRoleLabel}`} />
-            <Chip
-              size="small"
-              color="primary"
-              variant="outlined"
-              label={`Grupo: ${activeNavigationLabel}`}
-            />
+            {isAdminWorkspace ? (
+              <Chip
+                size="small"
+                color="primary"
+                variant="outlined"
+                label={`Grupo: ${activeNavigationLabel}`}
+              />
+            ) : null}
           </Stack>
         </Stack>
 
-        <Box
-          sx={{
-            mb: 1.1,
-            overflowX: "visible",
-            pb: 0.2
-          }}
-        >
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-            {NAVIGATION_GROUP_ORDER.map((group) => {
-              const groupTabs = groupedNavigationTabs[group];
-              if (groupTabs.length === 0) return null;
+        {isAdminWorkspace ? (
+          <>
+            <Box
+              sx={{
+                mb: 1.1,
+                overflowX: "visible",
+                pb: 0.2
+              }}
+            >
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                {NAVIGATION_GROUP_ORDER.map((group) => {
+                  const groupTabs = groupedNavigationTabs[group];
+                  if (groupTabs.length === 0) return null;
 
-              const isGroupActive = groupTabs.includes(tab);
+                  const isGroupActive = groupTabs.includes(tab);
 
-              return (
-                <Button
-                  key={group}
-                  size="small"
-                  variant={isGroupActive ? "contained" : "outlined"}
-                  color={isGroupActive ? "primary" : "inherit"}
-                  startIcon={getNavigationGroupIcon(group)}
-                  onClick={() => selectNavigationGroup(group)}
-                  sx={{
-                    textTransform: "none",
-                    borderRadius: 2,
-                    fontWeight: 700,
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  {NAVIGATION_GROUP_LABEL[group]} ({groupTabs.length})
-                </Button>
-              );
-            })}
-          </Stack>
-        </Box>
+                  return (
+                    <Button
+                      key={group}
+                      size="small"
+                      variant={isGroupActive ? "contained" : "outlined"}
+                      color={isGroupActive ? "primary" : "inherit"}
+                      startIcon={getNavigationGroupIcon(group)}
+                      onClick={() => selectNavigationGroup(group)}
+                      sx={{
+                        textTransform: "none",
+                        borderRadius: 2,
+                        fontWeight: 700,
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      {NAVIGATION_GROUP_LABEL[group]} ({groupTabs.length})
+                    </Button>
+                  );
+                })}
+              </Stack>
+            </Box>
 
-        <Box
-          sx={{
-            overflowX: "visible",
-            pb: 0.2
-          }}
-        >
-          <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-            {activeNavigationTabs.map((navigationTab) => (
-              <Button
-                key={navigationTab}
-                size="small"
-                variant={tab === navigationTab ? "contained" : "text"}
-                color={tab === navigationTab ? "primary" : "inherit"}
-                startIcon={getTabIcon(navigationTab)}
-                onClick={() => setTab(navigationTab)}
+            <Box
+              sx={{
+                overflowX: "visible",
+                pb: 0.2
+              }}
+            >
+              <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                {activeNavigationTabs.map((navigationTab) => (
+                  <Button
+                    key={navigationTab}
+                    size="small"
+                    variant={tab === navigationTab ? "contained" : "text"}
+                    color={tab === navigationTab ? "primary" : "inherit"}
+                    startIcon={getTabIcon(navigationTab)}
+                    onClick={() => setTab(navigationTab)}
+                    sx={{
+                      textTransform: "none",
+                      borderRadius: 2,
+                      fontWeight: tab === navigationTab ? 700 : 600,
+                      whiteSpace: "nowrap"
+                    }}
+                  >
+                    {TAB_CONFIG[navigationTab].label}
+                  </Button>
+                ))}
+              </Stack>
+            </Box>
+          </>
+        ) : (
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" },
+              gap: 1
+            }}
+          >
+            {roleQuickActions.map((action) => (
+              <Paper
+                key={action.id}
+                variant="outlined"
                 sx={{
-                  textTransform: "none",
+                  p: 1.1,
                   borderRadius: 2,
-                  fontWeight: tab === navigationTab ? 700 : 600,
-                  whiteSpace: "nowrap"
+                  borderColor: action.active ? "primary.main" : "divider",
+                  backgroundColor: action.active ? "action.selected" : "background.paper"
                 }}
               >
-                {TAB_CONFIG[navigationTab].label}
-              </Button>
+                <Button
+                  fullWidth
+                  size="small"
+                  variant={action.active ? "contained" : "text"}
+                  startIcon={action.icon}
+                  onClick={action.onClick}
+                  sx={{
+                    justifyContent: "flex-start",
+                    textTransform: "none",
+                    fontWeight: 700,
+                    borderRadius: 1.6,
+                    mb: 0.4
+                  }}
+                >
+                  {action.label}
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  {action.description}
+                </Typography>
+              </Paper>
             ))}
-          </Stack>
-        </Box>
+          </Box>
+        )}
       </Paper>
 
       {tab === "dashboard" && (
         <SpaTabDashboard
           summary={summary}
           role={effectiveRole || "ADMINISTRADOR"}
+          onGoToCreateMeeting={() => {
+            setDocenteSolicitudesView("form");
+            setTab("solicitudes");
+          }}
+          onGoToAssignAssistants={() => {
+            setTab("asignacion");
+          }}
         />
       )}
 
@@ -1564,9 +2007,15 @@ export function SpaHomeScreen() {
           cancellingSerieSolicitudId={cancellingSerieSolicitudId}
           onCancelSolicitudInstancia={cancelSolicitudInstancia}
           cancellingInstanciaKey={cancellingInstanciaKey}
+          canAddInstances={canEditSolicitudAssistance}
+          addingInstanceSolicitudId={addingInstanciaSolicitudId}
+          onAddInstance={addSolicitudInstancia}
           canSendReminder={canSendSolicitudReminder}
           sendingReminderSolicitudId={sendingReminderSolicitudId}
           onSendReminder={sendSolicitudReminder}
+          canEditAssistance={canEditSolicitudAssistance}
+          updatingAssistanceSolicitudId={updatingAsistenciaSolicitudId}
+          onEnableAssistance={enableSolicitudAssistance}
           canDeleteSolicitud={canCreateSolicitudShortcut}
           isSubmittingSolicitud={isSubmittingSolicitud}
           canCreateShortcut={canCreateSolicitudShortcut}
@@ -1624,6 +2073,7 @@ export function SpaHomeScreen() {
         <SpaTabManual
           manualPendings={manualPendings}
           accountOptions={manualAccountOptions}
+          meetingOptionsByAccountId={manualMeetingOptionsByAccountId}
           isLoadingAccounts={isLoadingZoomAccounts}
           resolvingSolicitudId={resolvingManualSolicitudId}
           onRefresh={() => {
@@ -1637,9 +2087,11 @@ export function SpaHomeScreen() {
         <SpaTabHistorico
           pastMeetings={pastMeetings}
           isLoadingPastMeetings={isLoadingPastMeetings}
+          updatingPastMeetingId={updatingPastMeetingId}
           onRefreshPastMeetings={() => {
             void refreshPastMeetings();
           }}
+          onUpdatePastMeeting={updatePastMeetingRecord}
           pastMeetingForm={pastMeetingForm}
           setPastMeetingForm={setPastMeetingForm}
           docenteOptions={docenteOptions}
@@ -1699,7 +2151,11 @@ export function SpaHomeScreen() {
           onRefresh={() => {
             void refreshZoomUpcomingMeetings();
           }}
-          onCreatePostMeetingRecord={preloadPastMeetingFormFromZoom}
+          onRegisterUpcomingMeeting={registerUpcomingMeetingInSystem}
+          isRegisteringUpcomingMeeting={isRegisteringUpcomingMeeting}
+          programaOptions={programaOptions}
+          responsableOptions={responsableOptions}
+          defaultResponsableNombre={requesterDisplayName}
         />
       )}
 

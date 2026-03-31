@@ -35,7 +35,13 @@ interface PastMeetingForm {
 interface SpaTabHistoricoProps {
   pastMeetings: PastMeeting[];
   isLoadingPastMeetings: boolean;
+  updatingPastMeetingId: string | null;
   onRefreshPastMeetings: () => void;
+  onUpdatePastMeeting: (input: {
+    eventoId: string;
+    programaNombre: string;
+    monitorEmail?: string;
+  }) => Promise<boolean>;
   pastMeetingForm: PastMeetingForm;
   setPastMeetingForm: (form: PastMeetingForm | ((prev: PastMeetingForm) => PastMeetingForm)) => void;
   docenteOptions: Array<{ value: string; label: string; nombre: string }>;
@@ -57,7 +63,9 @@ interface SpaTabHistoricoProps {
 export function SpaTabHistorico({
   pastMeetings,
   isLoadingPastMeetings,
+  updatingPastMeetingId,
   onRefreshPastMeetings,
+  onUpdatePastMeeting,
   pastMeetingForm,
   setPastMeetingForm,
   docenteOptions,
@@ -69,6 +77,11 @@ export function SpaTabHistorico({
   onSubmit
 }: SpaTabHistoricoProps) {
   const [manualFormOpen, setManualFormOpen] = useState(false);
+  const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
+  const [editMeetingForm, setEditMeetingForm] = useState({
+    programaNombre: "",
+    monitorEmail: ""
+  });
   const isZoomSeedMode = Boolean(zoomSeed);
 
   useEffect(() => {
@@ -76,6 +89,18 @@ export function SpaTabHistorico({
       setManualFormOpen(true);
     }
   }, [zoomSeed]);
+
+  async function submitEditMeeting(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingMeetingId) return;
+    const updated = await onUpdatePastMeeting({
+      eventoId: editingMeetingId,
+      programaNombre: editMeetingForm.programaNombre.trim(),
+      monitorEmail: editMeetingForm.monitorEmail.trim() || undefined
+    });
+    if (!updated) return;
+    setEditingMeetingId(null);
+  }
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -120,77 +145,202 @@ export function SpaTabHistorico({
               <Alert severity="info">No hay reuniones pasadas registradas.</Alert>
             ) : (
               <Stack spacing={1.2}>
-                {pastMeetings.map((meeting) => (
-                  <Paper key={meeting.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-                    <Stack
-                      direction={{ xs: "column", md: "row" }}
-                      spacing={1}
-                      alignItems={{ xs: "flex-start", md: "center" }}
-                      justifyContent="space-between"
-                    >
-                      <Box>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                          {meeting.titulo}
-                        </Typography>
-                        <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
-                          <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
-                          <Chip size="small" variant="outlined" label={`${meeting.minutosReales} min`} />
-                        </Stack>
-                      </Box>
-                      {meeting.zoomJoinUrl ? (
-                        <Button size="small" variant="contained" color="secondary" href={meeting.zoomJoinUrl} target="_blank" rel="noreferrer">
-                          Abrir
-                        </Button>
-                      ) : null}
-                    </Stack>
+                {pastMeetings.map((meeting) => {
+                  const isEditing = editingMeetingId === meeting.id;
+                  const isUpdating = updatingPastMeetingId === meeting.id;
 
-                    <Box
-                      sx={{
-                        mt: 1.2,
-                        display: "grid",
-                        gridTemplateColumns: {
-                          xs: "1fr",
-                          sm: "repeat(2, minmax(0, 1fr))",
-                          lg: "repeat(4, minmax(0, 1fr))"
-                        },
-                        gap: 1
-                      }}
-                    >
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">
-                          ID Zoom
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                          {meeting.zoomMeetingId || "-"}
-                        </Typography>
+                  return (
+                    <Paper key={meeting.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                      <Stack
+                        direction={{ xs: "column", md: "row" }}
+                        spacing={1}
+                        alignItems={{ xs: "flex-start", md: "center" }}
+                        justifyContent="space-between"
+                      >
+                        <Box>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            {meeting.titulo}
+                          </Typography>
+                          <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                            <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
+                            <Chip size="small" variant="outlined" label={`${meeting.minutosReales} min`} />
+                          </Stack>
+                        </Box>
+                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                          {meeting.zoomJoinUrl ? (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="secondary"
+                              href={meeting.zoomJoinUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Abrir
+                            </Button>
+                          ) : null}
+                          <Button
+                            size="small"
+                            variant={isEditing ? "contained" : "outlined"}
+                            onClick={() => {
+                              if (isEditing) {
+                                setEditingMeetingId(null);
+                                return;
+                              }
+                              setEditingMeetingId(meeting.id);
+                              setEditMeetingForm({
+                                programaNombre: meeting.programaNombre ?? "",
+                                monitorEmail: meeting.monitorEmail ?? ""
+                              });
+                            }}
+                            disabled={Boolean(updatingPastMeetingId)}
+                          >
+                            {isEditing ? "Ocultar edicion" : "Editar"}
+                          </Button>
+                        </Stack>
+                      </Stack>
+
+                      <Box
+                        sx={{
+                          mt: 1.2,
+                          display: "grid",
+                          gridTemplateColumns: {
+                            xs: "1fr",
+                            sm: "repeat(2, minmax(0, 1fr))",
+                            lg: "repeat(4, minmax(0, 1fr))"
+                          },
+                          gap: 1
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            ID Zoom
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                            {meeting.zoomMeetingId || "-"}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Programa
+                          </Typography>
+                          <Typography variant="body2">{meeting.programaNombre || "-"}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Docente
+                          </Typography>
+                          <Typography variant="body2">{meeting.docenteNombre || meeting.docenteEmail || "-"}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Monitoreo
+                          </Typography>
+                          <Typography variant="body2">{meeting.monitorNombre || meeting.monitorEmail || "-"}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Inicio
+                          </Typography>
+                          <Typography variant="body2">{formatDateTime(meeting.inicioAt)}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Fin
+                          </Typography>
+                          <Typography variant="body2">{formatDateTime(meeting.finAt)}</Typography>
+                        </Box>
                       </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">
-                          Docente
-                        </Typography>
-                        <Typography variant="body2">{meeting.docenteNombre || meeting.docenteEmail || "-"}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">
-                          Monitoreo
-                        </Typography>
-                        <Typography variant="body2">{meeting.monitorNombre || meeting.monitorEmail || "-"}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">
-                          Inicio
-                        </Typography>
-                        <Typography variant="body2">{formatDateTime(meeting.inicioAt)}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">
-                          Fin
-                        </Typography>
-                        <Typography variant="body2">{formatDateTime(meeting.finAt)}</Typography>
-                      </Box>
-                    </Box>
-                  </Paper>
-                ))}
+
+                      <Collapse in={isEditing} timeout="auto" unmountOnExit>
+                        <Paper variant="outlined" sx={{ mt: 1.2, p: 1.2, borderRadius: 1.5 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                            Editar reunion
+                          </Typography>
+                          <Box component="form" onSubmit={submitEditMeeting}>
+                            <Box
+                              sx={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                                gap: 1
+                              }}
+                            >
+                              {programaOptions.length > 0 ? (
+                                <TextField
+                                  select
+                                  label="Programa"
+                                  required
+                                  size="small"
+                                  value={editMeetingForm.programaNombre}
+                                  onChange={(event) =>
+                                    setEditMeetingForm((prev) => ({
+                                      ...prev,
+                                      programaNombre: event.target.value
+                                    }))
+                                  }
+                                >
+                                  {programaOptions.map((programa) => (
+                                    <MenuItem key={programa} value={programa}>
+                                      {programa}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
+                              ) : (
+                                <TextField
+                                  label="Programa"
+                                  required
+                                  size="small"
+                                  value={editMeetingForm.programaNombre}
+                                  onChange={(event) =>
+                                    setEditMeetingForm((prev) => ({
+                                      ...prev,
+                                      programaNombre: event.target.value
+                                    }))
+                                  }
+                                />
+                              )}
+                              <TextField
+                                select
+                                label="Asistente Zoom"
+                                size="small"
+                                value={editMeetingForm.monitorEmail}
+                                onChange={(event) =>
+                                  setEditMeetingForm((prev) => ({
+                                    ...prev,
+                                    monitorEmail: event.target.value
+                                  }))
+                                }
+                                helperText="Puedes cambiar o cargar asistencia a posteriori."
+                              >
+                                <MenuItem value="">
+                                  Sin cambios en asistencia
+                                </MenuItem>
+                                {editMeetingForm.monitorEmail &&
+                                !monitorOptions.some(
+                                  (option) => option.value === editMeetingForm.monitorEmail
+                                ) ? (
+                                  <MenuItem value={editMeetingForm.monitorEmail}>
+                                    {editMeetingForm.monitorEmail}
+                                  </MenuItem>
+                                ) : null}
+                                {monitorOptions.map((option) => (
+                                  <MenuItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </MenuItem>
+                                ))}
+                              </TextField>
+                            </Box>
+                            <Stack direction="row" justifyContent="flex-end" sx={{ mt: 1.2 }}>
+                              <Button type="submit" variant="contained" disabled={isUpdating}>
+                                {isUpdating ? "Guardando..." : "Guardar cambios"}
+                              </Button>
+                            </Stack>
+                          </Box>
+                        </Paper>
+                      </Collapse>
+                    </Paper>
+                  );
+                })}
               </Stack>
             )}
           </Paper>

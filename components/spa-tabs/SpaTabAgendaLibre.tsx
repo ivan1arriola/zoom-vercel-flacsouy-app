@@ -10,6 +10,10 @@ import {
   Stack,
   Typography
 } from "@mui/material";
+import type { ReactElement } from "react";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import HighlightOffIcon from "@mui/icons-material/HighlightOff";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import { formatDuration } from "@/src/lib/spa-home/recurrence";
 import {
   formatModalidad,
@@ -27,12 +31,37 @@ interface SpaTabAgendaLibreProps {
   onSetInterest: (eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA") => void;
 }
 
+type InterestState = "ME_INTERESA" | "NO_ME_INTERESA" | "SIN_RESPUESTA";
+
 function mapInterestChip(
-  currentInterest: string
-): { color: "success" | "default" | "warning"; label: string } {
-  if (currentInterest === "ME_INTERESA") return { color: "success", label: "Me interesa" };
-  if (currentInterest === "NO_ME_INTERESA") return { color: "default", label: "No me interesa" };
-  return { color: "warning", label: "Sin respuesta" };
+  currentInterest: InterestState
+): { color: "success" | "error" | "warning"; label: string; icon: ReactElement } {
+  if (currentInterest === "ME_INTERESA") {
+    return { color: "success", label: "Me interesa", icon: <CheckCircleOutlineIcon fontSize="small" /> };
+  }
+  if (currentInterest === "NO_ME_INTERESA") {
+    return { color: "error", label: "No me interesa", icon: <HighlightOffIcon fontSize="small" /> };
+  }
+  return { color: "warning", label: "Sin respuesta", icon: <HelpOutlineIcon fontSize="small" /> };
+}
+
+function resolveInterestState(value?: string | null): InterestState {
+  if (value === "ME_INTERESA") return "ME_INTERESA";
+  if (value === "NO_ME_INTERESA") return "NO_ME_INTERESA";
+  return "SIN_RESPUESTA";
+}
+
+function formatInterestAnsweredAt(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("es-UY", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
 }
 
 export function SpaTabAgendaLibre({
@@ -49,6 +78,9 @@ export function SpaTabAgendaLibre({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Vista para asistentes Zoom. Aqui solo se muestran instancias sin persona asignada.
         </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+          Puedes marcar me interesa o no me interesa en cada instancia y cambiar tu respuesta cuando quieras.
+        </Typography>
 
         {agendaLibre.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
@@ -58,9 +90,10 @@ export function SpaTabAgendaLibre({
           <Stack spacing={1.2}>
             {agendaLibre.map((item) => {
               const joinUrl = resolveZoomJoinUrl(item.zoomJoinUrl, item.zoomMeetingId);
-              const currentInterest = item.intereses[0]?.estadoInteres || "SIN_RESPUESTA";
+              const currentInterest = resolveInterestState(item.intereses[0]?.estadoInteres);
               const interestChip = mapInterestChip(currentInterest);
               const startsSoon = isMeetingStartingSoon(item.inicioProgramadoAt);
+              const answeredAt = formatInterestAnsweredAt(item.intereses[0]?.fechaRespuestaAt);
 
               return (
                 <Paper
@@ -86,9 +119,12 @@ export function SpaTabAgendaLibre({
                       </Typography>
                       <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                         <Chip size="small" variant="outlined" label={formatModalidad(item.solicitud.modalidadReunion)} />
-                        <Chip size="small" color={interestChip.color} label={interestChip.label} />
+                        <Chip size="small" color={interestChip.color} icon={interestChip.icon} label={interestChip.label} />
                         {startsSoon ? <Chip size="small" color="warning" label="Comienza en menos de 24h" /> : null}
                       </Stack>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.6, display: "block" }}>
+                        {answeredAt ? `Respuesta registrada: ${answeredAt}` : "Todavia no respondiste esta instancia."}
+                      </Typography>
                     </Box>
                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                       {joinUrl ? (
@@ -100,17 +136,19 @@ export function SpaTabAgendaLibre({
                         size="small"
                         variant={currentInterest === "ME_INTERESA" ? "contained" : "outlined"}
                         onClick={() => onSetInterest(item.id, "ME_INTERESA")}
-                        disabled={updatingInterestId === item.id}
+                        disabled={updatingInterestId === item.id || currentInterest === "ME_INTERESA"}
+                        color="success"
                       >
-                        Me interesa
+                        {currentInterest === "NO_ME_INTERESA" ? "Cambiar a me interesa" : "Me interesa"}
                       </Button>
                       <Button
                         size="small"
                         variant={currentInterest === "NO_ME_INTERESA" ? "contained" : "outlined"}
                         onClick={() => onSetInterest(item.id, "NO_ME_INTERESA")}
-                        disabled={updatingInterestId === item.id}
+                        disabled={updatingInterestId === item.id || currentInterest === "NO_ME_INTERESA"}
+                        color="error"
                       >
-                        No me interesa
+                        {currentInterest === "ME_INTERESA" ? "Cambiar a no me interesa" : "No me interesa"}
                       </Button>
                     </Stack>
                   </Stack>

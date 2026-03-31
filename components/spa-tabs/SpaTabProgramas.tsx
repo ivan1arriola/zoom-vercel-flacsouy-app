@@ -36,6 +36,7 @@ type ProgramaMeeting = {
   titulo: string;
   modalidadReunion: string;
   estadoSolicitud: string;
+  estadoSolicitudVista: string;
   startTime: string;
   endTime?: string;
   joinUrl?: string | null;
@@ -80,7 +81,8 @@ function normalizeDateMs(value: string): number {
 }
 
 function mapSolicitudStatus(estado: string): SolicitudStatusChip {
-  if (estado === "PROVISIONADA") return { label: "Provisionada", color: "success" };
+  if (estado === "PROVISIONADA") return { label: "LISTO", color: "success" };
+  if (estado === "PENDIENTE_ASISTENCIA_ZOOM") return { label: "PENDIENTE_ASISTENCIA_ZOOM", color: "warning" };
   if (estado === "PROVISIONANDO") return { label: "Provisionando", color: "info" };
   if (estado === "PENDIENTE_RESOLUCION_MANUAL_ID") return { label: "Pendiente manual", color: "warning" };
   if (estado === "SIN_CAPACIDAD_ZOOM") return { label: "Sin capacidad Zoom", color: "error" };
@@ -139,6 +141,7 @@ function buildProgramaSummaries(programas: Programa[], solicitudes: Solicitud[])
         titulo: solicitud.titulo,
         modalidadReunion: solicitud.modalidadReunion,
         estadoSolicitud: solicitud.estadoSolicitud,
+        estadoSolicitudVista: solicitud.estadoSolicitudVista ?? solicitud.estadoSolicitud,
         startTime: instance.startTime,
         endTime: instance.endTime,
         joinUrl: instance.joinUrl ?? solicitud.zoomJoinUrl ?? null,
@@ -395,7 +398,7 @@ export function SpaTabProgramas({
                   ) : (
                     <Stack spacing={0.8}>
                       {visibleMeetings.map((meeting) => {
-                        const status = mapSolicitudStatus(meeting.estadoSolicitud);
+                        const status = mapSolicitudStatus(meeting.estadoSolicitudVista);
                         return (
                           <Paper
                             key={meeting.key}

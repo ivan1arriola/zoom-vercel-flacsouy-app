@@ -27,11 +27,18 @@ export async function GET(request: Request) {
 
   if (isAssistant) {
     const ownPerson = payload.people.find((person) => person.userId === user.id) ?? null;
+    const ownSummary = payload.assistantSummaries?.find((summary) => summary.userId === user.id) ?? null;
+    const ownMonthKeys = (ownSummary?.months ?? [])
+      .map((month) => month.monthKey)
+      .filter((monthKey) => monthKey.length > 0)
+      .sort((a, b) => b.localeCompare(a));
     return NextResponse.json({
       ...payload,
       people: ownPerson ? [ownPerson] : [],
       selectedUserId: ownPerson?.userId ?? null,
-      selectedPerson: ownPerson
+      selectedPerson: ownPerson,
+      availableMonthKeys: ownMonthKeys,
+      assistantSummaries: ownSummary ? [ownSummary] : []
     });
   }
 

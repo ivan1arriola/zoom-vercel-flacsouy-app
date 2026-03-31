@@ -36,16 +36,6 @@ const modalidadCards: Array<{ key: TarifaModalidad; label: string }> = [
   { key: "VIRTUAL", label: "Virtual" },
   { key: "HIBRIDA", label: "Hibrida" }
 ];
-type StatusFilter = "ALL" | "COMPLETED" | "PENDING";
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("es-UY", {
-    dateStyle: "short",
-    timeStyle: "short"
-  });
-}
 
 function formatMonthKey(monthKey: string): string {
   const [yearRaw = "0", monthRaw = "1"] = monthKey.split("-");
@@ -56,12 +46,20 @@ function formatMonthKey(monthKey: string): string {
   return date.toLocaleDateString("es-UY", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
-function getMonthKeyFromIso(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
+function getMonthOptions(payload: PersonHoursResponse | null): string[] {
+  if (!payload) return [];
+
+  if (Array.isArray(payload.availableMonthKeys) && payload.availableMonthKeys.length > 0) {
+    return [...payload.availableMonthKeys].sort((a, b) => b.localeCompare(a));
+  }
+
+  const monthSet = new Set<string>();
+  for (const summary of payload.assistantSummaries ?? []) {
+    for (const month of summary.months) {
+      if (month.monthKey) monthSet.add(month.monthKey);
+    }
+  }
+  return Array.from(monthSet.values()).sort((a, b) => b.localeCompare(a));
 }
 
 export function SpaTabTarifas({
@@ -74,21 +72,24 @@ export function SpaTabTarifas({
   const [personHours, setPersonHours] = useState<PersonHoursResponse | null>(null);
   const [isLoadingPersonHours, setIsLoadingPersonHours] = useState(false);
   const [personHoursError, setPersonHoursError] = useState("");
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedMonthKey, setSelectedMonthKey] = useState("ALL");
-  const [selectedStatus, setSelectedStatus] = useState<StatusFilter>("ALL");
+  const [selectedMonthKey, setSelectedMonthKey] = useState("");
 
-  async function refreshPersonHours(userId?: string) {
+  async function refreshPersonHours() {
     setIsLoadingPersonHours(true);
     setPersonHoursError("");
     try {
-      const payload = await loadPersonHours(userId);
+      const payload = await loadPersonHours();
       if (!payload) {
         setPersonHoursError("No se pudo cargar el historial por persona.");
         return;
       }
       setPersonHours(payload);
-      setSelectedUserId(payload.selectedUserId ?? "");
+      const nextMonthOptions = getMonthOptions(payload);
+      setSelectedMonthKey((current) => {
+        if (nextMonthOptions.length === 0) return "";
+        if (current && nextMonthOptions.includes(current)) return current;
+        return nextMonthOptions[0];
+      });
     } finally {
       setIsLoadingPersonHours(false);
     }
@@ -98,60 +99,41 @@ export function SpaTabTarifas({
     void refreshPersonHours();
   }, []);
 
-  const selectedPerson = useMemo(
-    () => personHours?.people.find((person) => person.userId === selectedUserId) ?? null,
-    [personHours, selectedUserId]
-  );
-  const monthOptions = useMemo(() => {
-    const months = new Set<string>();
-    for (const meeting of personHours?.meetings ?? []) {
-      const monthKey = getMonthKeyFromIso(meeting.inicioAt);
-      if (monthKey) months.add(monthKey);
-    }
-    return Array.from(months.values()).sort((a, b) => b.localeCompare(a));
-  }, [personHours]);
-  const filteredMeetings = useMemo(() => {
-    return (personHours?.meetings ?? []).filter((meeting) => {
-      const monthKey = getMonthKeyFromIso(meeting.inicioAt);
-      const monthOk = selectedMonthKey === "ALL" || monthKey === selectedMonthKey;
-      const statusOk =
-        selectedStatus === "ALL" ||
-        (selectedStatus === "COMPLETED" ? meeting.isCompleted : !meeting.isCompleted);
-      return monthOk && statusOk;
+  const monthOptions = useMemo(() => getMonthOptions(personHours), [personHours]);
+  const assistantRows = useMemo(() => {
+    return (personHours?.assistantSummaries ?? []).map((assistant) => {
+      const monthSummary = selectedMonthKey
+        ? assistant.months.find((month) => month.monthKey === selectedMonthKey) ?? null
+        : null;
+      return {
+        ...assistant,
+        selectedMonthMeetings: monthSummary?.meetingsCount ?? 0,
+        selectedMonthHours: monthSummary?.totalHours ?? 0
+      };
     });
-  }, [personHours, selectedMonthKey, selectedStatus]);
-  const filteredTotals = useMemo(() => {
-    const completed = filteredMeetings.filter((meeting) => meeting.isCompleted);
-    const completedMinutes = completed.reduce((acc, meeting) => acc + meeting.minutos, 0);
+  }, [personHours, selectedMonthKey]);
+  const selectedMonthLabel = useMemo(
+    () => (selectedMonthKey ? formatMonthKey(selectedMonthKey) : "Sin datos"),
+    [selectedMonthKey]
+  );
+  const selectedMonthTotals = useMemo(() => {
+    const meetings = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthMeetings, 0);
+    const hoursRaw = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthHours, 0);
     return {
-      meetingsTotal: filteredMeetings.length,
-      completedMeetingsTotal: completed.length,
-      completedMinutesTotal: completedMinutes,
-      completedHoursTotal: Math.round((completedMinutes / 60) * 100) / 100
+      assistants: assistantRows.length,
+      activeAssistants: assistantRows.filter((assistant) => assistant.selectedMonthHours > 0).length,
+      meetings,
+      hours: Math.round(hoursRaw * 100) / 100
     };
-  }, [filteredMeetings]);
-  const filteredMonthSummaries = useMemo(() => {
-    const monthMap = new Map<string, { monthKey: string; meetingsCount: number; totalMinutes: number }>();
-    for (const meeting of filteredMeetings) {
-      if (!meeting.isCompleted) continue;
-      const monthKey = getMonthKeyFromIso(meeting.inicioAt);
-      if (!monthKey) continue;
-      const current = monthMap.get(monthKey) ?? { monthKey, meetingsCount: 0, totalMinutes: 0 };
-      current.meetingsCount += 1;
-      current.totalMinutes += meeting.minutos;
-      monthMap.set(monthKey, current);
-    }
-    return Array.from(monthMap.values())
-      .sort((a, b) => b.monthKey.localeCompare(a.monthKey))
-      .map((item) => ({
-        ...item,
-        totalHours: Math.round((item.totalMinutes / 60) * 100) / 100
-      }));
-  }, [filteredMeetings]);
+  }, [assistantRows]);
 
   useEffect(() => {
-    if (selectedMonthKey !== "ALL" && !monthOptions.includes(selectedMonthKey)) {
-      setSelectedMonthKey("ALL");
+    if (monthOptions.length === 0) {
+      if (selectedMonthKey) setSelectedMonthKey("");
+      return;
+    }
+    if (!selectedMonthKey || !monthOptions.includes(selectedMonthKey)) {
+      setSelectedMonthKey(monthOptions[0]);
     }
   }, [monthOptions, selectedMonthKey]);
 
@@ -253,24 +235,23 @@ export function SpaTabTarifas({
                 Vista para Administracion y Contaduria: reuniones y horas efectivas por mes.
               </Typography>
             </Box>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ minWidth: { md: 420 } }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ minWidth: { md: 320 } }}>
               <TextField
                 select
-                label="Persona"
                 size="small"
-                value={selectedUserId}
-                onChange={(event) => {
-                  const nextUserId = String(event.target.value);
-                  setSelectedUserId(nextUserId);
-                  setSelectedMonthKey("ALL");
-                  setSelectedStatus("ALL");
-                  void refreshPersonHours(nextUserId);
-                }}
-                disabled={isLoadingPersonHours}
+                label="Mes"
+                value={selectedMonthKey}
+                onChange={(event) => setSelectedMonthKey(String(event.target.value))}
+                disabled={isLoadingPersonHours || monthOptions.length === 0}
               >
-                {(personHours?.people ?? []).map((person) => (
-                  <MenuItem key={person.userId} value={person.userId}>
-                    {person.nombre} ({person.email})
+                {monthOptions.length === 0 ? (
+                  <MenuItem value="" disabled>
+                    Sin meses con actividad
+                  </MenuItem>
+                ) : null}
+                {monthOptions.map((monthKey) => (
+                  <MenuItem key={monthKey} value={monthKey}>
+                    {formatMonthKey(monthKey)}
                   </MenuItem>
                 ))}
               </TextField>
@@ -278,7 +259,7 @@ export function SpaTabTarifas({
                 variant="outlined"
                 disabled={isLoadingPersonHours}
                 onClick={() => {
-                  void refreshPersonHours(selectedUserId || undefined);
+                  void refreshPersonHours();
                 }}
               >
                 {isLoadingPersonHours ? "Actualizando..." : "Actualizar"}
@@ -286,149 +267,68 @@ export function SpaTabTarifas({
             </Stack>
           </Stack>
 
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1}
-            sx={{ mb: 1.5, maxWidth: 520 }}
-          >
-            <TextField
-              select
-              size="small"
-              label="Mes"
-              value={selectedMonthKey}
-              onChange={(event) => setSelectedMonthKey(String(event.target.value))}
-            >
-              <MenuItem value="ALL">Todos</MenuItem>
-              {monthOptions.map((monthKey) => (
-                <MenuItem key={monthKey} value={monthKey}>
-                  {formatMonthKey(monthKey)}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              size="small"
-              label="Estado"
-              value={selectedStatus}
-              onChange={(event) => setSelectedStatus(String(event.target.value) as StatusFilter)}
-            >
-              <MenuItem value="ALL">Todas</MenuItem>
-              <MenuItem value="COMPLETED">Cumplidas</MenuItem>
-              <MenuItem value="PENDING">Pendientes</MenuItem>
-            </TextField>
-          </Stack>
-
           {personHoursError ? <Alert severity="error" sx={{ mb: 1.5 }}>{personHoursError}</Alert> : null}
 
-          {selectedPerson ? (
+          {monthOptions.length > 0 ? (
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
-              <Chip label={selectedPerson.nombre} color="primary" variant="outlined" />
-              <Chip label={selectedPerson.role} variant="outlined" />
-              <Chip label={`${filteredTotals.meetingsTotal} reuniones`} variant="outlined" />
-              <Chip
-                color="success"
-                label={`${filteredTotals.completedHoursTotal} h cumplidas`}
-                variant="filled"
-              />
+              <Chip variant="outlined" label={selectedMonthLabel} />
+              <Chip variant="outlined" label={`${selectedMonthTotals.assistants} asistentes`} />
+              <Chip variant="outlined" label={`${selectedMonthTotals.activeAssistants} con horas`} />
+              <Chip variant="outlined" label={`${selectedMonthTotals.meetings} reuniones`} />
+              <Chip color="success" variant="filled" label={`${selectedMonthTotals.hours} h`} />
             </Stack>
           ) : null}
 
-          {selectedPerson && !selectedPerson.hasAssistantProfile ? (
+          {!isLoadingPersonHours && monthOptions.length === 0 ? (
             <Alert severity="info" sx={{ mb: 1.5 }}>
-              Esta persona no tiene reuniones de asistencia registradas.
+              No hay horas cumplidas registradas todavia.
             </Alert>
           ) : null}
 
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: 1.2,
-              mb: 1.5
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: 1.2
             }}
           >
-            {filteredMonthSummaries.map((month) => (
-              <Card key={month.monthKey} variant="outlined" sx={{ borderRadius: 2 }}>
+            {assistantRows.map((assistant) => (
+              <Card key={assistant.userId} variant="outlined" sx={{ borderRadius: 2 }}>
                 <CardContent sx={{ p: 1.5 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, textTransform: "capitalize" }}>
-                    {formatMonthKey(month.monthKey)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {month.meetingsCount} reunion(es)
-                  </Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                    {month.totalHours} h
-                  </Typography>
+                  <Stack spacing={1}>
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                        {assistant.nombre}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {assistant.email}
+                      </Typography>
+                    </Box>
+
+                    <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                      <Chip size="small" variant="outlined" label={assistant.role} />
+                      <Chip size="small" variant="outlined" label={`${assistant.selectedMonthMeetings} reuniones`} />
+                      <Chip
+                        size="small"
+                        color={assistant.selectedMonthHours > 0 ? "success" : "default"}
+                        label={`${assistant.selectedMonthHours} h`}
+                      />
+                    </Stack>
+
+                    {assistant.hasAssistantProfile ? (
+                      <Typography variant="caption" color="text.secondary">
+                        Acumulado historico: {assistant.totalCompletedHours} h en {assistant.totalCompletedMeetings} reunion(es).
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Sin perfil de asistencia activo.
+                      </Typography>
+                    )}
+                  </Stack>
                 </CardContent>
               </Card>
             ))}
           </Box>
-
-          <Stack spacing={1}>
-            {filteredMeetings.map((meeting) => (
-              <Card key={meeting.assignmentId} variant="outlined" sx={{ borderRadius: 2 }}>
-                <CardContent sx={{ p: 1.5 }}>
-                  <Stack
-                    direction={{ xs: "column", md: "row" }}
-                    spacing={1}
-                    alignItems={{ xs: "flex-start", md: "center" }}
-                    justifyContent="space-between"
-                  >
-                    <Box>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                        {meeting.titulo}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.programaNombre || "Sin programa"}
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                      <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
-                      <Chip size="small" variant="outlined" label={`${meeting.minutos} min`} />
-                      <Chip
-                        size="small"
-                        color={meeting.isCompleted ? "success" : "default"}
-                        label={meeting.isCompleted ? "Cumplida" : "Pendiente"}
-                      />
-                    </Stack>
-                  </Stack>
-
-                  <Box
-                    sx={{
-                      mt: 1,
-                      display: "grid",
-                      gridTemplateColumns: {
-                        xs: "1fr",
-                        md: "repeat(3, minmax(0, 1fr))"
-                      },
-                      gap: 1
-                    }}
-                  >
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Inicio</Typography>
-                      <Typography variant="body2">{formatDateTime(meeting.inicioAt)}</Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Fin</Typography>
-                      <Typography variant="body2">{formatDateTime(meeting.finAt)}</Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
-                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                        {meeting.zoomMeetingId || "-"}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            ))}
-          </Stack>
-
-          {!isLoadingPersonHours && filteredMeetings.length === 0 ? (
-            <Alert severity="info" sx={{ mt: 1.5 }}>
-              No hay reuniones para los filtros seleccionados.
-            </Alert>
-          ) : null}
         </CardContent>
       </Card>
     </Stack>

@@ -36,6 +36,7 @@ export type AgendaEvent = {
   intereses: Array<{
     id: string;
     estadoInteres: string;
+    fechaRespuestaAt?: string | null;
   }>;
 };
 

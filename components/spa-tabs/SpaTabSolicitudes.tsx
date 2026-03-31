@@ -9,6 +9,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EventBusyOutlinedIcon from "@mui/icons-material/EventBusyOutlined";
 import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSendOutlined";
 import MailOutlineOutlinedIcon from "@mui/icons-material/MailOutlineOutlined";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import {
   Box,
   Button,
@@ -58,6 +59,14 @@ interface SpaTabSolicitudesProps {
     startTime: string;
   }) => void;
   cancellingInstanciaKey: string | null;
+  canAddInstances: boolean;
+  addingInstanceSolicitudId: string | null;
+  onAddInstance: (input: {
+    solicitudId: string;
+    titulo: string;
+    inicioProgramadoAt: string;
+    finProgramadoAt: string;
+  }) => Promise<boolean>;
   canSendReminder: boolean;
   sendingReminderSolicitudId: string | null;
   onSendReminder: (input: {
@@ -65,6 +74,9 @@ interface SpaTabSolicitudesProps {
     toEmail?: string;
     mensaje?: string;
   }) => Promise<boolean>;
+  canEditAssistance: boolean;
+  updatingAssistanceSolicitudId: string | null;
+  onEnableAssistance: (input: { solicitudId: string; titulo: string }) => void;
   canDeleteSolicitud: boolean;
   isSubmittingSolicitud: boolean;
   canCreateShortcut: boolean;
@@ -158,6 +170,17 @@ function normalizeEmailInputAsLines(value: string): string {
     .replace(/\n[ \t]+/g, "\n");
 }
 
+function toDateTimeLocalInput(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export function SpaTabSolicitudes({
   solicitudes,
   form,
@@ -168,9 +191,15 @@ export function SpaTabSolicitudes({
   cancellingSerieSolicitudId,
   onCancelSolicitudInstancia,
   cancellingInstanciaKey,
+  canAddInstances,
+  addingInstanceSolicitudId,
+  onAddInstance,
   canSendReminder,
   sendingReminderSolicitudId,
   onSendReminder,
+  canEditAssistance,
+  updatingAssistanceSolicitudId,
+  onEnableAssistance,
   canDeleteSolicitud,
   isSubmittingSolicitud,
   canCreateShortcut,
@@ -194,6 +223,12 @@ export function SpaTabSolicitudes({
   } | null>(null);
   const [reminderToEmail, setReminderToEmail] = useState("");
   const [reminderMessage, setReminderMessage] = useState("");
+  const [addInstanceDialogSolicitud, setAddInstanceDialogSolicitud] = useState<{
+    id: string;
+    titulo: string;
+  } | null>(null);
+  const [addInstanceStartLocal, setAddInstanceStartLocal] = useState("");
+  const [addInstanceEndLocal, setAddInstanceEndLocal] = useState("");
 
   function extractEmailCandidate(raw?: string | null): string {
     const normalized = (raw ?? "").trim().toLowerCase();
@@ -224,6 +259,64 @@ export function SpaTabSolicitudes({
       setReminderDialogSolicitud(null);
       setReminderToEmail("");
       setReminderMessage("");
+    }
+  }
+
+  function openAddInstanceDialog(
+    solicitud: Pick<Solicitud, "id" | "titulo">,
+    instances: NonNullable<Solicitud["zoomInstances"]>
+  ) {
+    const sorted = [...instances].sort(
+      (left, right) => new Date(left.startTime).getTime() - new Date(right.startTime).getTime()
+    );
+    const last = sorted[sorted.length - 1];
+    const previous = sorted.length > 1 ? sorted[sorted.length - 2] : undefined;
+
+    const now = new Date();
+    const defaultStartFromNow = new Date(now.getTime() + 24 * 60 * 60_000);
+    let defaultStart = defaultStartFromNow;
+    let durationMinutes = 90;
+
+    if (last) {
+      const lastStart = new Date(last.startTime);
+      const inferredDuration = Math.max(30, last.durationMinutes || 0);
+      const intervalMs = previous
+        ? Math.max(60 * 60_000, lastStart.getTime() - new Date(previous.startTime).getTime())
+        : 7 * 24 * 60 * 60_000;
+      durationMinutes = inferredDuration;
+      defaultStart = new Date(lastStart.getTime() + intervalMs);
+    }
+
+    const defaultEnd = new Date(defaultStart.getTime() + durationMinutes * 60_000);
+    setAddInstanceDialogSolicitud({ id: solicitud.id, titulo: solicitud.titulo });
+    setAddInstanceStartLocal(toDateTimeLocalInput(defaultStart.toISOString()));
+    setAddInstanceEndLocal(toDateTimeLocalInput(defaultEnd.toISOString()));
+  }
+
+  function closeAddInstanceDialog() {
+    if (addingInstanceSolicitudId) return;
+    setAddInstanceDialogSolicitud(null);
+    setAddInstanceStartLocal("");
+    setAddInstanceEndLocal("");
+  }
+
+  async function submitAddInstanceDialog() {
+    if (!addInstanceDialogSolicitud) return;
+    const start = new Date(addInstanceStartLocal);
+    const end = new Date(addInstanceEndLocal);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+
+    const success = await onAddInstance({
+      solicitudId: addInstanceDialogSolicitud.id,
+      titulo: addInstanceDialogSolicitud.titulo,
+      inicioProgramadoAt: start.toISOString(),
+      finProgramadoAt: end.toISOString()
+    });
+
+    if (success) {
+      setAddInstanceDialogSolicitud(null);
+      setAddInstanceStartLocal("");
+      setAddInstanceEndLocal("");
     }
   }
 
@@ -458,8 +551,13 @@ export function SpaTabSolicitudes({
     form.variasModo === "FECHAS_ESPECIFICAS" &&
     (Boolean(specificDatesPreview.error) || specificDatesPreview.dates.length < 2);
 
+  function resolveSolicitudStatusCode(item: Solicitud): string {
+    return item.estadoSolicitudVista ?? item.estadoSolicitud;
+  }
+
   function mapSolicitudStatus(estado: string): { label: string; color: "default" | "warning" | "success" | "error" | "info" } {
-    if (estado === "PROVISIONADA") return { label: "Provisionada", color: "success" };
+    if (estado === "PROVISIONADA") return { label: "LISTO", color: "success" };
+    if (estado === "PENDIENTE_ASISTENCIA_ZOOM") return { label: "PENDIENTE_ASISTENCIA_ZOOM", color: "warning" };
     if (estado === "PROVISIONANDO") return { label: "Provisionando", color: "info" };
     if (estado === "PENDIENTE_RESOLUCION_MANUAL_ID") return { label: "Pendiente manual", color: "warning" };
     if (estado === "SIN_CAPACIDAD_ZOOM") return { label: "Sin capacidad Zoom", color: "error" };
@@ -546,7 +644,8 @@ export function SpaTabSolicitudes({
   const statusSummary = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of visibleSolicitudes) {
-      counts.set(item.estadoSolicitud, (counts.get(item.estadoSolicitud) ?? 0) + 1);
+      const statusCode = resolveSolicitudStatusCode(item);
+      counts.set(statusCode, (counts.get(statusCode) ?? 0) + 1);
     }
 
     return Array.from(counts.entries())
@@ -683,6 +782,20 @@ export function SpaTabSolicitudes({
       </Stack>
     );
   }
+
+  const addInstanceStartDate = addInstanceStartLocal ? new Date(addInstanceStartLocal) : null;
+  const addInstanceEndDate = addInstanceEndLocal ? new Date(addInstanceEndLocal) : null;
+  const isAddInstanceRangeValid = Boolean(
+    addInstanceStartDate &&
+    addInstanceEndDate &&
+    !Number.isNaN(addInstanceStartDate.getTime()) &&
+    !Number.isNaN(addInstanceEndDate.getTime()) &&
+    addInstanceEndDate.getTime() > addInstanceStartDate.getTime()
+  );
+  const isSubmittingAddInstance = Boolean(
+    addInstanceDialogSolicitud &&
+    addingInstanceSolicitudId === addInstanceDialogSolicitud.id
+  );
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -1421,10 +1534,15 @@ export function SpaTabSolicitudes({
                   const instances = item.zoomInstances ?? [];
                   const isExpanded = expandedSolicitudId === item.id;
                   const accountLabel =
-                    item.zoomHostAccount ||
-                    item.cuentaZoomAsignada?.ownerEmail ||
-                    item.cuentaZoomAsignada?.nombreCuenta ||
-                    "-";
+                    [
+                      item.zoomHostAccount,
+                      item.cuentaZoomAsignada?.ownerEmail,
+                      item.cuentaZoomAsignada?.nombreCuenta
+                    ].find((candidate) => {
+                      const normalized = (candidate ?? "").trim();
+                      if (!normalized) return false;
+                      return !normalized.toLowerCase().includes("flacso.local");
+                    }) ?? "-";
                   const accountColor = getZoomAccountColor(accountLabel);
                   const requesterLabel = item.requestedBy?.name || item.requestedBy?.email || "-";
                   const responsableLabel = item.responsableNombre?.trim() || requesterLabel;
@@ -1432,7 +1550,10 @@ export function SpaTabSolicitudes({
                     item.estadoSolicitud === "PENDIENTE_RESOLUCION_MANUAL_ID"
                       ? "Pendiente"
                       : item.meetingPrincipalId || "-";
-                  const solicitudStatus = mapSolicitudStatus(item.estadoSolicitud);
+                  const solicitudRequiresAssistance = Boolean(
+                    item.requiereAsistencia ?? item.requiresAsistencia
+                  );
+                  const solicitudStatus = mapSolicitudStatus(resolveSolicitudStatusCode(item));
                   const isSolicitudCancelled = isSolicitudCancelledStatus(item.estadoSolicitud);
                   const statusAccent =
                     solicitudStatus.color === "success"
@@ -1454,6 +1575,9 @@ export function SpaTabSolicitudes({
                       : sortedInstances[sortedInstances.length - 1];
                   const instanceTimeLabel =
                     solicitudesListScope === "ACTIVAS" ? "Proxima instancia" : "Ultima instancia";
+                  const hasEligibleInstanceForAssistance = sortedInstances.some((instance) =>
+                    isInstanceActiveOrUpcoming(instance, Date.now())
+                  );
 
                   return (
                     <Paper
@@ -1496,6 +1620,33 @@ export function SpaTabSolicitudes({
                                 endIcon={<LaunchIcon fontSize="small" />}
                               >
                                 Abrir
+                              </Button>
+                            ) : null}
+                            {canAddInstances && !isSolicitudCancelled ? (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<AddIcon fontSize="small" />}
+                                onClick={() => openAddInstanceDialog(item, sortedInstances)}
+                                disabled={Boolean(addingInstanceSolicitudId)}
+                              >
+                                {addingInstanceSolicitudId === item.id ? "Guardando..." : "Agregar instancia"}
+                              </Button>
+                            ) : null}
+                            {canEditAssistance &&
+                            !solicitudRequiresAssistance &&
+                            !isSolicitudCancelled &&
+                            hasEligibleInstanceForAssistance ? (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<EditOutlinedIcon fontSize="small" />}
+                                onClick={() => onEnableAssistance({ solicitudId: item.id, titulo: item.titulo })}
+                                disabled={Boolean(updatingAssistanceSolicitudId)}
+                              >
+                                {updatingAssistanceSolicitudId === item.id
+                                  ? "Guardando..."
+                                  : "Editar asistencia"}
                               </Button>
                             ) : null}
                             {canSendReminder ? (
@@ -1632,6 +1783,53 @@ export function SpaTabSolicitudes({
           )}
         </Box>
       )}
+
+      <Dialog open={Boolean(addInstanceDialogSolicitud)} onClose={closeAddInstanceDialog} fullWidth maxWidth="sm">
+        <DialogTitle>Agregar instancia</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.2 }}>
+            Reunion: {addInstanceDialogSolicitud?.titulo || "-"}
+          </Typography>
+          <TextField
+            margin="dense"
+            label="Inicio"
+            type="datetime-local"
+            fullWidth
+            value={addInstanceStartLocal}
+            onChange={(event) => setAddInstanceStartLocal(event.target.value)}
+            disabled={isSubmittingAddInstance}
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            margin="dense"
+            label="Fin"
+            type="datetime-local"
+            fullWidth
+            value={addInstanceEndLocal}
+            onChange={(event) => setAddInstanceEndLocal(event.target.value)}
+            disabled={isSubmittingAddInstance}
+            InputLabelProps={{ shrink: true }}
+          />
+          {!isAddInstanceRangeValid ? (
+            <Typography variant="caption" color="error" sx={{ mt: 0.8, display: "block" }}>
+              El fin debe ser posterior al inicio.
+            </Typography>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeAddInstanceDialog} disabled={isSubmittingAddInstance}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void submitAddInstanceDialog()}
+            disabled={!addInstanceDialogSolicitud || !isAddInstanceRangeValid || isSubmittingAddInstance}
+            startIcon={<AddIcon fontSize="small" />}
+          >
+            {isSubmittingAddInstance ? "Guardando..." : "Agregar instancia"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(reminderDialogSolicitud)} onClose={closeReminderDialog} fullWidth maxWidth="sm">
         <DialogTitle>Enviar recordatorio</DialogTitle>
