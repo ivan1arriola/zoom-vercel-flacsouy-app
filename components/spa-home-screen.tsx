@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type MouseEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { signIn } from "next-auth/react";
 import {
   Alert,
@@ -9,16 +9,11 @@ import {
   Button,
   Chip,
   CircularProgress,
-  ListItemIcon,
-  ListItemText,
-  Menu,
-  MenuItem,
   Paper,
   Snackbar,
   Stack,
   Typography
 } from "@mui/material";
-import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import {
   formatDateTime
 } from "@/src/lib/spa-home/recurrence";
@@ -49,7 +44,8 @@ import {
   deleteSolicitud as deleteSolicitudApi,
   cancelSolicitudSerie as cancelSolicitudSerieApi,
   cancelSolicitudInstancia as cancelSolicitudInstanciaApi,
-  submitPastMeeting as submitPastMeetingApi
+  submitPastMeeting as submitPastMeetingApi,
+  sendSolicitudReminder as sendSolicitudReminderApi
 } from "@/src/services/solicitudesApi";
 import {
   createPrograma as createProgramaApi,
@@ -66,6 +62,7 @@ import {
   submitCreateUser as submitCreateUserApi,
   submitUpdateUserRole as submitUpdateUserRoleApi,
   submitResendUserActivationLink as submitResendUserActivationLinkApi,
+  submitSendSelfActivationLinkTest as submitSendSelfActivationLinkTestApi,
   loadGoogleAccountStatus,
   unlinkGoogleAccount as unlinkGoogleAccountApi,
   syncProfileFromGoogle as syncProfileFromGoogleApi
@@ -97,8 +94,9 @@ import { SpaTabDashboard } from "@/components/spa-tabs/SpaTabDashboard";
 import { SpaTabSolicitudes } from "@/components/spa-tabs/SpaTabSolicitudes";
 import { SpaTabProgramas } from "@/components/spa-tabs/SpaTabProgramas";
 import { SpaTabAgendaLibre } from "@/components/spa-tabs/SpaTabAgendaLibre";
+import { SpaTabMisAsistencias } from "@/components/spa-tabs/SpaTabMisAsistencias";
 import { SpaTabAsignacion } from "@/components/spa-tabs/SpaTabAsignacion";
-import { SpaTabManual } from "@/components/spa-tabs/SpaTabManual";
+import { SpaTabManual, type ManualResolutionInput } from "@/components/spa-tabs/SpaTabManual";
 import { SpaTabHistorico } from "@/components/spa-tabs/SpaTabHistorico";
 import { SpaTabTarifas } from "@/components/spa-tabs/SpaTabTarifas";
 import { SpaTabCuentas } from "@/components/spa-tabs/SpaTabCuentas";
@@ -162,6 +160,8 @@ export function SpaHomeScreen() {
     setCancellingSerieSolicitudId,
     cancellingInstanciaKey,
     setCancellingInstanciaKey,
+    sendingReminderSolicitudId,
+    setSendingReminderSolicitudId,
     form,
     setForm,
     updateForm
@@ -169,6 +169,7 @@ export function SpaHomeScreen() {
   
   // Dashboard
   const { summary, setSummary, manualPendings, setManualPendings } = useDashboard();
+  const [resolvingManualSolicitudId, setResolvingManualSolicitudId] = useState<string | null>(null);
   
   // Agenda Libre
   const { agendaLibre, setAgendaLibre, updatingInterestId, setUpdatingInterestId } = useAgendaLibre();
@@ -219,6 +220,7 @@ export function SpaHomeScreen() {
     createUserForm,
     setCreateUserForm
   } = useManagedUsers();
+  const [isSendingSelfActivationLink, setIsSendingSelfActivationLink] = useState(false);
   
   // Past Meetings
   const {
@@ -257,11 +259,16 @@ export function SpaHomeScreen() {
   const canSeeZoomAccounts = canAccessTabForRole("cuentas", effectiveRole);
   const canSeeUsers = canAccessTabForRole("usuarios", effectiveRole);
   const canSeeAgendaLibre = canAccessTabForRole("agenda_libre", effectiveRole);
+  const canSeeMisAsistencias = canAccessTabForRole("mis_asistencias", effectiveRole);
   const canSeeAssignmentBoard = canAccessTabForRole("asignacion", effectiveRole);
   const canSeeTarifas = canAccessTabForRole("tarifas", effectiveRole);
   const canSeeSolicitudes = canAccessTabForRole("solicitudes", effectiveRole);
   const canSeeProgramas = canAccessTabForRole("programas", effectiveRole);
   const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
+  const canSendSolicitudReminder = useMemo(
+    () => ["DOCENTE", "ADMINISTRADOR", "CONTADURIA"].includes(effectiveRole),
+    [effectiveRole]
+  );
   const canCreateSolicitudShortcut = useMemo(
     () => ["DOCENTE", "ADMINISTRADOR"].includes(effectiveRole),
     [effectiveRole]
@@ -290,8 +297,6 @@ export function SpaHomeScreen() {
     }
     return grouped;
   }, [visibleNavigationTabs]);
-  const [openNavigationGroup, setOpenNavigationGroup] = useState<NavigationGroup | null>(null);
-  const [navigationAnchorEl, setNavigationAnchorEl] = useState<HTMLElement | null>(null);
   const canUseGoogleByEmail = useMemo(
     () => Boolean(user?.email?.trim().toLowerCase().endsWith("@flacso.edu.uy")),
     [user?.email]
@@ -395,6 +400,14 @@ export function SpaHomeScreen() {
   const programaOptions = useMemo(
     () => programas.map((programa) => programa.nombre),
     [programas]
+  );
+  const manualAccountOptions = useMemo(
+    () =>
+      zoomAccounts.map((account) => ({
+        id: account.id,
+        label: account.email || [account.firstName, account.lastName].filter(Boolean).join(" ").trim() || account.id
+      })),
+    [zoomAccounts]
   );
 
   const isGlobalBusy = useMemo(
@@ -584,7 +597,7 @@ export function SpaHomeScreen() {
   }, [tab, user?.id, canUseGoogleByEmail]);
 
   useEffect(() => {
-    if (tab !== "cuentas" || !canSeeZoomAccounts) return;
+    if ((tab !== "cuentas" && tab !== "manual") || !canSeeZoomAccounts) return;
     (async () => {
       setIsLoadingZoomAccounts(true);
       try {
@@ -670,6 +683,15 @@ export function SpaHomeScreen() {
     setTab(requestedTab);
   }, [requestedTab]);
 
+  async function refreshManualPendings() {
+    const pendings = await loadManualPendings();
+    if (!pendings) {
+      setMessage("No se pudieron cargar los pendientes manuales.");
+      return;
+    }
+    setManualPendings(pendings);
+  }
+
   async function refreshAfterSolicitudMutation() {
     const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
       loadSummary(),
@@ -687,6 +709,40 @@ export function SpaHomeScreen() {
       setAssignableAssistants(assignmentData.assistants ?? []);
     }
     if (manualData) setManualPendings(manualData);
+  }
+
+  async function resolveManualProvision(input: ManualResolutionInput) {
+    setMessage("");
+    setResolvingManualSolicitudId(input.solicitudId);
+    try {
+      const response = await fetch(
+        `/api/v1/provision-manual/${encodeURIComponent(input.solicitudId)}/resolver`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cuentaZoomAsignadaId: input.cuentaZoomAsignadaId,
+            accionTomada: "ASOCIACION_MANUAL_DESDE_PANEL",
+            motivoSistema: "Resolucion manual realizada desde la pestaña Asociacion manual.",
+            zoomMeetingIdManual: input.zoomMeetingIdManual,
+            zoomJoinUrlManual: input.zoomJoinUrlManual,
+            observaciones: input.observaciones
+          })
+        }
+      );
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setMessage(data.error ?? "No se pudo resolver manualmente la solicitud.");
+        return;
+      }
+
+      setMessage("Pendiente manual resuelto correctamente.");
+      await refreshAfterSolicitudMutation();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo resolver manualmente la solicitud.");
+    } finally {
+      setResolvingManualSolicitudId(null);
+    }
   }
 
   async function submitDocenteSolicitud(event: FormEvent<HTMLFormElement>) {
@@ -830,6 +886,37 @@ export function SpaHomeScreen() {
       setMessage(error instanceof Error ? error.message : "No se pudo cancelar la instancia.");
     } finally {
       setCancellingInstanciaKey(null);
+    }
+  }
+
+  async function sendSolicitudReminder(input: {
+    solicitudId: string;
+    toEmail?: string;
+    mensaje?: string;
+  }): Promise<boolean> {
+    setMessage("");
+    setSendingReminderSolicitudId(input.solicitudId);
+    try {
+      const response = await sendSolicitudReminderApi({
+        solicitudId: input.solicitudId,
+        toEmail: input.toEmail,
+        mensaje: input.mensaje
+      });
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo enviar el recordatorio.");
+        return false;
+      }
+      setMessage(
+        response.sentTo
+          ? `Recordatorio enviado a ${response.sentTo}.`
+          : "Recordatorio enviado correctamente."
+      );
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo enviar el recordatorio.");
+      return false;
+    } finally {
+      setSendingReminderSolicitudId(null);
     }
   }
 
@@ -1036,6 +1123,23 @@ export function SpaHomeScreen() {
       setMessage(error instanceof Error ? error.message : "No se pudo reenviar el enlace de activacion.");
     } finally {
       setResendingActivationUserId(null);
+    }
+  }
+
+  async function sendSelfActivationLinkTest() {
+    setMessage("");
+    setIsSendingSelfActivationLink(true);
+    try {
+      const response = await submitSendSelfActivationLinkTestApi();
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo enviar el enlace de prueba.");
+        return;
+      }
+      setMessage("Enlace de prueba enviado a tu correo.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo enviar el enlace de prueba.");
+    } finally {
+      setIsSendingSelfActivationLink(false);
     }
   }
 
@@ -1285,19 +1389,11 @@ export function SpaHomeScreen() {
     }
   }
 
-  function openNavigationMenu(group: NavigationGroup, event: MouseEvent<HTMLElement>) {
-    setOpenNavigationGroup(group);
-    setNavigationAnchorEl(event.currentTarget);
-  }
-
-  function closeNavigationMenu() {
-    setOpenNavigationGroup(null);
-    setNavigationAnchorEl(null);
-  }
-
-  function selectNavigationTab(nextTab: Tab) {
-    setTab(nextTab);
-    closeNavigationMenu();
+  function selectNavigationGroup(group: NavigationGroup) {
+    if (TAB_CONFIG[tab].group === group) return;
+    const firstTab = groupedNavigationTabs[group][0];
+    if (!firstTab) return;
+    setTab(firstTab);
   }
 
   const activeNavigationGroup = TAB_CONFIG[tab].group;
@@ -1361,13 +1457,11 @@ export function SpaHomeScreen() {
         <Box
           sx={{
             mb: 1.1,
-            overflowX: { xs: "auto", md: "visible" },
-            pb: { xs: 0.5, md: 0 },
-            mx: { xs: -0.2, md: 0 },
-            px: { xs: 0.2, md: 0 }
+            overflowX: "visible",
+            pb: 0.2
           }}
         >
-          <Stack direction="row" spacing={1} useFlexGap flexWrap={{ xs: "nowrap", md: "wrap" }}>
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
             {NAVIGATION_GROUP_ORDER.map((group) => {
               const groupTabs = groupedNavigationTabs[group];
               if (groupTabs.length === 0) return null;
@@ -1381,14 +1475,12 @@ export function SpaHomeScreen() {
                   variant={isGroupActive ? "contained" : "outlined"}
                   color={isGroupActive ? "primary" : "inherit"}
                   startIcon={getNavigationGroupIcon(group)}
-                  endIcon={<ArrowDropDownIcon />}
-                  onClick={(event) => openNavigationMenu(group, event)}
+                  onClick={() => selectNavigationGroup(group)}
                   sx={{
                     textTransform: "none",
                     borderRadius: 2,
                     fontWeight: 700,
-                    whiteSpace: "nowrap",
-                    flexShrink: 0
+                    whiteSpace: "nowrap"
                   }}
                 >
                   {NAVIGATION_GROUP_LABEL[group]} ({groupTabs.length})
@@ -1400,13 +1492,11 @@ export function SpaHomeScreen() {
 
         <Box
           sx={{
-            overflowX: { xs: "auto", md: "visible" },
-            pb: { xs: 0.5, md: 0 },
-            mx: { xs: -0.2, md: 0 },
-            px: { xs: 0.2, md: 0 }
+            overflowX: "visible",
+            pb: 0.2
           }}
         >
-          <Stack direction="row" spacing={0.8} useFlexGap flexWrap={{ xs: "nowrap", md: "wrap" }}>
+          <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
             {activeNavigationTabs.map((navigationTab) => (
               <Button
                 key={navigationTab}
@@ -1419,8 +1509,7 @@ export function SpaHomeScreen() {
                   textTransform: "none",
                   borderRadius: 2,
                   fontWeight: tab === navigationTab ? 700 : 600,
-                  whiteSpace: "nowrap",
-                  flexShrink: 0
+                  whiteSpace: "nowrap"
                 }}
               >
                 {TAB_CONFIG[navigationTab].label}
@@ -1429,25 +1518,6 @@ export function SpaHomeScreen() {
           </Stack>
         </Box>
       </Paper>
-
-      <Menu
-        anchorEl={navigationAnchorEl}
-        open={Boolean(navigationAnchorEl && openNavigationGroup)}
-        onClose={closeNavigationMenu}
-      >
-        {openNavigationGroup
-          ? groupedNavigationTabs[openNavigationGroup].map((navigationTab) => (
-              <MenuItem
-                key={navigationTab}
-                selected={tab === navigationTab}
-                onClick={() => selectNavigationTab(navigationTab)}
-              >
-                <ListItemIcon>{getTabIcon(navigationTab)}</ListItemIcon>
-                <ListItemText primary={TAB_CONFIG[navigationTab].label} />
-              </MenuItem>
-            ))
-          : null}
-      </Menu>
 
       {tab === "dashboard" && (
         <SpaTabDashboard
@@ -1467,6 +1537,9 @@ export function SpaHomeScreen() {
           cancellingSerieSolicitudId={cancellingSerieSolicitudId}
           onCancelSolicitudInstancia={cancelSolicitudInstancia}
           cancellingInstanciaKey={cancellingInstanciaKey}
+          canSendReminder={canSendSolicitudReminder}
+          sendingReminderSolicitudId={sendingReminderSolicitudId}
+          onSendReminder={sendSolicitudReminder}
           canDeleteSolicitud={canCreateSolicitudShortcut}
           isSubmittingSolicitud={isSubmittingSolicitud}
           canCreateShortcut={canCreateSolicitudShortcut}
@@ -1502,6 +1575,10 @@ export function SpaHomeScreen() {
         />
       )}
 
+      {tab === "mis_asistencias" && canSeeMisAsistencias && user?.id && (
+        <SpaTabMisAsistencias userId={user.id} />
+      )}
+
       {tab === "asignacion" && canSeeAssignmentBoard && (
         <SpaTabAsignacion
           assignmentBoardEvents={assignmentBoardEvents}
@@ -1517,7 +1594,16 @@ export function SpaHomeScreen() {
       )}
 
       {tab === "manual" && canSeeManual && (
-        <SpaTabManual manualPendings={manualPendings} />
+        <SpaTabManual
+          manualPendings={manualPendings}
+          accountOptions={manualAccountOptions}
+          isLoadingAccounts={isLoadingZoomAccounts}
+          resolvingSolicitudId={resolvingManualSolicitudId}
+          onRefresh={() => {
+            void refreshManualPendings();
+          }}
+          onResolve={resolveManualProvision}
+        />
       )}
 
       {tab === "historico" && canSeePastMeetings && (
@@ -1615,10 +1701,12 @@ export function SpaHomeScreen() {
           isCreatingUser={isCreatingUser}
           updatingUserId={updatingUserId}
           resendingActivationUserId={resendingActivationUserId}
+          isSendingSelfActivationLink={isSendingSelfActivationLink}
           isLoadingUsers={isLoadingUsers}
           onSubmit={submitCreateUser}
           onUpdateUserRole={updateUserRole}
           onResendActivationLink={resendUserActivationLink}
+          onSendSelfActivationLinkTest={sendSelfActivationLinkTest}
           onRefresh={() => {
             setIsLoadingUsers(true);
             (async () => {
@@ -1732,14 +1820,6 @@ export function SpaHomeScreen() {
     </Box>
   );
 }
-
-
-
-
-
-
-
-
 
 
 

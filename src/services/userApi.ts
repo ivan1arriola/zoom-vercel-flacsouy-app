@@ -94,6 +94,29 @@ export async function submitResendUserActivationLink(payload: {
   return { success: true };
 }
 
+export async function submitSendSelfActivationLinkTest(): Promise<{
+  success: boolean;
+  activationUrl?: string;
+  error?: string;
+}> {
+  const response = await fetch("/api/v1/usuarios/activation-link/self", {
+    method: "POST"
+  });
+
+  const data = (await response.json()) as { error?: string; activationUrl?: string };
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo enviar el enlace de prueba."
+    };
+  }
+
+  return {
+    success: true,
+    activationUrl: data.activationUrl
+  };
+}
+
 export async function loadGoogleAccountStatus(): Promise<{
   linked: boolean;
   hasPassword: boolean;

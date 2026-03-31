@@ -990,6 +990,109 @@ async function sendDefinitiveAssignmentEmails(input: {
   );
 }
 
+function buildSolicitudReminderEmailHtml(input: {
+  solicitudId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  responsableNombre?: string | null;
+  modalidad: ModalidadReunion;
+  estadoSolicitud: EstadoSolicitudSala;
+  meetingId: string | null;
+  joinUrl: string | null;
+  hostAccount: string | null;
+  timezone: string;
+  recordatorioMensaje?: string | null;
+  actorNombre: string;
+  actorEmail: string;
+  instancias: Array<{
+    inicio: Date;
+    fin: Date;
+    estadoEvento: EstadoEventoZoom;
+    monitorLabel: string | null;
+    joinUrl: string | null;
+  }>;
+}): string {
+  const titleLabel = escapeHtml(input.titulo);
+  const solicitudLabel = escapeHtml(input.solicitudId);
+  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
+  const responsableLabel = escapeHtml(input.responsableNombre?.trim() || "-");
+  const modalidadLabel = escapeHtml(input.modalidad);
+  const estadoLabel = escapeHtml(input.estadoSolicitud);
+  const meetingLabel = escapeHtml(input.meetingId ?? "-");
+  const hostLabel = escapeHtml(input.hostAccount ?? "-");
+  const actorNombreLabel = escapeHtml(input.actorNombre);
+  const actorEmailLabel = escapeHtml(input.actorEmail);
+  const previewCount = Math.min(input.instancias.length, 40);
+  const previewRows = input.instancias
+    .slice(0, previewCount)
+    .map((item, index) => {
+      const rango = `${formatDateTimeForEmail(item.inicio, input.timezone)} - ${formatDateTimeForEmail(item.fin, input.timezone)}`;
+      const statusLabel = item.estadoEvento === EstadoEventoZoom.CANCELADO ? "Cancelada" : "Programada";
+      const monitorLabel = item.monitorLabel?.trim() || "Sin asignar";
+      const linkLabel = item.joinUrl
+        ? ` | <a href="${escapeHtml(item.joinUrl)}" target="_blank" rel="noreferrer">Abrir</a>`
+        : "";
+      return `<li>${index + 1}. ${escapeHtml(rango)} | ${escapeHtml(statusLabel)} | Asistencia: ${escapeHtml(monitorLabel)}${linkLabel}</li>`;
+    })
+    .join("");
+  const extraCount = input.instancias.length - previewCount;
+  const reminderMessage = (input.recordatorioMensaje ?? "").trim();
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 760px;">
+      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
+      <h2 style="margin: 0 0 6px;">Recordatorio de reunion</h2>
+      <p style="margin: 0 0 16px; color: #334155;">
+        Te compartimos nuevamente la informacion operativa de esta solicitud.
+      </p>
+
+      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
+        <p style="margin: 0 0 8px;"><strong>${titleLabel}</strong></p>
+        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Responsable:</strong> ${responsableLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Estado:</strong> ${estadoLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>ID de reunion:</strong> ${meetingLabel}</p>
+        <p style="margin: 0 0 4px;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
+        <p style="margin: 0;"><strong>Instancias:</strong> ${input.instancias.length}</p>
+      </div>
+
+      ${
+        input.joinUrl
+          ? `<p style="margin: 0 0 16px;"><a href="${escapeHtml(input.joinUrl)}" target="_blank" rel="noreferrer" style="display: inline-block; padding: 10px 14px; border-radius: 8px; background: #1f4b8f; color: #ffffff; text-decoration: none; font-weight: 700;">Abrir reunion en Zoom</a></p>`
+          : ""
+      }
+
+      ${
+        reminderMessage
+          ? `<div style="border-left: 4px solid #1f4b8f; padding: 10px 12px; background: #eff6ff; margin: 0 0 14px;">
+              <p style="margin: 0 0 6px; font-weight: 700;">Mensaje adicional</p>
+              <p style="margin: 0;">${escapeHtml(reminderMessage)}</p>
+            </div>`
+          : ""
+      }
+
+      <p style="margin: 0 0 8px;"><strong>Detalle de instancias</strong></p>
+      <ol style="margin: 0 0 12px; padding-left: 20px;">
+        ${previewRows}
+      </ol>
+      ${
+        extraCount > 0
+          ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
+          : ""
+      }
+
+      <p style="margin: 16px 0 0; color: #64748b; font-size: 12px;">
+        Recordatorio enviado por ${actorNombreLabel} (${actorEmailLabel}).
+      </p>
+      <p style="margin: 8px 0 0; color: #94a3b8; font-size: 12px;">
+        Este es un correo automatico de la herramienta de coordinacion de salas Zoom de FLACSO Uruguay.
+      </p>
+    </div>
+  `;
+}
+
 function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSnapshot {
   const rawId = data.id;
   const meetingId = normalizeZoomMeetingId(rawId != null ? String(rawId) : null);
@@ -2647,6 +2750,187 @@ export class SalasService {
         zoomReadFromApi: Boolean(snapshot)
       };
     });
+  }
+
+  async sendSolicitudReminder(
+    user: SessionUser,
+    solicitudId: string,
+    input: {
+      toEmail?: string | null;
+      mensaje?: string | null;
+    }
+  ) {
+    const solicitud = await db.solicitudSala.findUnique({
+      where: { id: solicitudId },
+      include: {
+        docente: {
+          select: {
+            usuarioId: true,
+            usuario: {
+              select: {
+                email: true,
+                name: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        },
+        createdBy: {
+          select: {
+            email: true,
+            name: true,
+            firstName: true,
+            lastName: true
+          }
+        },
+        cuentaZoomAsignada: {
+          select: {
+            ownerEmail: true,
+            nombreCuenta: true
+          }
+        },
+        eventos: {
+          orderBy: { inicioProgramadoAt: "asc" },
+          select: {
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            estadoEvento: true,
+            zoomJoinUrl: true,
+            zoomMeetingId: true,
+            asignaciones: {
+              where: {
+                tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+                estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+              },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                asistente: {
+                  select: {
+                    usuario: {
+                      select: {
+                        email: true,
+                        name: true,
+                        firstName: true,
+                        lastName: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!solicitud) {
+      throw new Error("Solicitud no encontrada.");
+    }
+
+    const canManageAll =
+      user.role === UserRole.ADMINISTRADOR ||
+      user.role === UserRole.CONTADURIA;
+    if (
+      !canManageAll &&
+      solicitud.docente.usuarioId !== user.id &&
+      solicitud.createdByUserId !== user.id
+    ) {
+      throw new Error("No tienes permisos para enviar recordatorios de esta solicitud.");
+    }
+
+    const explicitEmail = (input.toEmail ?? "").trim().toLowerCase();
+    if (explicitEmail && !EMAIL_LINE_REGEX.test(explicitEmail)) {
+      throw new Error("Email destinatario invalido.");
+    }
+
+    const responsibleEmail = await resolveResponsibleNotificationEmail(solicitud.responsableNombre);
+    const fallbackEmails = [
+      responsibleEmail,
+      solicitud.createdBy.email,
+      solicitud.docente.usuario.email
+    ]
+      .map((value) => (value ?? "").trim().toLowerCase())
+      .filter((value) => EMAIL_LINE_REGEX.test(value));
+
+    const to = explicitEmail || fallbackEmails[0] || "";
+    if (!to || !EMAIL_LINE_REGEX.test(to)) {
+      throw new Error("No se pudo resolver el email del responsable. Ingresa un destinatario manual.");
+    }
+
+    const instancias = solicitud.eventos.map((event) => {
+      const monitor = event.asignaciones[0]?.asistente.usuario ?? null;
+      return {
+        inicio: event.inicioProgramadoAt,
+        fin: event.finProgramadoAt,
+        estadoEvento: event.estadoEvento,
+        monitorLabel: monitor ? getUserDisplayName(monitor) : null,
+        joinUrl: event.zoomJoinUrl ?? null
+      };
+    });
+
+    const joinUrl =
+      solicitud.eventos.find((event) => (event.zoomJoinUrl ?? "").trim())?.zoomJoinUrl ??
+      (solicitud.meetingPrincipalId ? buildZoomJoinUrlFromMeetingId(solicitud.meetingPrincipalId) : null);
+    const meetingId =
+      solicitud.meetingPrincipalId ??
+      solicitud.eventos.find((event) => (event.zoomMeetingId ?? "").trim())?.zoomMeetingId ??
+      null;
+    const hostAccount =
+      solicitud.cuentaZoomAsignada?.ownerEmail ??
+      solicitud.cuentaZoomAsignada?.nombreCuenta ??
+      null;
+
+    const actorNombre =
+      getUserDisplayName({
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        name: user.name
+      });
+
+    const html = buildSolicitudReminderEmailHtml({
+      solicitudId: solicitud.id,
+      titulo: solicitud.titulo,
+      programaNombre: solicitud.programaNombre ?? null,
+      responsableNombre: solicitud.responsableNombre ?? null,
+      modalidad: solicitud.modalidadReunion,
+      estadoSolicitud: solicitud.estadoSolicitud,
+      meetingId,
+      joinUrl,
+      hostAccount,
+      timezone: solicitud.timezone,
+      recordatorioMensaje: input.mensaje,
+      actorNombre,
+      actorEmail: user.email,
+      instancias
+    });
+
+    const client = new EmailClient();
+    await client.send({
+      to,
+      subject: `Recordatorio de solicitud: ${solicitud.titulo}`,
+      html
+    });
+
+    await notifyAdminTelegramMovement({
+      action: "RECORDATORIO_SOLICITUD_ENVIADO",
+      actorEmail: user.email,
+      actorRole: user.role,
+      entityType: "SolicitudSala",
+      entityId: solicitud.id,
+      summary: solicitud.titulo,
+      details: {
+        to,
+        explicitEmail: Boolean(explicitEmail)
+      }
+    });
+
+    return {
+      solicitudId: solicitud.id,
+      sentTo: to
+    };
   }
 
   async listPastMeetings(user: SessionUser) {
@@ -4976,4 +5260,3 @@ export class SalasService {
     return created;
   }
 }
-

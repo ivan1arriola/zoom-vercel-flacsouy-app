@@ -8,6 +8,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EventBusyOutlinedIcon from "@mui/icons-material/EventBusyOutlined";
 import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSendOutlined";
+import MailOutlineOutlinedIcon from "@mui/icons-material/MailOutlineOutlined";
 import {
   Box,
   Button,
@@ -57,6 +58,13 @@ interface SpaTabSolicitudesProps {
     startTime: string;
   }) => void;
   cancellingInstanciaKey: string | null;
+  canSendReminder: boolean;
+  sendingReminderSolicitudId: string | null;
+  onSendReminder: (input: {
+    solicitudId: string;
+    toEmail?: string;
+    mensaje?: string;
+  }) => Promise<boolean>;
   canDeleteSolicitud: boolean;
   isSubmittingSolicitud: boolean;
   canCreateShortcut: boolean;
@@ -160,6 +168,9 @@ export function SpaTabSolicitudes({
   cancellingSerieSolicitudId,
   onCancelSolicitudInstancia,
   cancellingInstanciaKey,
+  canSendReminder,
+  sendingReminderSolicitudId,
+  onSendReminder,
   canDeleteSolicitud,
   isSubmittingSolicitud,
   canCreateShortcut,
@@ -177,6 +188,44 @@ export function SpaTabSolicitudes({
   const [newProgramaNombre, setNewProgramaNombre] = useState("");
   const [solicitudesListScope, setSolicitudesListScope] = useState<SolicitudesListScope>("ACTIVAS");
   const [specificDateInput, setSpecificDateInput] = useState("");
+  const [reminderDialogSolicitud, setReminderDialogSolicitud] = useState<{
+    id: string;
+    titulo: string;
+  } | null>(null);
+  const [reminderToEmail, setReminderToEmail] = useState("");
+  const [reminderMessage, setReminderMessage] = useState("");
+
+  function extractEmailCandidate(raw?: string | null): string {
+    const normalized = (raw ?? "").trim().toLowerCase();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : "";
+  }
+
+  function openReminderDialog(item: Solicitud) {
+    setReminderDialogSolicitud({ id: item.id, titulo: item.titulo });
+    setReminderToEmail(extractEmailCandidate(item.responsableNombre));
+    setReminderMessage("");
+  }
+
+  function closeReminderDialog() {
+    if (sendingReminderSolicitudId) return;
+    setReminderDialogSolicitud(null);
+    setReminderToEmail("");
+    setReminderMessage("");
+  }
+
+  async function submitReminderDialog() {
+    if (!reminderDialogSolicitud) return;
+    const success = await onSendReminder({
+      solicitudId: reminderDialogSolicitud.id,
+      toEmail: reminderToEmail.trim() || undefined,
+      mensaje: reminderMessage.trim() || undefined
+    });
+    if (success) {
+      setReminderDialogSolicitud(null);
+      setReminderToEmail("");
+      setReminderMessage("");
+    }
+  }
 
   function syncDurationFromTimes(startTime: string, endTime: string): string {
     const startMinutes = parseTimeToMinutes(startTime);
@@ -1449,6 +1498,17 @@ export function SpaTabSolicitudes({
                                 Abrir
                               </Button>
                             ) : null}
+                            {canSendReminder ? (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<MailOutlineOutlinedIcon fontSize="small" />}
+                                onClick={() => openReminderDialog(item)}
+                                disabled={Boolean(sendingReminderSolicitudId)}
+                              >
+                                {sendingReminderSolicitudId === item.id ? "Enviando..." : "Enviar recordatorio"}
+                              </Button>
+                            ) : null}
                             <Button
                               size="small"
                               variant="outlined"
@@ -1572,6 +1632,49 @@ export function SpaTabSolicitudes({
           )}
         </Box>
       )}
+
+      <Dialog open={Boolean(reminderDialogSolicitud)} onClose={closeReminderDialog} fullWidth maxWidth="sm">
+        <DialogTitle>Enviar recordatorio</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.2 }}>
+            Solicitud: {reminderDialogSolicitud?.titulo || "-"}
+          </Typography>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Destinatario (opcional)"
+            type="email"
+            fullWidth
+            value={reminderToEmail}
+            onChange={(event) => setReminderToEmail(event.target.value)}
+            helperText="Si queda vacio, se enviara al responsable resuelto por el sistema."
+            disabled={Boolean(sendingReminderSolicitudId)}
+          />
+          <TextField
+            margin="dense"
+            label="Mensaje adicional (opcional)"
+            fullWidth
+            multiline
+            minRows={3}
+            value={reminderMessage}
+            onChange={(event) => setReminderMessage(event.target.value)}
+            disabled={Boolean(sendingReminderSolicitudId)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeReminderDialog} disabled={Boolean(sendingReminderSolicitudId)}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void submitReminderDialog()}
+            disabled={!reminderDialogSolicitud || Boolean(sendingReminderSolicitudId)}
+            startIcon={<MailOutlineOutlinedIcon fontSize="small" />}
+          >
+            {sendingReminderSolicitudId ? "Enviando..." : "Enviar recordatorio"}
+          </Button>
+        </DialogActions>
+      </Dialog>
       </CardContent>
     </Card>
   );

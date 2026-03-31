@@ -37,10 +37,12 @@ interface SpaTabUsuariosProps {
   isCreatingUser: boolean;
   updatingUserId: string | null;
   resendingActivationUserId: string | null;
+  isSendingSelfActivationLink: boolean;
   isLoadingUsers: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onUpdateUserRole: (userId: string, role: string) => void | Promise<void>;
   onResendActivationLink: (userId: string) => void | Promise<void>;
+  onSendSelfActivationLinkTest: () => void | Promise<void>;
   onRefresh: () => void;
 }
 
@@ -67,10 +69,12 @@ export function SpaTabUsuarios({
   isCreatingUser,
   updatingUserId,
   resendingActivationUserId,
+  isSendingSelfActivationLink,
   isLoadingUsers,
   onSubmit,
   onUpdateUserRole,
   onResendActivationLink,
+  onSendSelfActivationLinkTest,
   onRefresh
 }: SpaTabUsuariosProps) {
   const [selectedRoleByUser, setSelectedRoleByUser] = useState<Record<string, EditableRole>>({});
@@ -118,15 +122,28 @@ export function SpaTabUsuarios({
               Crea cuentas, asigna roles y gestiona activaciones desde un unico flujo.
             </Typography>
           </Box>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshRoundedIcon />}
-            onClick={onRefresh}
-            disabled={isLoadingUsers}
-            sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700, px: 1.6 }}
-          >
-            {isLoadingUsers ? "Actualizando..." : "Actualizar"}
-          </Button>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+            <Button
+              variant="outlined"
+              startIcon={<MailOutlineRoundedIcon />}
+              onClick={() => {
+                void onSendSelfActivationLinkTest();
+              }}
+              disabled={isSendingSelfActivationLink}
+              sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700, px: 1.6 }}
+            >
+              {isSendingSelfActivationLink ? "Enviando prueba..." : "Enviarme prueba"}
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshRoundedIcon />}
+              onClick={onRefresh}
+              disabled={isLoadingUsers}
+              sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700, px: 1.6 }}
+            >
+              {isLoadingUsers ? "Actualizando..." : "Actualizar"}
+            </Button>
+          </Stack>
         </Stack>
 
         <Paper
@@ -189,6 +206,9 @@ export function SpaTabUsuarios({
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2 }}>
               El usuario se crea sin contrasena y recibe un enlace de activacion para definir su contrasena.
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.6 }}>
+              Los enlaces de activacion vencen en 7 dias. Las cuentas @flacso.edu.uy tambien pueden ingresar con Google.
             </Typography>
             <Button
               sx={{ mt: 1.3, textTransform: "none", borderRadius: 2, fontWeight: 700 }}

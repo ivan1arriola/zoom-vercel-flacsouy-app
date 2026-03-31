@@ -68,7 +68,12 @@ export default async function RootLayout({
             }}
           >
             <Container maxWidth="lg" sx={{ py: 1.2 }}>
-              <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={{ xs: 1.2, md: 2 }}
+                alignItems={{ xs: "stretch", md: "center" }}
+                justifyContent="space-between"
+              >
                 <Stack direction="row" spacing={2} alignItems="center" sx={{ minWidth: 0 }}>
                   <Link href="/" style={{ display: "inline-flex" }}>
                     <Box
@@ -87,7 +92,15 @@ export default async function RootLayout({
                     </Typography>
                   </Box>
                 </Stack>
-                <Box sx={{ ml: "auto", flexShrink: 0 }}>
+                <Box
+                  sx={{
+                    ml: { md: "auto" },
+                    flexShrink: 0,
+                    width: { xs: "100%", md: "auto" },
+                    display: "flex",
+                    justifyContent: { xs: "flex-end", md: "flex-end" }
+                  }}
+                >
                   {session?.user ? (
                     <UserMenu
                       firstName={session.user.firstName}

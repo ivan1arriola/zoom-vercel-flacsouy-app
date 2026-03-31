@@ -6,6 +6,7 @@ const tabs = [
   "solicitudes",
   "programas",
   "agenda_libre",
+  "mis_asistencias",
   "asignacion",
   "manual",
   "historico",
@@ -28,6 +29,7 @@ export function useUIState() {
     const rawTab = (searchParams.get("tab") ?? "").toLowerCase();
     if (!rawTab) return null;
     if (rawTab === "agenda") return "agenda_libre" as Tab;
+    if (rawTab === "asistencias") return "mis_asistencias" as Tab;
     if (rawTab === "proximas") return "proximas_zoom" as Tab;
     if (rawTab === "pasadas") return "pasadas_zoom" as Tab;
     if (rawTab === "programa") return "programas" as Tab;

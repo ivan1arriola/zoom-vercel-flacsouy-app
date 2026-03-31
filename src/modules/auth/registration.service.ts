@@ -9,9 +9,10 @@ import { logger } from "@/src/lib/logger";
 
 const ADMIN_EMAIL = "web@flacso.edu.uy";
 const PENDING_KEY_PREFIX = "auth:registration:pending:";
-const TOKEN_TTL_MINUTES = 30;
+const TOKEN_TTL_MINUTES = 60 * 24 * 7;
 const PASSWORD_RECOVERY_LINK_TTL_MINUTES = 30;
 const ACCOUNT_ACTIVATION_LINK_TTL_MINUTES = 60 * 24 * 7;
+const GOOGLE_ALLOWED_DOMAIN = "@flacso.edu.uy";
 
 const pendingRegistrationSchema = z.object({
   token: z.string().min(1),
@@ -230,12 +231,13 @@ function buildPasswordLinkEmail(input: {
         preheader: "Activa tu cuenta de Plataforma Zoom FLACSO.",
         title: "Activa tu cuenta",
         greeting,
-        paragraphs: [
-          "Se creo tu cuenta en la Plataforma Zoom de FLACSO Uruguay.",
-          invitedBy
-            ? `La cuenta fue creada por ${invitedBy}. Para completar el alta, activa tu acceso desde este enlace.`
-            : "Para completar el alta, activa tu acceso desde este enlace."
-        ],
+      paragraphs: [
+        "Se creo tu cuenta en la Plataforma Zoom de FLACSO Uruguay.",
+        invitedBy
+          ? `La cuenta fue creada por ${invitedBy}. Para completar el alta, activa tu acceso desde este enlace.`
+          : "Para completar el alta, activa tu acceso desde este enlace.",
+        `Si tu correo termina en ${GOOGLE_ALLOWED_DOMAIN}, tambien puedes ingresar directamente con tu cuenta de Google en el sistema.`
+      ],
         actionLabel: "Activar cuenta y definir contrasena",
         actionUrl: input.resetUrl,
         metaLines: [
@@ -289,7 +291,7 @@ function buildRegistrationVerificationEmail(input: {
       ],
       actionLabel: "Confirmar correo y activar cuenta",
       actionUrl: input.verificationUrl,
-      metaLines: [`Este enlace vence en ${TOKEN_TTL_MINUTES} minutos.`]
+      metaLines: [`Este enlace vence en ${formatTtlLabel(TOKEN_TTL_MINUTES)}.`]
     })
   };
 }
@@ -312,7 +314,8 @@ function buildAccountConfirmedEmail(input: {
       greeting,
       paragraphs: [
         "Tu cuenta fue activada correctamente.",
-        "Ya puedes ingresar a la plataforma con tu correo y la contrasena que acabas de definir."
+        "Ya puedes ingresar a la plataforma con tu correo y la contrasena que acabas de definir.",
+        `Si tu correo termina en ${GOOGLE_ALLOWED_DOMAIN}, tambien puedes ingresar con Google.`
       ],
       actionLabel: "Ir a la plataforma",
       actionUrl: loginUrl,

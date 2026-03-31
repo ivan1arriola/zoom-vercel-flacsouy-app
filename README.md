@@ -50,6 +50,8 @@ Sistema web para gestión institucional de solicitudes Zoom, cobertura de asiste
 1. Instalar dependencias:
 
 ```bash
+nvm install
+nvm use
 npm install
 ```
 

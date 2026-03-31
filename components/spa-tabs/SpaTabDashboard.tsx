@@ -388,7 +388,7 @@ export function SpaTabDashboard({ summary, role }: SpaTabDashboardProps) {
       <Card variant="outlined" sx={{ borderRadius: 3 }}>
         <CardContent>
           <Typography variant="body2" color="text.secondary">
-            No hay datos de dashboard disponibles.
+            No hay datos de inicio disponibles.
           </Typography>
         </CardContent>
       </Card>

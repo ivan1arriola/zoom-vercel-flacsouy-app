@@ -52,6 +52,7 @@ export function InlineLogin({
   resetToken,
   resetMode
 }: InlineLoginProps) {
+  const googleDomainNotice = "Google solo para @flacso.edu.uy; el resto por correo y contrasena.";
   const [activePanel, setActivePanel] = useState<AuthPanel>("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
@@ -347,7 +348,7 @@ export function InlineLogin({
           Herramienta para coordinar salas Zoom
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Inicia sesion para continuar. Google solo para @flacso.edu.uy; el resto por correo y contrasena.
+          Inicia sesion para continuar.
         </Typography>
 
         <Tabs
@@ -405,6 +406,9 @@ export function InlineLogin({
                 >
                   {isGoogleSubmitting ? "Redirigiendo..." : "Ingresar con Google"}
                 </Button>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.8, display: "block" }}>
+                  {googleDomainNotice}
+                </Typography>
               </CardContent>
             </Card>
           ) : null}
@@ -425,6 +429,9 @@ export function InlineLogin({
                 >
                   {isGoogleSubmitting ? "Redirigiendo..." : "Registrarme con Google"}
                 </Button>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1.2, display: "block" }}>
+                  {googleDomainNotice}
+                </Typography>
                 <Box component="form" action={onRegister}>
                   <Stack spacing={1.2}>
                     <Stack direction={{ xs: "column", md: "row" }} spacing={1.2}>

@@ -21,6 +21,7 @@ export const tabs = [
   "solicitudes",
   "programas",
   "agenda_libre",
+  "mis_asistencias",
   "asignacion",
   "manual",
   "historico",
@@ -57,7 +58,7 @@ export const NAVIGATION_GROUP_LABEL: Record<NavigationGroup, string> = {
 
 export const TAB_CONFIG: Record<Tab, TabConfig> = {
   dashboard: {
-    label: "Dashboard",
+    label: "Inicio",
     visibleInNavigation: true,
     roles: ALL_VIEW_ROLES,
     group: "GENERAL"
@@ -76,6 +77,12 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
   },
   agenda_libre: {
     label: "Agenda libre",
+    visibleInNavigation: true,
+    roles: ["ASISTENTE_ZOOM"],
+    group: "OPERACION"
+  },
+  mis_asistencias: {
+    label: "Mis asistencias",
     visibleInNavigation: true,
     roles: ["ASISTENTE_ZOOM"],
     group: "OPERACION"
@@ -179,6 +186,8 @@ export function getTabIcon(tab: Tab): ReactNode {
       return <AutoStoriesOutlinedIcon fontSize="small" />;
     case "agenda_libre":
       return <EventAvailableOutlinedIcon fontSize="small" />;
+    case "mis_asistencias":
+      return <HistoryOutlinedIcon fontSize="small" />;
     case "asignacion":
       return <AssignmentIndOutlinedIcon fontSize="small" />;
     case "manual":

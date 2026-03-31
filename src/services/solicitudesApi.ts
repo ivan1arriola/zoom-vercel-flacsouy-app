@@ -312,3 +312,39 @@ export async function cancelSolicitudInstancia(input: {
     "No se pudo cancelar la instancia."
   );
 }
+
+export async function sendSolicitudReminder(input: {
+  solicitudId: string;
+  toEmail?: string;
+  mensaje?: string;
+}): Promise<{
+  success: boolean;
+  sentTo?: string;
+  error?: string;
+}> {
+  const result = await requestJson<{
+    error?: string;
+    result?: { sentTo?: string };
+  }>(
+    `/api/v1/solicitudes-sala/${encodeURIComponent(input.solicitudId)}/recordatorio`,
+    {
+      method: "POST",
+      ...withJsonBody({
+        toEmail: input.toEmail,
+        mensaje: input.mensaje
+      })
+    }
+  );
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: result.data.error ?? "No se pudo enviar el recordatorio."
+    };
+  }
+
+  return {
+    success: true,
+    sentTo: result.data.result?.sentTo
+  };
+}
