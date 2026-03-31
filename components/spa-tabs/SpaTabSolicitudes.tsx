@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -18,6 +18,7 @@ import {
   CardContent,
   Checkbox,
   Chip,
+  CircularProgress,
   Collapse,
   Dialog,
   DialogActions,
@@ -136,6 +137,12 @@ const ZOOM_ACCOUNT_COLOR_PALETTE = [
   "#166534"
 ];
 
+const ADD_INSTANCE_BUSY_MESSAGES = [
+  "Guardando instancia en el sistema...",
+  "Sincronizando instancia con Zoom...",
+  "Actualizando datos de la solicitud..."
+];
+
 function hashLabel(value: string): number {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -245,6 +252,7 @@ export function SpaTabSolicitudes({
   onSubmit
 }: SpaTabSolicitudesProps) {
   const [expandedSolicitudId, setExpandedSolicitudId] = useState<string | null>(null);
+  const [showCancelledBySolicitudId, setShowCancelledBySolicitudId] = useState<Record<string, boolean>>({});
   const [createProgramaOpen, setCreateProgramaOpen] = useState(false);
   const [newProgramaNombre, setNewProgramaNombre] = useState("");
   const [solicitudesListScope, setSolicitudesListScope] = useState<SolicitudesListScope>("ACTIVAS");
@@ -681,13 +689,64 @@ export function SpaTabSolicitudes({
     return { activas, finalizadas };
   }, [solicitudes]);
 
-  const visibleSolicitudes = useMemo(
-    () =>
+  function resolveSolicitudSortStartMs(
+    solicitud: Solicitud,
+    scope: SolicitudesListScope,
+    nowMs: number
+  ): number {
+    const instances = solicitud.zoomInstances ?? [];
+    let earliestAnyStartMs = Number.POSITIVE_INFINITY;
+    let earliestNonCancelledStartMs = Number.POSITIVE_INFINITY;
+    let earliestActiveOrUpcomingStartMs = Number.POSITIVE_INFINITY;
+
+    for (const instance of instances) {
+      const parsedStart = new Date(instance.startTime).getTime();
+      if (!Number.isFinite(parsedStart)) continue;
+
+      earliestAnyStartMs = Math.min(earliestAnyStartMs, parsedStart);
+
+      if (!isInstanceCancelledOrFinalizada(instance)) {
+        earliestNonCancelledStartMs = Math.min(earliestNonCancelledStartMs, parsedStart);
+      }
+
+      if (isInstanceActiveOrUpcoming(instance, nowMs)) {
+        earliestActiveOrUpcomingStartMs = Math.min(earliestActiveOrUpcomingStartMs, parsedStart);
+      }
+    }
+
+    if (scope === "ACTIVAS" && Number.isFinite(earliestActiveOrUpcomingStartMs)) {
+      return earliestActiveOrUpcomingStartMs;
+    }
+    if (Number.isFinite(earliestNonCancelledStartMs)) return earliestNonCancelledStartMs;
+    if (Number.isFinite(earliestAnyStartMs)) return earliestAnyStartMs;
+
+    const parsedCreatedAt = new Date(solicitud.createdAt).getTime();
+    if (Number.isFinite(parsedCreatedAt)) return parsedCreatedAt;
+
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const visibleSolicitudes = useMemo(() => {
+    const nowMs = Date.now();
+    const source =
       solicitudesListScope === "ACTIVAS"
         ? solicitudesByLifecycle.activas
-        : solicitudesByLifecycle.finalizadas,
-    [solicitudesByLifecycle, solicitudesListScope]
-  );
+        : solicitudesByLifecycle.finalizadas;
+
+    return [...source].sort((left, right) => {
+      const leftStartMs = resolveSolicitudSortStartMs(left, solicitudesListScope, nowMs);
+      const rightStartMs = resolveSolicitudSortStartMs(right, solicitudesListScope, nowMs);
+      if (leftStartMs !== rightStartMs) return leftStartMs - rightStartMs;
+
+      const byTitle = left.titulo.localeCompare(right.titulo, "es", {
+        sensitivity: "base",
+        numeric: true
+      });
+      if (byTitle !== 0) return byTitle;
+
+      return left.id.localeCompare(right.id, "es", { sensitivity: "base" });
+    });
+  }, [solicitudesByLifecycle, solicitudesListScope]);
 
   const statusSummary = useMemo(() => {
     const counts = new Map<string, number>();
@@ -780,12 +839,13 @@ export function SpaTabSolicitudes({
 
     function renderInstanceRows(
       rows: typeof preparedInstances,
-      options?: { muted?: boolean }
+      options?: { muted?: boolean; withNumbering?: boolean }
     ) {
       const isMuted = Boolean(options?.muted);
+      const withNumbering = options?.withNumbering ?? true;
       return (
         <Stack spacing={1.2}>
-          {rows.map(({ instance, index, status, asistencia }) => {
+          {rows.map(({ instance, status, asistencia }, rowIndex) => {
             const isInstanceCancelled = isSolicitudCancelled || !status.cancellable;
             const instanceKey = `${item.id}:${instance.eventId ?? instance.occurrenceId ?? instance.startTime}`;
             const isRestoreInProgress = restoringInstanciaKey === instanceKey;
@@ -808,7 +868,8 @@ export function SpaTabSolicitudes({
               >
                 <Box>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {index + 1}. {formatDateTime(instance.startTime)}
+                    {withNumbering ? `${rowIndex + 1}. ` : ""}
+                    {formatDateTime(instance.startTime)}
                   </Typography>
                   <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                     <Chip size="small" color={status.color} label={status.label} />
@@ -874,10 +935,28 @@ export function SpaTabSolicitudes({
 
         {cancelledInstances.length > 0 ? (
           <Box sx={{ pt: 0.4, borderTop: "1px dashed", borderColor: "divider" }}>
-            <Typography variant="caption" sx={{ color: "error.main", fontWeight: 700, mb: 0.8, display: "block" }}>
-              Instancias canceladas ({cancelledInstances.length})
-            </Typography>
-            {renderInstanceRows(cancelledInstances, { muted: true })}
+            <Button
+              type="button"
+              size="small"
+              variant="text"
+              color="error"
+              onClick={() =>
+                setShowCancelledBySolicitudId((prev) => ({
+                  ...prev,
+                  [item.id]: !prev[item.id]
+                }))
+              }
+              sx={{ px: 0.2, minWidth: 0, textTransform: "none", fontWeight: 700 }}
+            >
+              {showCancelledBySolicitudId[item.id]
+                ? `Ocultar canceladas (${cancelledInstances.length})`
+                : `Mostrar canceladas (${cancelledInstances.length})`}
+            </Button>
+            {showCancelledBySolicitudId[item.id] ? (
+              <Box sx={{ mt: 0.8 }}>
+                {renderInstanceRows(cancelledInstances, { muted: true, withNumbering: false })}
+              </Box>
+            ) : null}
           </Box>
         ) : null}
       </Stack>
@@ -905,6 +984,23 @@ export function SpaTabSolicitudes({
     addInstanceDialogSolicitud &&
     addingInstanceSolicitudId === addInstanceDialogSolicitud.id
   );
+  const [addInstanceBusyIndex, setAddInstanceBusyIndex] = useState(0);
+  const addInstanceBusyLabel =
+    ADD_INSTANCE_BUSY_MESSAGES[addInstanceBusyIndex] ?? ADD_INSTANCE_BUSY_MESSAGES[0];
+
+  useEffect(() => {
+    setAddInstanceBusyIndex(0);
+    if (!isSubmittingAddInstance) return;
+    if (ADD_INSTANCE_BUSY_MESSAGES.length <= 1) return;
+
+    const intervalId = window.setInterval(() => {
+      setAddInstanceBusyIndex((prev) => (prev + 1) % ADD_INSTANCE_BUSY_MESSAGES.length);
+    }, 1800);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isSubmittingAddInstance]);
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -2012,6 +2108,14 @@ export function SpaTabSolicitudes({
                 ? "Inicio y fin deben estar en el mismo dia."
                 : "El fin debe ser posterior al inicio."}
             </Typography>
+          ) : null}
+          {isSubmittingAddInstance ? (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.2 }}>
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="text.secondary">
+                {addInstanceBusyLabel}
+              </Typography>
+            </Stack>
           ) : null}
         </DialogContent>
         <DialogActions>

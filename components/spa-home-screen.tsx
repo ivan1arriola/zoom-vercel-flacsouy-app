@@ -201,6 +201,16 @@ type ZoomPastMonthOption = {
   monthsBack: number;
 };
 
+async function readJsonSafe<T>(response: Response): Promise<T | null> {
+  const text = await response.text().catch(() => "");
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 function buildZoomPastMonthOptions(maxMonthsBack = MAX_ZOOM_PAST_MONTHS_BACK): ZoomPastMonthOption[] {
   const now = new Date();
   const startOfCurrentMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
@@ -665,7 +675,7 @@ export function SpaHomeScreen() {
     setLoading(true);
     try {
       const meRes = await fetch("/api/v1/auth/me", { cache: "no-store" });
-      const meJson = (await meRes.json()) as { user?: CurrentUser; error?: string };
+      const meJson = (await readJsonSafe<{ user?: CurrentUser; error?: string }>(meRes)) ?? {};
       if (!meRes.ok || !meJson.user) {
         setMessage(meJson.error ?? "No autenticado.");
         return;
@@ -954,7 +964,7 @@ export function SpaHomeScreen() {
           })
         }
       );
-      const data = (await response.json()) as { error?: string };
+      const data = (await readJsonSafe<{ error?: string }>(response)) ?? {};
       if (!response.ok) {
         setMessage(data.error ?? "No se pudo resolver manualmente la solicitud.");
         return;
@@ -2400,7 +2410,8 @@ export function SpaHomeScreen() {
                   image: profileForm.image
                 })
               });
-              const data = (await response.json()) as { error?: string; user?: CurrentUser };
+              const data =
+                (await readJsonSafe<{ error?: string; user?: CurrentUser }>(response)) ?? {};
               if (!response.ok) {
                 setMessage(data.error ?? "No se pudo actualizar el perfil.");
                 return;
