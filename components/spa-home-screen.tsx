@@ -19,15 +19,11 @@ import {
 } from "@/src/lib/spa-home/recurrence";
 import {
   NAVIGATION_GROUP_LABEL,
-  NAVIGATION_GROUP_ORDER,
   TAB_CONFIG,
   canAccessTabForRole,
-  getNavigationGroupIcon,
   getTabIcon,
   isViewRole,
   normalizeAssistantRole,
-  type NavigationGroup,
-  type Tab,
   type ViewRole,
   tabs,
   VIEW_ROLE_COOKIE
@@ -98,6 +94,7 @@ import { SpaTabDashboard } from "@/components/spa-tabs/SpaTabDashboard";
 import { SpaTabSolicitudes } from "@/components/spa-tabs/SpaTabSolicitudes";
 import { SpaTabProgramas } from "@/components/spa-tabs/SpaTabProgramas";
 import { SpaTabAgendaLibre } from "@/components/spa-tabs/SpaTabAgendaLibre";
+import { SpaTabMisReunionesAsignadas } from "@/components/spa-tabs/SpaTabMisReunionesAsignadas";
 import { SpaTabMisAsistencias } from "@/components/spa-tabs/SpaTabMisAsistencias";
 import { SpaTabAsignacion } from "@/components/spa-tabs/SpaTabAsignacion";
 import {
@@ -143,6 +140,49 @@ type MonitorOption = {
   value: string;
   label: string;
   nombre: string;
+};
+
+type BusyOperationKey =
+  | "BOOTSTRAP"
+  | "SUBMIT_SOLICITUD"
+  | "DELETE_SOLICITUD"
+  | "CANCEL_SERIE"
+  | "CANCEL_INSTANCIA"
+  | "UPDATE_ASISTENCIA"
+  | "GENERIC";
+
+const BUSY_MESSAGES: Record<BusyOperationKey, string[]> = {
+  BOOTSTRAP: [
+    "Cargando tu espacio de trabajo...",
+    "Verificando sesion y permisos...",
+    "Preparando informacion inicial..."
+  ],
+  SUBMIT_SOLICITUD: [
+    "Validando datos de la solicitud...",
+    "Buscando cuenta Zoom libre...",
+    "Reservando horario disponible...",
+    "Guardando solicitud en el sistema...",
+    "Finalizando registro y notificaciones..."
+  ],
+  DELETE_SOLICITUD: [
+    "Eliminando solicitud...",
+    "Desvinculando reunion en Zoom..."
+  ],
+  CANCEL_SERIE: [
+    "Cancelando serie completa...",
+    "Actualizando estado de instancias..."
+  ],
+  CANCEL_INSTANCIA: [
+    "Cancelando instancia seleccionada...",
+    "Sincronizando cambios..."
+  ],
+  UPDATE_ASISTENCIA: [
+    "Actualizando asistencia Zoom...",
+    "Aplicando cambios en instancias activas..."
+  ],
+  GENERIC: [
+    "Procesando..."
+  ]
 };
 
 const DEFAULT_ZOOM_PAST_MONTHS_BACK = 1;
@@ -301,6 +341,7 @@ export function SpaHomeScreen() {
   const canSeeZoomAccounts = canAccessTabForRole("cuentas", effectiveRole);
   const canSeeUsers = canAccessTabForRole("usuarios", effectiveRole);
   const canSeeAgendaLibre = canAccessTabForRole("agenda_libre", effectiveRole);
+  const canSeeMisReunionesAsignadas = canAccessTabForRole("mis_reuniones_asignadas", effectiveRole);
   const canSeeMisAsistencias = canAccessTabForRole("mis_asistencias", effectiveRole);
   const canSeeAssignmentBoard = canAccessTabForRole("asignacion", effectiveRole);
   const canSeeTarifas = canAccessTabForRole("tarifas", effectiveRole);
@@ -331,18 +372,6 @@ export function SpaHomeScreen() {
       }),
     [effectiveRole]
   );
-  const groupedNavigationTabs = useMemo(() => {
-    const grouped: Record<NavigationGroup, Tab[]> = {
-      GENERAL: [],
-      OPERACION: [],
-      ZOOM: [],
-      ADMIN: []
-    };
-    for (const item of visibleNavigationTabs) {
-      grouped[TAB_CONFIG[item].group].push(item);
-    }
-    return grouped;
-  }, [visibleNavigationTabs]);
   const selectedZoomPastMonthsBack = useMemo(() => {
     const selectedOption = zoomPastMonthOptions.find(
       (option) => option.value === selectedZoomPastMonthKey
@@ -527,20 +556,45 @@ export function SpaHomeScreen() {
     ]
   );
 
-  const globalBusyLabel = useMemo(() => {
-    if (isSubmittingSolicitud) return "Enviando solicitud...";
-    if (deletingSolicitudId) return "Eliminando solicitud...";
-    if (cancellingSerieSolicitudId) return "Cancelando serie...";
-    if (cancellingInstanciaKey) return "Cancelando instancia...";
-    if (updatingAsistenciaSolicitudId) return "Actualizando asistencia Zoom...";
-    return "Cargando...";
+  const activeBusyOperation = useMemo<BusyOperationKey>(() => {
+    if (loading) return "BOOTSTRAP";
+    if (isSubmittingSolicitud) return "SUBMIT_SOLICITUD";
+    if (deletingSolicitudId) return "DELETE_SOLICITUD";
+    if (cancellingSerieSolicitudId) return "CANCEL_SERIE";
+    if (cancellingInstanciaKey) return "CANCEL_INSTANCIA";
+    if (updatingAsistenciaSolicitudId) return "UPDATE_ASISTENCIA";
+    return "GENERIC";
   }, [
+    loading,
     isSubmittingSolicitud,
     deletingSolicitudId,
     cancellingSerieSolicitudId,
     cancellingInstanciaKey,
     updatingAsistenciaSolicitudId
   ]);
+  const [busyMessageIndex, setBusyMessageIndex] = useState(0);
+  const busyMessageSequence = useMemo(
+    () => BUSY_MESSAGES[activeBusyOperation] ?? BUSY_MESSAGES.GENERIC,
+    [activeBusyOperation]
+  );
+  const globalBusyLabel = useMemo(
+    () => busyMessageSequence[busyMessageIndex] ?? busyMessageSequence[0] ?? "Procesando...",
+    [busyMessageSequence, busyMessageIndex]
+  );
+
+  useEffect(() => {
+    setBusyMessageIndex(0);
+    if (!isGlobalBusy) return;
+    if (busyMessageSequence.length <= 1) return;
+
+    const intervalId = window.setInterval(() => {
+      setBusyMessageIndex((prev) => (prev + 1) % busyMessageSequence.length);
+    }, 2200);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isGlobalBusy, busyMessageSequence]);
 
   // currentTarifaByModalidad is already provided by useTarifas hook
   // requestedTab is already provided by useUIState hook
@@ -1678,15 +1732,7 @@ export function SpaHomeScreen() {
     }
   }
 
-  function selectNavigationGroup(group: NavigationGroup) {
-    if (TAB_CONFIG[tab].group === group) return;
-    const firstTab = groupedNavigationTabs[group][0];
-    if (!firstTab) return;
-    setTab(firstTab);
-  }
-
   const activeNavigationGroup = TAB_CONFIG[tab].group;
-  const activeNavigationTabs = groupedNavigationTabs[activeNavigationGroup];
   const activeNavigationLabel = NAVIGATION_GROUP_LABEL[activeNavigationGroup];
   const normalizedRoleLabel = (effectiveRole || "ADMINISTRADOR").replace(/_/g, " ");
   const isAdminWorkspace = !effectiveRole || effectiveRole === "ADMINISTRADOR";
@@ -1783,6 +1829,14 @@ export function SpaHomeScreen() {
           onClick: () => setTab("agenda_libre")
         },
         {
+          id: "asistente-proximas",
+          label: "Asignadas futuras",
+          description: "Confirmadas por mes",
+          icon: getTabIcon("mis_reuniones_asignadas"),
+          active: tab === "mis_reuniones_asignadas",
+          onClick: () => setTab("mis_reuniones_asignadas")
+        },
+        {
           id: "asistente-mis",
           label: "Mis asistencias",
           description: "Reuniones asignadas",
@@ -1861,83 +1915,37 @@ export function SpaHomeScreen() {
             sx={{ width: { xs: "100%", lg: "auto" } }}
           >
             <Chip size="small" variant="outlined" label={`Rol: ${normalizedRoleLabel}`} />
-            {isAdminWorkspace ? (
-              <Chip
-                size="small"
-                color="primary"
-                variant="outlined"
-                label={`Grupo: ${activeNavigationLabel}`}
-              />
-            ) : null}
           </Stack>
         </Stack>
 
         {isAdminWorkspace ? (
-          <>
-            <Box
-              sx={{
-                mb: 1.1,
-                overflowX: "visible",
-                pb: 0.2
-              }}
-            >
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                {NAVIGATION_GROUP_ORDER.map((group) => {
-                  const groupTabs = groupedNavigationTabs[group];
-                  if (groupTabs.length === 0) return null;
-
-                  const isGroupActive = groupTabs.includes(tab);
-
-                  return (
-                    <Button
-                      key={group}
-                      size="small"
-                      variant={isGroupActive ? "contained" : "outlined"}
-                      color={isGroupActive ? "primary" : "inherit"}
-                      startIcon={getNavigationGroupIcon(group)}
-                      onClick={() => selectNavigationGroup(group)}
-                      sx={{
-                        textTransform: "none",
-                        borderRadius: 2,
-                        fontWeight: 700,
-                        whiteSpace: "nowrap"
-                      }}
-                    >
-                      {NAVIGATION_GROUP_LABEL[group]} ({groupTabs.length})
-                    </Button>
-                  );
-                })}
-              </Stack>
-            </Box>
-
-            <Box
-              sx={{
-                overflowX: "visible",
-                pb: 0.2
-              }}
-            >
-              <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                {activeNavigationTabs.map((navigationTab) => (
-                  <Button
-                    key={navigationTab}
-                    size="small"
-                    variant={tab === navigationTab ? "contained" : "text"}
-                    color={tab === navigationTab ? "primary" : "inherit"}
-                    startIcon={getTabIcon(navigationTab)}
-                    onClick={() => setTab(navigationTab)}
-                    sx={{
-                      textTransform: "none",
-                      borderRadius: 2,
-                      fontWeight: tab === navigationTab ? 700 : 600,
-                      whiteSpace: "nowrap"
-                    }}
-                  >
-                    {TAB_CONFIG[navigationTab].label}
-                  </Button>
-                ))}
-              </Stack>
-            </Box>
-          </>
+          <Box
+            sx={{
+              overflowX: "visible",
+              pb: 0.2
+            }}
+          >
+            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+              {visibleNavigationTabs.map((navigationTab) => (
+                <Button
+                  key={navigationTab}
+                  size="small"
+                  variant={tab === navigationTab ? "contained" : "outlined"}
+                  color={tab === navigationTab ? "primary" : "inherit"}
+                  startIcon={getTabIcon(navigationTab)}
+                  onClick={() => setTab(navigationTab)}
+                  sx={{
+                    textTransform: "none",
+                    borderRadius: 2,
+                    fontWeight: tab === navigationTab ? 700 : 600,
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {TAB_CONFIG[navigationTab].label}
+                </Button>
+              ))}
+            </Stack>
+          </Box>
         ) : (
           <Box
             sx={{
@@ -2053,6 +2061,10 @@ export function SpaHomeScreen() {
 
       {tab === "mis_asistencias" && canSeeMisAsistencias && user?.id && (
         <SpaTabMisAsistencias userId={user.id} />
+      )}
+
+      {tab === "mis_reuniones_asignadas" && canSeeMisReunionesAsignadas && user?.id && (
+        <SpaTabMisReunionesAsignadas userId={user.id} />
       )}
 
       {tab === "asignacion" && canSeeAssignmentBoard && (

@@ -6,6 +6,7 @@ const tabs = [
   "solicitudes",
   "programas",
   "agenda_libre",
+  "mis_reuniones_asignadas",
   "mis_asistencias",
   "asignacion",
   "manual",

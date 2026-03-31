@@ -4,6 +4,7 @@ export { SpaTabDashboard } from "./SpaTabDashboard";
 export { SpaTabSolicitudes } from "./SpaTabSolicitudes";
 export { SpaTabProgramas } from "./SpaTabProgramas";
 export { SpaTabAgendaLibre } from "./SpaTabAgendaLibre";
+export { SpaTabMisReunionesAsignadas } from "./SpaTabMisReunionesAsignadas";
 export { SpaTabMisAsistencias } from "./SpaTabMisAsistencias";
 export { SpaTabAsignacion } from "./SpaTabAsignacion";
 export { SpaTabManual } from "./SpaTabManual";

@@ -22,6 +22,7 @@ export type PersonHoursMonthSummary = {
   meetingsCount: number;
   totalMinutes: number;
   totalHours: number;
+  overrunAlerts: number;
 };
 
 export type PersonHoursMeeting = {
@@ -33,6 +34,16 @@ export type PersonHoursMeeting = {
   modalidadReunion: string;
   inicioAt: string;
   finAt: string;
+  inicioProgramadoAt: string;
+  finProgramadoAt: string;
+  inicioRealAt: string | null;
+  finRealAt: string | null;
+  minutosProgramados: number;
+  minutosReales: number | null;
+  minutosExtraNoLiquidados: number;
+  requiereRevisionAdminPorExceso: boolean;
+  requiereGrabacion: boolean;
+  huboGrabacion: boolean | null;
   minutos: number;
   estadoEvento: string;
   estadoEjecucion: string;
@@ -64,6 +75,7 @@ export type PersonHoursResponse = {
     totalCompletedMeetings: number;
     totalCompletedMinutes: number;
     totalCompletedHours: number;
+    totalOverrunAlerts: number;
     months: PersonHoursMonthSummary[];
   }>;
 };

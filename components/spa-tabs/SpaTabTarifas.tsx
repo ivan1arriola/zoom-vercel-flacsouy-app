@@ -108,7 +108,8 @@ export function SpaTabTarifas({
       return {
         ...assistant,
         selectedMonthMeetings: monthSummary?.meetingsCount ?? 0,
-        selectedMonthHours: monthSummary?.totalHours ?? 0
+        selectedMonthHours: monthSummary?.totalHours ?? 0,
+        selectedMonthOverrunAlerts: monthSummary?.overrunAlerts ?? 0
       };
     });
   }, [personHours, selectedMonthKey]);
@@ -119,11 +120,16 @@ export function SpaTabTarifas({
   const selectedMonthTotals = useMemo(() => {
     const meetings = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthMeetings, 0);
     const hoursRaw = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthHours, 0);
+    const overrunAlerts = assistantRows.reduce(
+      (acc, assistant) => acc + assistant.selectedMonthOverrunAlerts,
+      0
+    );
     return {
       assistants: assistantRows.length,
       activeAssistants: assistantRows.filter((assistant) => assistant.selectedMonthHours > 0).length,
       meetings,
-      hours: Math.round(hoursRaw * 100) / 100
+      hours: Math.round(hoursRaw * 100) / 100,
+      overrunAlerts
     };
   }, [assistantRows]);
 
@@ -276,6 +282,13 @@ export function SpaTabTarifas({
               <Chip variant="outlined" label={`${selectedMonthTotals.activeAssistants} con horas`} />
               <Chip variant="outlined" label={`${selectedMonthTotals.meetings} reuniones`} />
               <Chip color="success" variant="filled" label={`${selectedMonthTotals.hours} h`} />
+              {selectedMonthTotals.overrunAlerts > 0 ? (
+                <Chip
+                  color="warning"
+                  variant="outlined"
+                  label={`${selectedMonthTotals.overrunAlerts} alerta(s) por exceso >= 60 min`}
+                />
+              ) : null}
             </Stack>
           ) : null}
 
@@ -313,11 +326,22 @@ export function SpaTabTarifas({
                         color={assistant.selectedMonthHours > 0 ? "success" : "default"}
                         label={`${assistant.selectedMonthHours} h`}
                       />
+                      {assistant.selectedMonthOverrunAlerts > 0 ? (
+                        <Chip
+                          size="small"
+                          color="warning"
+                          variant="outlined"
+                          label={`${assistant.selectedMonthOverrunAlerts} alerta(s)`}
+                        />
+                      ) : null}
                     </Stack>
 
                     {assistant.hasAssistantProfile ? (
                       <Typography variant="caption" color="text.secondary">
-                        Acumulado historico: {assistant.totalCompletedHours} h en {assistant.totalCompletedMeetings} reunion(es).
+                        Acumulado historico: {assistant.totalCompletedHours} h en {assistant.totalCompletedMeetings} reunion(es)
+                        {assistant.totalOverrunAlerts > 0
+                          ? `. Alertas por exceso >= 60 min: ${assistant.totalOverrunAlerts}.`
+                          : "."}
                       </Typography>
                     ) : (
                       <Typography variant="caption" color="text.secondary">

@@ -115,6 +115,52 @@ function numberFromUnknown(value: unknown): number | null {
   return null;
 }
 
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function detectRecordingFromZoomPayload(
+  rawPayload: Prisma.JsonValue | null | undefined
+): boolean | null {
+  const root = isUnknownRecord(rawPayload) ? rawPayload : null;
+  if (!root) return null;
+
+  const hasRecording = root.has_recording;
+  if (typeof hasRecording === "boolean") {
+    return hasRecording;
+  }
+
+  const recordingCount = numberFromUnknown(root.recording_count);
+  if (recordingCount !== null) {
+    return recordingCount > 0;
+  }
+
+  if (Array.isArray(root.recording_files)) {
+    return root.recording_files.length > 0;
+  }
+
+  const nestedRecording = isUnknownRecord(root.recording) ? root.recording : null;
+  if (!nestedRecording) return null;
+
+  if (typeof nestedRecording.has_recording === "boolean") {
+    return nestedRecording.has_recording;
+  }
+
+  const nestedCount = numberFromUnknown(nestedRecording.recording_count);
+  if (nestedCount !== null) {
+    return nestedCount > 0;
+  }
+
+  if (Array.isArray(nestedRecording.recording_files)) {
+    return nestedRecording.recording_files.length > 0;
+  }
+  if (Array.isArray(nestedRecording.files)) {
+    return nestedRecording.files.length > 0;
+  }
+
+  return null;
+}
+
 function toDate(value: string, field: string): Date {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) {
@@ -2796,7 +2842,11 @@ export class SalasService {
 
       for (const assignment of executedAssignments) {
         const event = assignment.evento;
-        const minutes =
+        const scheduledMinutes = Math.max(
+          0,
+          Math.round((event.finProgramadoAt.getTime() - event.inicioProgramadoAt.getTime()) / 60000)
+        );
+        const realMinutes =
           event.minutosReales ??
           Math.max(
             0,
@@ -2806,6 +2856,7 @@ export class SalasService {
                 60000
             )
           );
+        const minutes = scheduledMinutes > 0 ? scheduledMinutes : realMinutes;
 
         const isCurrentMonth =
           event.inicioProgramadoAt >= monthStart && event.inicioProgramadoAt < nextMonthStart;
@@ -2922,17 +2973,30 @@ export class SalasService {
       assistantIds.add(assignment.asistenteZoomId);
 
       const minutes =
-        assignment.evento.minutosReales ??
-        Math.max(
-          0,
-          Math.round(
-            (
-              (assignment.evento.finRealAt ?? assignment.evento.finProgramadoAt).getTime() -
-              (assignment.evento.inicioRealAt ?? assignment.evento.inicioProgramadoAt).getTime()
-            ) /
-              60000
-          )
-        );
+        (() => {
+          const scheduledMinutes = Math.max(
+            0,
+            Math.round(
+              (
+                assignment.evento.finProgramadoAt.getTime() -
+                assignment.evento.inicioProgramadoAt.getTime()
+              ) / 60000
+            )
+          );
+          const realMinutes =
+            assignment.evento.minutosReales ??
+            Math.max(
+              0,
+              Math.round(
+                (
+                  (assignment.evento.finRealAt ?? assignment.evento.finProgramadoAt).getTime() -
+                  (assignment.evento.inicioRealAt ?? assignment.evento.inicioProgramadoAt).getTime()
+                ) /
+                  60000
+              )
+            );
+          return scheduledMinutes > 0 ? scheduledMinutes : realMinutes;
+        })();
       completedMinutes += minutes;
 
       if (assignment.evento.modalidadReunion === ModalidadReunion.VIRTUAL) {
@@ -6512,25 +6576,55 @@ export class SalasService {
         timezone: string;
         zoomMeetingId: string | null;
         zoomJoinUrl: string | null;
+        zoomPayloadUltimo: Prisma.JsonValue | null;
         solicitud: {
           titulo: string;
           programaNombre: string | null;
+          requiereGrabacion: boolean;
         };
       };
     }) => {
       const event = assignment.evento;
-      const start = event.inicioRealAt ?? event.inicioProgramadoAt;
-      const end = event.finRealAt ?? event.finProgramadoAt;
-      const durationMinutes =
-        event.minutosReales ??
-        Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
+      const scheduledStart = event.inicioProgramadoAt;
+      const scheduledEnd = event.finProgramadoAt;
+      const realStart = event.inicioRealAt;
+      const realEnd = event.finRealAt;
+      const completionReferenceEnd = realEnd ?? scheduledEnd;
+
+      const scheduledDurationMinutes = Math.max(
+        1,
+        Math.floor((scheduledEnd.getTime() - scheduledStart.getTime()) / 60000)
+      );
+      const durationByRealRange =
+        realStart && realEnd
+          ? Math.max(1, Math.floor((realEnd.getTime() - realStart.getTime()) / 60000))
+          : null;
+      const rawRealDuration = event.minutosReales ?? durationByRealRange;
+      const realDurationMinutes =
+        rawRealDuration === null || !Number.isFinite(rawRealDuration) || rawRealDuration <= 0
+          ? null
+          : Math.max(1, Math.floor(rawRealDuration));
+      const billableDurationMinutes = scheduledDurationMinutes;
+      const extraNonBillableMinutes =
+        realDurationMinutes === null
+          ? 0
+          : Math.max(0, realDurationMinutes - scheduledDurationMinutes);
+      const requiresAdminReviewByOverrun = extraNonBillableMinutes >= 60;
+      const recordingRequested = Boolean(event.solicitud.requiereGrabacion);
+      const recordingDetected = detectRecordingFromZoomPayload(event.zoomPayloadUltimo);
+      const hadRecording =
+        recordingDetected !== null
+          ? recordingDetected
+          : recordingRequested
+            ? null
+            : false;
 
       const isCompleted =
         event.estadoEvento !== EstadoEventoZoom.CANCELADO &&
         (
           event.estadoEjecucion === EstadoEjecucionEvento.EJECUTADO ||
           (
-            end <= now &&
+            completionReferenceEnd <= now &&
             event.estadoEjecucion !== EstadoEjecucionEvento.NO_REALIZADO
           )
         );
@@ -6542,9 +6636,19 @@ export class SalasService {
         titulo: event.solicitud.titulo,
         programaNombre: event.solicitud.programaNombre ?? null,
         modalidadReunion: event.modalidadReunion,
-        inicioAt: start.toISOString(),
-        finAt: end.toISOString(),
-        minutos: durationMinutes,
+        inicioAt: scheduledStart.toISOString(),
+        finAt: scheduledEnd.toISOString(),
+        inicioProgramadoAt: scheduledStart.toISOString(),
+        finProgramadoAt: scheduledEnd.toISOString(),
+        inicioRealAt: realStart ? realStart.toISOString() : null,
+        finRealAt: realEnd ? realEnd.toISOString() : null,
+        minutosProgramados: scheduledDurationMinutes,
+        minutosReales: realDurationMinutes,
+        minutosExtraNoLiquidados: extraNonBillableMinutes,
+        requiereRevisionAdminPorExceso: requiresAdminReviewByOverrun,
+        requiereGrabacion: recordingRequested,
+        huboGrabacion: hadRecording,
+        minutos: billableDurationMinutes,
         estadoEvento: event.estadoEvento,
         estadoEjecucion: event.estadoEjecucion,
         estadoAsignacion: assignment.estadoAsignacion,
@@ -6556,7 +6660,12 @@ export class SalasService {
     };
 
     const buildMonthSummaries = (
-      completedMeetings: Array<{ inicioAt: string; minutos: number; timezone: string }>
+      completedMeetings: Array<{
+        inicioAt: string;
+        minutos: number;
+        timezone: string;
+        requiereRevisionAdminPorExceso: boolean;
+      }>
     ) => {
       const monthAccumulator = new Map<string, {
         monthKey: string;
@@ -6564,6 +6673,7 @@ export class SalasService {
         month: number;
         meetingsCount: number;
         totalMinutes: number;
+        overrunAlerts: number;
       }>();
 
       for (const meeting of completedMeetings) {
@@ -6576,10 +6686,14 @@ export class SalasService {
           year,
           month,
           meetingsCount: 0,
-          totalMinutes: 0
+          totalMinutes: 0,
+          overrunAlerts: 0
         };
         current.meetingsCount += 1;
         current.totalMinutes += meeting.minutos;
+        if (meeting.requiereRevisionAdminPorExceso) {
+          current.overrunAlerts += 1;
+        }
         monthAccumulator.set(monthKey, current);
       }
 
@@ -6601,6 +6715,16 @@ export class SalasService {
       modalidadReunion: ModalidadReunion;
       inicioAt: string;
       finAt: string;
+      inicioProgramadoAt: string;
+      finProgramadoAt: string;
+      inicioRealAt: string | null;
+      finRealAt: string | null;
+      minutosProgramados: number;
+      minutosReales: number | null;
+      minutosExtraNoLiquidados: number;
+      requiereRevisionAdminPorExceso: boolean;
+      requiereGrabacion: boolean;
+      huboGrabacion: boolean | null;
       minutos: number;
       estadoEvento: EstadoEventoZoom;
       estadoEjecucion: EstadoEjecucionEvento;
@@ -6636,10 +6760,12 @@ export class SalasService {
               timezone: true,
               zoomMeetingId: true,
               zoomJoinUrl: true,
+              zoomPayloadUltimo: true,
               solicitud: {
                 select: {
                   titulo: true,
-                  programaNombre: true
+                  programaNombre: true,
+                  requiereGrabacion: true
                 }
               }
             }
@@ -6692,10 +6818,12 @@ export class SalasService {
             timezone: true,
             zoomMeetingId: true,
             zoomJoinUrl: true,
+            zoomPayloadUltimo: true,
             solicitud: {
               select: {
                 titulo: true,
-                programaNombre: true
+                programaNombre: true,
+                requiereGrabacion: true
               }
             }
           }
@@ -6718,6 +6846,7 @@ export class SalasService {
       meetingsCount: number;
       totalMinutes: number;
       totalHours: number;
+      overrunAlerts: number;
     }>>();
 
     for (const item of completedMeetingsAll) {
@@ -6734,6 +6863,7 @@ export class SalasService {
         meetingsCount: number;
         totalMinutes: number;
         totalHours: number;
+        overrunAlerts: number;
       }>();
       const current = userMonths.get(monthKey) ?? {
         monthKey,
@@ -6741,11 +6871,15 @@ export class SalasService {
         month,
         meetingsCount: 0,
         totalMinutes: 0,
-        totalHours: 0
+        totalHours: 0,
+        overrunAlerts: 0
       };
       current.meetingsCount += 1;
       current.totalMinutes += item.meeting.minutos;
       current.totalHours = Math.round((current.totalMinutes / 60) * 100) / 100;
+      if (item.meeting.requiereRevisionAdminPorExceso) {
+        current.overrunAlerts += 1;
+      }
       userMonths.set(monthKey, current);
       monthMapByUser.set(item.userId, userMonths);
     }
@@ -6757,6 +6891,7 @@ export class SalasService {
           .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
         const totalCompletedMinutes = months.reduce((acc, month) => acc + month.totalMinutes, 0);
         const totalCompletedMeetings = months.reduce((acc, month) => acc + month.meetingsCount, 0);
+        const totalOverrunAlerts = months.reduce((acc, month) => acc + month.overrunAlerts, 0);
         const totalCompletedHours = Math.round((totalCompletedMinutes / 60) * 100) / 100;
         return {
           userId: person.userId,
@@ -6767,6 +6902,7 @@ export class SalasService {
           totalCompletedMeetings,
           totalCompletedMinutes,
           totalCompletedHours,
+          totalOverrunAlerts,
           months
         };
       })
