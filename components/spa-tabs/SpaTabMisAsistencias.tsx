@@ -8,7 +8,10 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
+  LinearProgress,
   MenuItem,
+  Skeleton,
   Stack,
   TextField,
   Typography
@@ -43,6 +46,13 @@ function getMonthKeyFromIso(value: string): string {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
+}
+
+function formatMinutesAsHHMM(totalMinutes: number): string {
+  const normalizedMinutes = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(normalizedMinutes / 60);
+  const minutes = normalizedMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
@@ -96,11 +106,23 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
     return meetings.filter((meeting) => getMonthKeyFromIso(meeting.inicioAt) === selectedMonthKey);
   }, [meetings, selectedMonthKey]);
 
-  const totalMinutes = useMemo(
-    () => filteredMeetings.reduce((acc, meeting) => acc + meeting.minutos, 0),
+  const totalMinutesVirtual = useMemo(
+    () =>
+      filteredMeetings.reduce(
+        (acc, meeting) => acc + (meeting.modalidadReunion === "VIRTUAL" ? meeting.minutos : 0),
+        0
+      ),
     [filteredMeetings]
   );
-  const totalHours = useMemo(() => Math.round((totalMinutes / 60) * 100) / 100, [totalMinutes]);
+  const totalMinutesHibrida = useMemo(
+    () =>
+      filteredMeetings.reduce(
+        (acc, meeting) => acc + (meeting.modalidadReunion === "HIBRIDA" ? meeting.minutos : 0),
+        0
+      ),
+    [filteredMeetings]
+  );
+  const isInitialLoading = isLoading && meetings.length === 0;
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -135,96 +157,234 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
                 </MenuItem>
               ))}
             </TextField>
-            <Button variant="outlined" onClick={() => void refresh()} disabled={isLoading}>
-              {isLoading ? "Actualizando..." : "Actualizar"}
-            </Button>
+            <Stack direction="row" spacing={0.8} alignItems="center">
+              <Button variant="outlined" onClick={() => void refresh()} disabled={isLoading}>
+                Actualizar
+              </Button>
+              {isLoading ? <CircularProgress size={18} /> : null}
+            </Stack>
           </Stack>
         </Stack>
 
         {error ? <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert> : null}
 
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
-          <Chip
-            variant="outlined"
-            label={selectedMonthKey ? formatMonthKey(selectedMonthKey) : "Sin mes seleccionado"}
-          />
-          <Chip variant="outlined" label={`${filteredMeetings.length} reunion(es)`} />
-          <Chip color="success" variant="filled" label={`${totalHours} h`} />
-        </Stack>
+        {isLoading ? (
+          <Box sx={{ mb: 1.5 }}>
+            <LinearProgress
+              sx={{
+                height: 8,
+                borderRadius: 999,
+                mb: 0.6
+              }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Cargando datos de tus asistencias...
+            </Typography>
+          </Box>
+        ) : null}
 
-        {!isLoading && meetings.length === 0 ? (
+        {isInitialLoading ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
+            <Skeleton variant="rounded" width={170} height={30} />
+            <Skeleton variant="rounded" width={120} height={30} />
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
+            <Chip
+              variant="outlined"
+              label={selectedMonthKey ? formatMonthKey(selectedMonthKey) : "Sin mes seleccionado"}
+            />
+            <Chip variant="outlined" label={`${filteredMeetings.length} reunion(es)`} />
+          </Stack>
+        )}
+
+        {isInitialLoading ? (
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+              gap: 1.2,
+              mb: 1.5
+            }}
+          >
+            <Skeleton variant="rounded" height={142} />
+            <Skeleton variant="rounded" height={142} />
+          </Box>
+        ) : (
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+              gap: 1.2,
+              mb: 1.5
+            }}
+          >
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 2.4,
+                minHeight: { xs: 132, md: 142 },
+                borderColor: "success.light",
+                background: "linear-gradient(135deg, rgba(25,118,56,0.05) 0%, rgba(46,125,50,0.10) 100%)"
+              }}
+            >
+              <CardContent sx={{ p: 1.8 }}>
+                <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                  Virtual del mes
+                </Typography>
+                <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>
+                  {formatMinutesAsHHMM(totalMinutesVirtual)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Formato HH:MM
+                </Typography>
+              </CardContent>
+            </Card>
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 2.4,
+                minHeight: { xs: 132, md: 142 },
+                borderColor: "info.light",
+                background: "linear-gradient(135deg, rgba(2,136,209,0.05) 0%, rgba(2,136,209,0.11) 100%)"
+              }}
+            >
+              <CardContent sx={{ p: 1.8 }}>
+                <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                  Hibrida del mes
+                </Typography>
+                <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>
+                  {formatMinutesAsHHMM(totalMinutesHibrida)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Formato HH:MM
+                </Typography>
+              </CardContent>
+            </Card>
+          </Box>
+        )}
+
+        {!isInitialLoading && !isLoading && meetings.length === 0 ? (
           <Alert severity="info">Todavia no tienes reuniones pasadas asistidas.</Alert>
         ) : null}
 
-        {!isLoading && meetings.length > 0 && filteredMeetings.length === 0 ? (
+        {!isInitialLoading && !isLoading && meetings.length > 0 && filteredMeetings.length === 0 ? (
           <Alert severity="info">No hay reuniones para el mes seleccionado.</Alert>
         ) : null}
 
         <Stack spacing={1}>
-          {filteredMeetings.map((meeting) => (
-            <Card key={meeting.assignmentId} variant="outlined" sx={{ borderRadius: 2 }}>
-              <CardContent sx={{ p: 1.5 }}>
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={1}
-                  alignItems={{ xs: "flex-start", md: "center" }}
-                  justifyContent="space-between"
-                >
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                      {meeting.titulo}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.programaNombre || "Sin programa"}
-                    </Typography>
-                  </Box>
-                  <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                    <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
-                    <Chip size="small" variant="outlined" label={`${meeting.minutos} min`} />
-                    {meeting.zoomJoinUrl ? (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="secondary"
-                        href={meeting.zoomJoinUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Abrir
-                      </Button>
-                    ) : null}
-                  </Stack>
-                </Stack>
+          {isInitialLoading
+            ? Array.from({ length: 3 }).map((_, index) => (
+                <Card key={`loading-${index}`} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      spacing={1}
+                      alignItems={{ xs: "flex-start", md: "center" }}
+                      justifyContent="space-between"
+                    >
+                      <Box sx={{ width: "100%" }}>
+                        <Skeleton variant="text" width="65%" height={34} />
+                        <Skeleton variant="text" width="42%" height={24} />
+                      </Box>
+                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                        <Skeleton variant="rounded" width={90} height={28} />
+                        <Skeleton variant="rounded" width={90} height={28} />
+                        <Skeleton variant="rounded" width={70} height={28} />
+                      </Stack>
+                    </Stack>
 
-                <Box
-                  sx={{
-                    mt: 1,
-                    display: "grid",
-                    gridTemplateColumns: {
-                      xs: "1fr",
-                      md: "repeat(3, minmax(0, 1fr))"
-                    },
-                    gap: 1
-                  }}
-                >
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Inicio</Typography>
-                    <Typography variant="body2">{formatDateTime(meeting.inicioAt)}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Fin</Typography>
-                    <Typography variant="body2">{formatDateTime(meeting.finAt)}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
-                    <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                      {meeting.zoomMeetingId || "-"}
-                    </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          ))}
+                    <Box
+                      sx={{
+                        mt: 1,
+                        display: "grid",
+                        gridTemplateColumns: {
+                          xs: "1fr",
+                          md: "repeat(3, minmax(0, 1fr))"
+                        },
+                        gap: 1
+                      }}
+                    >
+                      <Box>
+                        <Skeleton variant="text" width="35%" height={20} />
+                        <Skeleton variant="text" width="70%" height={24} />
+                      </Box>
+                      <Box>
+                        <Skeleton variant="text" width="25%" height={20} />
+                        <Skeleton variant="text" width="70%" height={24} />
+                      </Box>
+                      <Box>
+                        <Skeleton variant="text" width="35%" height={20} />
+                        <Skeleton variant="text" width="55%" height={24} />
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))
+            : filteredMeetings.map((meeting) => (
+                <Card key={meeting.assignmentId} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      spacing={1}
+                      alignItems={{ xs: "flex-start", md: "center" }}
+                      justifyContent="space-between"
+                    >
+                      <Box>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                          {meeting.titulo}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {meeting.programaNombre || "Sin programa"}
+                        </Typography>
+                      </Box>
+                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                        <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
+                        <Chip size="small" variant="outlined" label={`${meeting.minutos} min`} />
+                        {meeting.zoomJoinUrl ? (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="secondary"
+                            href={meeting.zoomJoinUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Abrir
+                          </Button>
+                        ) : null}
+                      </Stack>
+                    </Stack>
+
+                    <Box
+                      sx={{
+                        mt: 1,
+                        display: "grid",
+                        gridTemplateColumns: {
+                          xs: "1fr",
+                          md: "repeat(3, minmax(0, 1fr))"
+                        },
+                        gap: 1
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Inicio</Typography>
+                        <Typography variant="body2">{formatDateTime(meeting.inicioAt)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Fin</Typography>
+                        <Typography variant="body2">{formatDateTime(meeting.finAt)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                          {meeting.zoomMeetingId || "-"}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))}
         </Stack>
       </CardContent>
     </Card>
