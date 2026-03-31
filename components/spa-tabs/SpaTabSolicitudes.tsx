@@ -11,6 +11,7 @@ import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSe
 import RestoreFromTrashOutlinedIcon from "@mui/icons-material/RestoreFromTrashOutlined";
 import MailOutlineOutlinedIcon from "@mui/icons-material/MailOutlineOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import SupportAgentOutlinedIcon from "@mui/icons-material/SupportAgentOutlined";
 import {
   Box,
   Button,
@@ -180,6 +181,60 @@ function minutesToTime(value: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+type SpecificDateDetail = {
+  horaInicio: string;
+  horaFin: string;
+  duracionMinutos?: string;
+};
+
+type SpecificDateDetailMap = Record<string, SpecificDateDetail>;
+
+function parseSpecificDateDetails(rawInput: string): SpecificDateDetailMap {
+  if (!rawInput.trim()) return {};
+  try {
+    const parsed = JSON.parse(rawInput) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const result: SpecificDateDetailMap = {};
+    for (const [dateIso, value] of Object.entries(parsed)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) continue;
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const horaInicio =
+        typeof (value as { horaInicio?: unknown }).horaInicio === "string"
+          ? (value as { horaInicio: string }).horaInicio.trim()
+          : "";
+      const horaFin =
+        typeof (value as { horaFin?: unknown }).horaFin === "string"
+          ? (value as { horaFin: string }).horaFin.trim()
+          : "";
+      const duracionMinutos =
+        typeof (value as { duracionMinutos?: unknown }).duracionMinutos === "string"
+          ? (value as { duracionMinutos: string }).duracionMinutos.trim()
+          : "";
+      if (!horaInicio) continue;
+      result[dateIso] = {
+        horaInicio,
+        horaFin,
+        duracionMinutos: duracionMinutos || undefined
+      };
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function serializeSpecificDateDetails(details: SpecificDateDetailMap): string {
+  const orderedEntries = Object.entries(details)
+    .filter(([dateIso]) => /^\d{4}-\d{2}-\d{2}$/.test(dateIso))
+    .sort((left, right) => left[0].localeCompare(right[0], "es"));
+
+  const normalized: Record<string, SpecificDateDetail> = {};
+  for (const [dateIso, value] of orderedEntries) {
+    normalized[dateIso] = value;
+  }
+  return JSON.stringify(normalized);
+}
+
 function normalizeEmailInputAsLines(value: string): string {
   return value
     .replace(/\r\n/g, "\n")
@@ -269,6 +324,10 @@ export function SpaTabSolicitudes({
   } | null>(null);
   const [addInstanceStartLocal, setAddInstanceStartLocal] = useState("");
   const [addInstanceEndLocal, setAddInstanceEndLocal] = useState("");
+  const specificDateDetails = useMemo(
+    () => parseSpecificDateDetails(form.fechasEspecificasDetalle),
+    [form.fechasEspecificasDetalle]
+  );
   const linkedEmailOptions = useMemo(
     () =>
       Array.from(
@@ -280,6 +339,38 @@ export function SpaTabSolicitudes({
       ),
     [docenteLinkedEmailOptions]
   );
+
+  function getDefaultSpecificStartTime(): string {
+    if (parseTimeToMinutes(form.horaInicioRecurrente) !== null) {
+      return form.horaInicioRecurrente;
+    }
+    return "09:00";
+  }
+
+  function getDefaultSpecificEndTime(startTime: string): string {
+    const startMinutes = parseTimeToMinutes(startTime);
+    if (startMinutes === null) return "11:00";
+    const recurringEndMinutes = parseTimeToMinutes(form.horaFinRecurrente);
+    if (recurringEndMinutes !== null && recurringEndMinutes > startMinutes) {
+      return form.horaFinRecurrente;
+    }
+    const recurringDuration = parseDurationToMinutes(form.duracionRecurrente);
+    if (recurringDuration !== null) {
+      const resolved = minutesToTime(startMinutes + recurringDuration);
+      if (resolved) return resolved;
+    }
+    const fallback = minutesToTime(startMinutes + 120);
+    return fallback || "11:00";
+  }
+
+  function buildSpecificDateDetailFallback(): SpecificDateDetail {
+    const horaInicio = getDefaultSpecificStartTime();
+    return {
+      horaInicio,
+      horaFin: getDefaultSpecificEndTime(horaInicio),
+      duracionMinutos: form.duracionRecurrente.trim() || undefined
+    };
+  }
 
   function extractEmailCandidate(raw?: string | null): string {
     const normalized = (raw ?? "").trim().toLowerCase();
@@ -451,6 +542,11 @@ export function SpaTabSolicitudes({
   function persistSpecificDates(dates: string[]) {
     const sortedUnique = [...new Set(dates)].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
     updateForm("fechasEspecificas", sortedUnique.join("\n"));
+    const nextDetails: SpecificDateDetailMap = {};
+    for (const dateIso of sortedUnique) {
+      nextDetails[dateIso] = specificDateDetails[dateIso] ?? buildSpecificDateDetailFallback();
+    }
+    updateForm("fechasEspecificasDetalle", serializeSpecificDateDetails(nextDetails));
   }
 
   function handleAddSpecificDate() {
@@ -464,6 +560,40 @@ export function SpaTabSolicitudes({
 
   function handleRemoveSpecificDate(dateIso: string) {
     persistSpecificDates(parseSpecificDatesFromForm().filter((item) => item !== dateIso));
+  }
+
+  function setSpecificDateTimes(dateIso: string, nextValues: Partial<SpecificDateDetail>) {
+    const current = specificDateDetails[dateIso] ?? buildSpecificDateDetailFallback();
+    const next: SpecificDateDetail = {
+      ...current,
+      ...nextValues
+    };
+    const nextDetails: SpecificDateDetailMap = {
+      ...specificDateDetails,
+      [dateIso]: next
+    };
+    updateForm("fechasEspecificasDetalle", serializeSpecificDateDetails(nextDetails));
+  }
+
+  function handleSpecificDateStartChange(dateIso: string, nextStart: string) {
+    const current = specificDateDetails[dateIso] ?? buildSpecificDateDetailFallback();
+    const previousDuration = syncDurationFromTimes(current.horaInicio, current.horaFin);
+    const resolvedEnd =
+      previousDuration && syncEndFromDuration(nextStart, previousDuration)
+        ? syncEndFromDuration(nextStart, previousDuration)
+        : getDefaultSpecificEndTime(nextStart);
+    setSpecificDateTimes(dateIso, {
+      horaInicio: nextStart,
+      horaFin: resolvedEnd
+    });
+  }
+
+  function handleSpecificDateEndChange(dateIso: string, nextEnd: string) {
+    const current = specificDateDetails[dateIso] ?? buildSpecificDateDetailFallback();
+    setSpecificDateTimes(dateIso, {
+      horaFin: nextEnd,
+      duracionMinutos: syncDurationFromTimes(current.horaInicio, nextEnd) || undefined
+    });
   }
 
   const recurrencePreview = useMemo(() => {
@@ -602,10 +732,30 @@ export function SpaTabSolicitudes({
     form.fechasEspecificas
   ]);
 
+  const specificDatesScheduleError = useMemo(() => {
+    if (form.unaOVarias !== "VARIAS" || form.variasModo !== "FECHAS_ESPECIFICAS") return "";
+    if (specificDatesPreview.dates.length === 0) return "";
+    for (const dateIso of specificDatesPreview.dates) {
+      const detail = specificDateDetails[dateIso] ?? buildSpecificDateDetailFallback();
+      const startMinutes = parseTimeToMinutes(detail.horaInicio);
+      if (startMinutes === null) {
+        return `Horario invalido en ${dateIso}: falta una hora de comienzo valida.`;
+      }
+      const endMinutes = parseTimeToMinutes(detail.horaFin);
+      if (endMinutes === null) {
+        return `Horario invalido en ${dateIso}: falta una hora de fin valida.`;
+      }
+      if (endMinutes <= startMinutes) {
+        return `Horario invalido en ${dateIso}: la hora de fin debe ser posterior al inicio.`;
+      }
+    }
+    return "";
+  }, [form.unaOVarias, form.variasModo, specificDatesPreview.dates, specificDateDetails, form.horaInicioRecurrente, form.horaFinRecurrente, form.duracionRecurrente]);
+
   const isSpecificDatesModeInvalid =
     form.unaOVarias === "VARIAS" &&
     form.variasModo === "FECHAS_ESPECIFICAS" &&
-    (Boolean(specificDatesPreview.error) || specificDatesPreview.dates.length < 2);
+    (Boolean(specificDatesPreview.error) || Boolean(specificDatesScheduleError) || specificDatesPreview.dates.length < 2);
 
   function resolveSolicitudStatusCode(item: Solicitud): string {
     return item.estadoSolicitudVista ?? item.estadoSolicitud;
@@ -786,6 +936,7 @@ export function SpaTabSolicitudes({
   function mapInstanciaAsistencia(instance: NonNullable<Solicitud["zoomInstances"]>[number]): {
     label: string;
     color: "default" | "success" | "warning" | "error" | "info";
+    variant: "filled" | "outlined";
   } {
     const monitorLabel = instance.monitorNombre?.trim() || instance.monitorEmail?.trim() || "";
     const requiresAssistance =
@@ -793,22 +944,22 @@ export function SpaTabSolicitudes({
       instance.estadoCobertura !== "NO_REQUIERE";
 
     if (!requiresAssistance) {
-      return { label: "NO REQUIERE ASISTENCIA", color: "default" };
+      return { label: "Sin asistencia Zoom", color: "default", variant: "outlined" };
     }
 
     if (monitorLabel) {
-      return { label: `ASISTENCIA: ${monitorLabel}`, color: "success" };
+      return { label: `Asistencia Zoom: ${monitorLabel}`, color: "info", variant: "outlined" };
     }
 
     if (instance.estadoCobertura === "CANCELADO") {
-      return { label: "ASISTENCIA CANCELADA", color: "default" };
+      return { label: "Asistencia cancelada", color: "default", variant: "outlined" };
     }
 
     if (instance.estadoCobertura === "ASIGNADO" || instance.estadoCobertura === "CONFIRMADO") {
-      return { label: "ASISTENCIA ASIGNADA", color: "info" };
+      return { label: "Asistencia asignada", color: "info", variant: "outlined" };
     }
 
-    return { label: "PENDIENTE DE ASISTENCIA", color: "warning" };
+    return { label: "Pendiente de asistencia", color: "warning", variant: "filled" };
   }
 
   function renderInstanceList(
@@ -873,7 +1024,22 @@ export function SpaTabSolicitudes({
                   </Typography>
                   <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                     <Chip size="small" color={status.color} label={status.label} />
-                    <Chip size="small" color={asistencia.color} label={asistencia.label} />
+                    <Chip
+                      size="small"
+                      color={asistencia.color}
+                      label={asistencia.label}
+                      variant={asistencia.variant}
+                      icon={<SupportAgentOutlinedIcon fontSize="small" />}
+                      sx={
+                        asistencia.color === "info"
+                          ? {
+                              borderColor: "rgba(2, 136, 209, 0.35)",
+                              backgroundColor:
+                                asistencia.variant === "outlined" ? "rgba(2, 136, 209, 0.08)" : undefined
+                            }
+                          : undefined
+                      }
+                    />
                     {instance.occurrenceId ? (
                       <Chip size="small" variant="outlined" label={`occurrence_id ${instance.occurrenceId}`} />
                     ) : null}
@@ -1269,8 +1435,8 @@ export function SpaTabSolicitudes({
                 value={form.variasModo}
                 onChange={(val) => updateForm("variasModo", val as SolicitudFormState["variasModo"])}
                 options={[
-                  { value: "RECURRENCIA_ZOOM", label: "Recurrencia Zoom" },
-                  { value: "FECHAS_ESPECIFICAS", label: "Fechas puntuales" }
+                  { value: "FECHAS_ESPECIFICAS", label: "Día por día" },
+                  { value: "RECURRENCIA_ZOOM", label: "Recurrencia Zoom" }
                 ]}
               />
 
@@ -1282,9 +1448,9 @@ export function SpaTabSolicitudes({
                 }}
               >
                 <TextField
-                  label="Hora de comienzo"
+                  label={form.variasModo === "FECHAS_ESPECIFICAS" ? "Hora de comienzo (por defecto)" : "Hora de comienzo"}
                   type="time"
-                  required
+                  required={form.variasModo === "RECURRENCIA_ZOOM"}
                   fullWidth
                   InputLabelProps={{ shrink: true }}
                   value={form.horaInicioRecurrente}
@@ -1299,18 +1465,18 @@ export function SpaTabSolicitudes({
                 }}
               >
                 <TextField
-                  label="Hora de fin"
+                  label={form.variasModo === "FECHAS_ESPECIFICAS" ? "Hora de fin (por defecto)" : "Hora de fin"}
                   type="time"
-                  required={!form.duracionRecurrente}
+                  required={form.variasModo === "RECURRENCIA_ZOOM" && !form.duracionRecurrente}
                   fullWidth
                   InputLabelProps={{ shrink: true }}
                   value={form.horaFinRecurrente}
                   onChange={(e) => handleRecurringEndChange(e.target.value)}
                 />
                 <TextField
-                  label="Duracion (minutos)"
+                  label={form.variasModo === "FECHAS_ESPECIFICAS" ? "Duracion (minutos, por defecto)" : "Duracion (minutos)"}
                   type="number"
-                  required={!form.horaFinRecurrente}
+                  required={form.variasModo === "RECURRENCIA_ZOOM" && !form.horaFinRecurrente}
                   fullWidth
                   inputProps={{ min: 15, step: 15 }}
                   value={form.duracionRecurrente}
@@ -1538,7 +1704,7 @@ export function SpaTabSolicitudes({
                   </Stack>
 
                   <Typography variant="body2" color="text.secondary">
-                    Agrega las fechas una por una con el boton +.
+                    Agrega las fechas una por una con el boton + y ajusta horario en cada fecha.
                   </Typography>
 
                   <Paper
@@ -1563,15 +1729,31 @@ export function SpaTabSolicitudes({
                               sx={{
                                 px: 1,
                                 py: 0.8,
-                                display: "flex",
+                                display: "grid",
+                                gridTemplateColumns: { xs: "1fr", md: "minmax(180px, 1fr) minmax(140px, 180px) minmax(140px, 180px) auto" },
                                 alignItems: "center",
-                                justifyContent: "space-between",
                                 gap: 1
                               }}
                             >
-                              <Typography variant="body2">
-                                {index + 1}. {formatDateTime(`${dateIso}T${form.horaInicioRecurrente || "00:00"}`)}
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                {index + 1}. {formatDateTime(`${dateIso}T00:00`)}
                               </Typography>
+                              <TextField
+                                type="time"
+                                size="small"
+                                label="Inicio"
+                                InputLabelProps={{ shrink: true }}
+                                value={(specificDateDetails[dateIso] ?? buildSpecificDateDetailFallback()).horaInicio}
+                                onChange={(event) => handleSpecificDateStartChange(dateIso, event.target.value)}
+                              />
+                              <TextField
+                                type="time"
+                                size="small"
+                                label="Fin"
+                                InputLabelProps={{ shrink: true }}
+                                value={(specificDateDetails[dateIso] ?? buildSpecificDateDetailFallback()).horaFin}
+                                onChange={(event) => handleSpecificDateEndChange(dateIso, event.target.value)}
+                              />
                               <Button
                                 type="button"
                                 size="small"
@@ -1584,6 +1766,11 @@ export function SpaTabSolicitudes({
                             </Paper>
                           ))}
                         </Box>
+                        {specificDatesScheduleError ? (
+                          <Typography variant="body2" color="error.main" sx={{ mt: 0.8 }}>
+                            {specificDatesScheduleError}
+                          </Typography>
+                        ) : null}
                         {specificDatesPreview.dates.length < 2 ? (
                           <Typography variant="body2" color="warning.main" sx={{ mt: 0.8 }}>
                             Agrega al menos 2 fechas para enviar la solicitud.
@@ -1849,6 +2036,15 @@ export function SpaTabSolicitudes({
                     : assignedAssistantEmails.length > 1
                       ? "Hay mas de un asistente asignado. Usa Enviar recordatorio para elegir destinatario."
                       : "Primero debes asignar una persona de asistencia Zoom.";
+                  const showAddInstanceAction = canAddInstances && !isSolicitudCancelled;
+                  const showEditAssistanceAction =
+                    canEditAssistance &&
+                    !solicitudRequiresAssistance &&
+                    !isSolicitudCancelled &&
+                    hasEligibleInstanceForAssistance;
+                  const showReminderAction = canSendReminder;
+                  const showAssistantAccessAction = solicitudRequiresAssistance && canSendReminder;
+                  const hasPrimaryActions = Boolean(joinUrl) || showAddInstanceAction || showEditAssistanceAction;
 
                   return (
                     <Paper
@@ -1879,90 +2075,112 @@ export function SpaTabSolicitudes({
                               <Chip size="small" variant="outlined" label={item.modalidadReunion} />
                             </Stack>
                           </Box>
-                          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                            {joinUrl ? (
-                              <Button
-                                size="small"
-                                variant="contained"
-                                color="secondary"
-                                href={joinUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                endIcon={<LaunchIcon fontSize="small" />}
+                          <Stack
+                            spacing={0.8}
+                            sx={{
+                              width: { xs: "100%", md: "auto" },
+                              alignItems: { xs: "stretch", md: "flex-end" }
+                            }}
+                          >
+                            {hasPrimaryActions ? (
+                              <Stack
+                                direction="row"
+                                spacing={0.8}
+                                useFlexGap
+                                flexWrap="wrap"
+                                justifyContent={{ xs: "flex-start", md: "flex-end" }}
                               >
-                                Abrir
-                              </Button>
+                                {joinUrl ? (
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    color="secondary"
+                                    href={joinUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    endIcon={<LaunchIcon fontSize="small" />}
+                                  >
+                                    Abrir
+                                  </Button>
+                                ) : null}
+                                {showAddInstanceAction ? (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    startIcon={<AddIcon fontSize="small" />}
+                                    onClick={() => openAddInstanceDialog(item, sortedInstances)}
+                                    disabled={Boolean(addingInstanceSolicitudId)}
+                                  >
+                                    {addingInstanceSolicitudId === item.id ? "Guardando..." : "Agregar instancia"}
+                                  </Button>
+                                ) : null}
+                                {showEditAssistanceAction ? (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    startIcon={<EditOutlinedIcon fontSize="small" />}
+                                    onClick={() => onEnableAssistance({ solicitudId: item.id, titulo: item.titulo })}
+                                    disabled={Boolean(updatingAssistanceSolicitudId)}
+                                  >
+                                    {updatingAssistanceSolicitudId === item.id
+                                      ? "Guardando..."
+                                      : "Editar asistencia"}
+                                  </Button>
+                                ) : null}
+                              </Stack>
                             ) : null}
-                            {canAddInstances && !isSolicitudCancelled ? (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                startIcon={<AddIcon fontSize="small" />}
-                                onClick={() => openAddInstanceDialog(item, sortedInstances)}
-                                disabled={Boolean(addingInstanceSolicitudId)}
-                              >
-                                {addingInstanceSolicitudId === item.id ? "Guardando..." : "Agregar instancia"}
-                              </Button>
-                            ) : null}
-                            {canEditAssistance &&
-                            !solicitudRequiresAssistance &&
-                            !isSolicitudCancelled &&
-                            hasEligibleInstanceForAssistance ? (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                startIcon={<EditOutlinedIcon fontSize="small" />}
-                                onClick={() => onEnableAssistance({ solicitudId: item.id, titulo: item.titulo })}
-                                disabled={Boolean(updatingAssistanceSolicitudId)}
-                              >
-                                {updatingAssistanceSolicitudId === item.id
-                                  ? "Guardando..."
-                                  : "Editar asistencia"}
-                              </Button>
-                            ) : null}
-                            {canSendReminder ? (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                startIcon={<MailOutlineOutlinedIcon fontSize="small" />}
-                                onClick={() => openReminderDialog(item)}
-                                disabled={Boolean(sendingReminderSolicitudId)}
-                              >
-                                {sendingReminderSolicitudId === item.id ? "Enviando..." : "Enviar recordatorio"}
-                              </Button>
-                            ) : null}
-                            {solicitudRequiresAssistance && canSendReminder ? (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                color="secondary"
-                                startIcon={<MailOutlineOutlinedIcon fontSize="small" />}
-                                onClick={() => {
-                                  if (!assignedAssistantEmail) return;
-                                  void onSendReminder({
-                                    solicitudId: item.id,
-                                    toEmail: assignedAssistantEmail,
-                                    mensaje:
-                                      "Este correo incluye todos los datos de acceso para tu asistencia Zoom asignada."
-                                  });
-                                }}
-                                disabled={Boolean(sendingReminderSolicitudId) || !canSendAssistantAccess}
-                                title={assistantAccessTitle}
-                              >
-                                {sendingReminderSolicitudId === item.id ? "Enviando..." : assistantAccessLabel}
-                              </Button>
-                            ) : null}
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() =>
-                                setExpandedSolicitudId((prev) => (prev === item.id ? null : item.id))
-                              }
-                              disabled={instances.length === 0}
-                              endIcon={isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+
+                            <Stack
+                              direction="row"
+                              spacing={0.8}
+                              useFlexGap
+                              flexWrap="wrap"
+                              justifyContent={{ xs: "flex-start", md: "flex-end" }}
                             >
-                              {isExpanded ? "Ocultar detalle" : "Ver detalle"}
-                            </Button>
+                              {showReminderAction ? (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<MailOutlineOutlinedIcon fontSize="small" />}
+                                  onClick={() => openReminderDialog(item)}
+                                  disabled={Boolean(sendingReminderSolicitudId)}
+                                >
+                                  {sendingReminderSolicitudId === item.id ? "Enviando..." : "Enviar recordatorio"}
+                                </Button>
+                              ) : null}
+                              {showAssistantAccessAction ? (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="secondary"
+                                  startIcon={<MailOutlineOutlinedIcon fontSize="small" />}
+                                  onClick={() => {
+                                    if (!assignedAssistantEmail) return;
+                                    void onSendReminder({
+                                      solicitudId: item.id,
+                                      toEmail: assignedAssistantEmail,
+                                      mensaje:
+                                        "Este correo incluye todos los datos de acceso para tu asistencia Zoom asignada."
+                                    });
+                                  }}
+                                  disabled={Boolean(sendingReminderSolicitudId) || !canSendAssistantAccess}
+                                  title={assistantAccessTitle}
+                                >
+                                  {sendingReminderSolicitudId === item.id ? "Enviando..." : assistantAccessLabel}
+                                </Button>
+                              ) : null}
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() =>
+                                  setExpandedSolicitudId((prev) => (prev === item.id ? null : item.id))
+                                }
+                                disabled={instances.length === 0}
+                                endIcon={isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                              >
+                                {isExpanded ? "Ocultar detalle" : "Ver detalle"}
+                              </Button>
+                            </Stack>
                           </Stack>
                         </Stack>
 

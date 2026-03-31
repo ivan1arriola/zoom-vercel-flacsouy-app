@@ -29,6 +29,14 @@ type ParsedSpecificDates = {
   errors: string[];
 };
 
+type SpecificDateDetail = {
+  horaInicio: string;
+  horaFin?: string;
+  duracionMinutos?: string;
+};
+
+type SpecificDateDetailMap = Record<string, SpecificDateDetail>;
+
 type SharedPayloadFields = Pick<
   SubmitDocenteSolicitudPayload,
   | "titulo"
@@ -142,6 +150,37 @@ export function parseSpecificDatesInput(rawInput: string, fallbackYear = new Dat
 
   const dates = Array.from(uniqueDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   return { dates, errors };
+}
+
+function parseSpecificDatesDetailInput(rawInput?: string): SpecificDateDetailMap {
+  if (!rawInput || !rawInput.trim()) return {};
+  try {
+    const parsed = JSON.parse(rawInput) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const result: SpecificDateDetailMap = {};
+    for (const [dateIso, value] of Object.entries(parsed)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) continue;
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const rawInicio = typeof (value as { horaInicio?: unknown }).horaInicio === "string"
+        ? (value as { horaInicio: string }).horaInicio.trim()
+        : "";
+      const rawFin = typeof (value as { horaFin?: unknown }).horaFin === "string"
+        ? (value as { horaFin: string }).horaFin.trim()
+        : "";
+      const rawDuracion = typeof (value as { duracionMinutos?: unknown }).duracionMinutos === "string"
+        ? (value as { duracionMinutos: string }).duracionMinutos.trim()
+        : "";
+      if (!rawInicio) continue;
+      result[dateIso] = {
+        horaInicio: rawInicio,
+        horaFin: rawFin || undefined,
+        duracionMinutos: rawDuracion || undefined
+      };
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
 function buildSingleSolicitudPayload(
@@ -333,20 +372,32 @@ function buildSpecificDatesSolicitudPayload(
     throw new Error("Zoom permite un maximo de 50 instancias por solicitud.");
   }
 
-  if (!form.horaInicioRecurrente) {
-    throw new Error("Debes completar la hora de comienzo para las fechas especificas.");
-  }
+  const specificDatesDetailMap = parseSpecificDatesDetailInput(form.fechasEspecificasDetalle);
+  const instanceDetails = parsedSpecificDates.dates.map((dateIso) => {
+    const detail = specificDatesDetailMap[dateIso];
+    const startTime = detail?.horaInicio || form.horaInicioRecurrente;
+    if (!startTime) {
+      throw new Error(`Debes completar la hora de comienzo para la fecha ${dateIso}.`);
+    }
+    const startIso = combineDateAndTimeToIso(dateIso, startTime, `fecha especifica ${dateIso}`);
+    const { endIso } = resolveEndByTimeOrDuration(
+      startIso,
+      detail?.horaFin ?? form.horaFinRecurrente,
+      detail?.duracionMinutos ?? form.duracionRecurrente,
+      `la fecha especifica ${dateIso}`
+    );
+    return {
+      inicioProgramadoAt: startIso,
+      finProgramadoAt: endIso
+    };
+  }).sort(
+    (left, right) =>
+      new Date(left.inicioProgramadoAt).getTime() - new Date(right.inicioProgramadoAt).getTime()
+  );
 
-  const instanceStartsIso = parsedSpecificDates.dates.map((dateIso) =>
-    combineDateAndTimeToIso(dateIso, form.horaInicioRecurrente, `fecha especifica ${dateIso}`)
-  );
-  const firstInstanceStartIso = instanceStartsIso[0] ?? "";
-  const { endIso: firstInstanceEndIso } = resolveEndByTimeOrDuration(
-    firstInstanceStartIso,
-    form.horaFinRecurrente,
-    form.duracionRecurrente,
-    "las fechas especificas"
-  );
+  const firstInstanceStartIso = instanceDetails[0]?.inicioProgramadoAt ?? "";
+  const firstInstanceEndIso = instanceDetails[0]?.finProgramadoAt ?? "";
+  const instanceStartsIso = instanceDetails.map((item) => item.inicioProgramadoAt);
 
   const dateFormatter = new Intl.DateTimeFormat("es-UY", {
     day: "2-digit",
@@ -365,9 +416,7 @@ function buildSpecificDatesSolicitudPayload(
     fechaFinSolicitada: firstInstanceEndIso,
     regimenEncuentros: `Fechas puntuales: ${fechasLabel}`,
     fechasInstancias: instanceStartsIso,
-    instanciasDetalle: instanceStartsIso.map((inicioProgramadoAt) => ({
-      inicioProgramadoAt
-    }))
+    instanciasDetalle: instanceDetails
   };
 }
 

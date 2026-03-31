@@ -35,6 +35,7 @@ export type SolicitudFormState = {
   recurrenciaDiaSemanaMes: string;
   fechaFinal: string;
   fechasEspecificas: string;
+  fechasEspecificasDetalle: string;
   correosDocentes: string;
 };
 
@@ -47,7 +48,7 @@ export const DEFAULT_SOLICITUD_FORM: SolicitudFormState = {
   modalidad: "VIRTUAL",
   grabacion: "NO",
   unaOVarias: "UNA",
-  variasModo: "RECURRENCIA_ZOOM",
+  variasModo: "FECHAS_ESPECIFICAS",
   descripcionUnica: "",
   diaUnica: "",
   horaInicioUnica: "",
@@ -67,5 +68,6 @@ export const DEFAULT_SOLICITUD_FORM: SolicitudFormState = {
   recurrenciaDiaSemanaMes: "2",
   fechaFinal: "",
   fechasEspecificas: "",
+  fechasEspecificasDetalle: "",
   correosDocentes: ""
 };

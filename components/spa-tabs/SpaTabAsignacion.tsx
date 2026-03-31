@@ -14,7 +14,7 @@ import {
   Typography
 } from "@mui/material";
 import { formatDuration } from "@/src/lib/spa-home/recurrence";
-import { formatModalidad, formatZoomDateTime } from "./spa-tabs-utils";
+import { formatModalidad, formatZoomDate, formatZoomTime, formatDurationHuman } from "./spa-tabs-utils";
 import type { AssignmentBoardEvent, AssignableAssistant } from "@/src/services/dashboardApi";
 
 interface SpaTabAsignacionProps {
@@ -211,8 +211,12 @@ export function SpaTabAsignacion({
             <Typography variant="caption" color="text.secondary">
               Dia y hora
             </Typography>
-            <Typography variant="body2">
-              {formatZoomDateTime(item.inicioProgramadoAt)} a {formatZoomDateTime(item.finProgramadoAt)}
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              {formatZoomDate(item.inicioProgramadoAt)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {formatZoomTime(item.inicioProgramadoAt)} a {formatZoomTime(item.finProgramadoAt)} (
+              {formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
             </Typography>
           </Box>
           <Box>

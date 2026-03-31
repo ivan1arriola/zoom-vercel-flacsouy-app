@@ -95,7 +95,7 @@ export type SubmitDocenteSolicitudPayload = {
   motivoAsistencia?: string;
   regimenEncuentros?: string;
   fechasInstancias?: string[];
-  instanciasDetalle?: Array<{ inicioProgramadoAt: string }>;
+  instanciasDetalle?: Array<{ inicioProgramadoAt: string; finProgramadoAt?: string }>;
   patronRecurrencia?: {
     totalInstancias: number;
     fechaFinal: string;

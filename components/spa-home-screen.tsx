@@ -1524,21 +1524,27 @@ export function SpaHomeScreen() {
     }
   }
 
-  async function updateUserRole(userId: string, role: string) {
+  async function updateUserRole(userId: string, role: string, emails: string[]) {
     setMessage("");
     setUpdatingUserId(userId);
     try {
-      const response = await submitUpdateUserRoleApi({ userId, role });
+      const normalizedEmails = parseEmailLines(emails.join("\n"));
+      if (normalizedEmails.length === 0) {
+        setMessage("Debes indicar al menos un correo de acceso.");
+        return;
+      }
+
+      const response = await submitUpdateUserRoleApi({ userId, role, emails: normalizedEmails });
       if (!response.success) {
-        setMessage(response.error ?? "No se pudo actualizar el rol del usuario.");
+        setMessage(response.error ?? "No se pudo actualizar el usuario.");
         return;
       }
 
       const users = await loadUsers();
       if (users) setUsers(users);
-      setMessage("Rol actualizado correctamente.");
+      setMessage("Usuario actualizado correctamente.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No se pudo actualizar el rol del usuario.");
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar el usuario.");
     } finally {
       setUpdatingUserId(null);
     }

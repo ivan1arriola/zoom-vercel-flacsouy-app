@@ -26,6 +26,7 @@ import type { SessionUser } from "@/src/lib/api-auth";
 
 type InstanceDetailInput = {
   inicioProgramadoAt: string;
+  finProgramadoAt?: string;
 };
 
 type InstancePlan = {
@@ -548,6 +549,105 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+type BrandedEmailLayoutInput = {
+  preheader: string;
+  title: string;
+  greeting?: string;
+  paragraphs?: string[];
+  contentHtml?: string;
+  actionLabel?: string;
+  actionUrl?: string;
+  metaLines?: string[];
+  footerLine?: string;
+  kicker?: string;
+};
+
+function getEmailBaseUrl(): string {
+  if (env.APP_BASE_URL) return env.APP_BASE_URL;
+  return "http://localhost:3000";
+}
+
+function buildBrandedEmailLayout(input: BrandedEmailLayoutInput): string {
+  const baseUrl = getEmailBaseUrl();
+  const logoUrl = `${baseUrl.replace(/\/$/, "")}/flacso-logo.png`;
+  const preheader = escapeHtml(input.preheader);
+  const title = escapeHtml(input.title);
+  const kicker = escapeHtml(input.kicker ?? "Plataforma Zoom de FLACSO Uruguay");
+  const greeting = (input.greeting ?? "").trim();
+  const greetingHtml = greeting
+    ? `<p style="margin:0 0 14px 0;color:#223042;font-size:16px;line-height:1.6;font-weight:700;">${escapeHtml(greeting)}</p>`
+    : "";
+  const paragraphsHtml = (input.paragraphs ?? [])
+    .map((line) => `<p style="margin:0 0 14px 0;color:#223042;font-size:16px;line-height:1.6;">${escapeHtml(line)}</p>`)
+    .join("");
+  const actionUrl = (input.actionUrl ?? "").trim();
+  const actionBlock =
+    input.actionLabel && actionUrl
+      ? `
+      <table role="presentation" cellspacing="0" cellpadding="0" style="margin:20px 0 16px 0;">
+        <tr>
+          <td align="center" style="border-radius:10px;background:#1d3a72;">
+            <a href="${escapeHtml(actionUrl)}" style="display:inline-block;padding:13px 20px;font-weight:700;font-size:15px;line-height:1.2;color:#ffffff;text-decoration:none;">${escapeHtml(input.actionLabel)}</a>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:0 0 14px 0;color:#536074;font-size:13px;line-height:1.5;">Si el boton no funciona, copia y pega este enlace:<br/><a href="${escapeHtml(actionUrl)}" style="color:#1d3a72;word-break:break-all;">${escapeHtml(actionUrl)}</a></p>
+    `
+      : "";
+  const metaBlock =
+    input.metaLines && input.metaLines.length > 0
+      ? `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:8px 0 0 0;">${input.metaLines
+          .map(
+            (line) =>
+              `<tr><td style="padding:0 8px 8px 0;color:#1d3a72;font-size:14px;">•</td><td style="padding:0 0 8px 0;color:#425066;font-size:14px;line-height:1.5;">${escapeHtml(line)}</td></tr>`
+          )
+          .join("")}</table>`
+      : "";
+  const footerLine = escapeHtml(
+    input.footerLine ??
+      "Este es un mensaje automatico de FLACSO Uruguay. Si no reconoces esta accion, ignora este correo."
+  );
+  const contentHtml = input.contentHtml ?? "";
+
+  return `
+<!doctype html>
+<html lang="es">
+  <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:none;overflow:hidden;line-height:1px;opacity:0;max-height:0;max-width:0;">${preheader}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:20px 10px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;border-collapse:collapse;">
+            <tr>
+              <td style="border-radius:14px 14px 0 0;padding:20px 24px;background:linear-gradient(135deg,#1d3a72,#254c95);">
+                <img src="${escapeHtml(logoUrl)}" alt="FLACSO Uruguay" style="height:44px;display:block;" />
+                <p style="margin:18px 0 6px 0;color:#cfd8ea;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;">${kicker}</p>
+                <h1 style="margin:0;color:#ffffff;font-size:28px;line-height:1.2;font-weight:800;">${title}</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#ffffff;padding:26px 24px;border-left:1px solid #dbe3f0;border-right:1px solid #dbe3f0;">
+                ${greetingHtml}
+                ${paragraphsHtml}
+                ${contentHtml}
+                ${actionBlock}
+                ${metaBlock}
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#eef3fb;padding:16px 24px;border:1px solid #dbe3f0;border-top:0;border-radius:0 0 14px 14px;">
+                <p style="margin:0;color:#5c697e;font-size:12px;line-height:1.5;">${footerLine}</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+  `.trim();
+}
+
 function extractMeetingPasswordFromJoinUrl(joinUrl?: string | null): string | null {
   if (!joinUrl) return null;
 
@@ -654,7 +754,6 @@ function buildProvisionedSolicitudEmailHtml(input: {
   instanceStarts: Date[];
 }): string {
   const {
-    solicitudId,
     titulo,
     modalidad,
     meetingId,
@@ -676,50 +775,43 @@ function buildProvisionedSolicitudEmailHtml(input: {
   const hostLabel = escapeHtml(hostAccount ?? "-");
   const modalidadLabel = escapeHtml(modalidad);
   const titleLabel = escapeHtml(titulo);
-  const solicitudLabel = escapeHtml(solicitudId);
   const hasManyInstances = instanceStarts.length > 1;
-
-  return `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
-      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
-      <h2 style="margin: 0 0 6px;">Tu reunion esta lista</h2>
-      <p style="margin: 0 0 16px; color: #334155;">
-        ${hasManyInstances ? "Tu serie fue confirmada y ya esta disponible en Zoom." : "Tu reunion fue confirmada y ya esta disponible en Zoom."}
-      </p>
-
-      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
-        <p style="margin: 0 0 8px;"><strong>${titleLabel}</strong></p>
-        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>ID de reunion:</strong> ${meetingLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Contrasena de la reunion:</strong> ${passwordLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
-        <p style="margin: 0;"><strong>Instancias:</strong> ${instanceStarts.length}</p>
-      </div>
-
-      ${
-        joinUrl
-          ? `<p style="margin: 0 0 16px;"><a href="${escapeHtml(joinUrl)}" target="_blank" rel="noreferrer" style="display: inline-block; padding: 10px 14px; border-radius: 8px; background: #1f4b8f; color: #ffffff; text-decoration: none; font-weight: 700;">Abrir reunion en Zoom</a></p>`
-          : ""
-      }
-
-      <p style="margin: 0 0 8px;"><strong>Fechas programadas</strong></p>
-      <ol style="margin: 0 0 12px; padding-left: 20px;">
-        ${previewRows}
-      </ol>
-      ${
-        extraCount > 0
-          ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
-          : ""
-      }
-      <p style="margin: 16px 0 0; color: #64748b; font-size: 12px;">
-        Si necesitas cambios, responde a este correo o contacta al equipo de coordinacion.
-      </p>
-      <p style="margin: 8px 0 0; color: #94a3b8; font-size: 12px;">
-        Este es un correo automatico de la herramienta de coordinacion de salas Zoom de FLACSO Uruguay.
-      </p>
+  const contentHtml = `
+    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
+      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>ID de reunion:</strong> ${meetingLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Contrasena de la reunion:</strong> ${passwordLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
+      <p style="margin:0;color:#223042;"><strong>Instancias:</strong> ${instanceStarts.length}</p>
     </div>
+    <p style="margin:0 0 8px;color:#223042;"><strong>Fechas programadas</strong></p>
+    <ol style="margin:0 0 12px;padding-left:20px;color:#223042;">
+      ${previewRows}
+    </ol>
+    ${
+      extraCount > 0
+        ? `<p style="margin:0 0 12px;color:#475569;">... y ${extraCount} instancia(s) mas.</p>`
+        : ""
+    }
   `;
+
+  return buildBrandedEmailLayout({
+    preheader: hasManyInstances
+      ? "Tu serie fue confirmada y ya esta disponible en Zoom."
+      : "Tu reunion fue confirmada y ya esta disponible en Zoom.",
+    title: "Tu reunion esta lista",
+    greeting: "Hola,",
+    paragraphs: [
+      hasManyInstances
+        ? "Tu serie fue confirmada y ya esta disponible en Zoom."
+        : "Tu reunion fue confirmada y ya esta disponible en Zoom."
+    ],
+    contentHtml,
+    actionLabel: joinUrl ? "Abrir reunion en Zoom" : undefined,
+    actionUrl: joinUrl ?? undefined,
+    metaLines: ["Si necesitas cambios, responde a este correo o contacta al equipo de coordinacion."]
+  });
 }
 
 async function sendProvisionedSolicitudEmail(input: {
@@ -796,7 +888,6 @@ function buildMonitoringRequiredEmailHtml(input: {
   estadoSolicitud: EstadoSolicitudSala;
 }): string {
   const titleLabel = escapeHtml(input.titulo);
-  const solicitudLabel = escapeHtml(input.solicitudId);
   const modalidadLabel = escapeHtml(input.modalidad);
   const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
   const responsableLabel = escapeHtml(input.responsableNombre?.trim() || "-");
@@ -807,39 +898,34 @@ function buildMonitoringRequiredEmailHtml(input: {
     .map((date, index) => `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(date, input.timezone))}</li>`)
     .join("");
   const extraCount = input.instanceStarts.length - previewCount;
-
-  return `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
-      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
-      <h2 style="margin: 0 0 6px;">Nueva solicitud con monitoreo requerido</h2>
-      <p style="margin: 0 0 16px; color: #334155;">
-        Se registro una nueva solicitud que requiere asistencia Zoom.
-      </p>
-
-      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
-        <p style="margin: 0 0 8px;"><strong>${titleLabel}</strong></p>
-        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Responsable:</strong> ${responsableLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Estado:</strong> ${statusLabel}</p>
-        <p style="margin: 0;"><strong>Instancias:</strong> ${input.instanceStarts.length}</p>
-      </div>
-
-      <p style="margin: 0 0 8px;"><strong>Fechas previstas</strong></p>
-      <ol style="margin: 0 0 12px; padding-left: 20px;">
-        ${previewRows}
-      </ol>
-      ${
-        extraCount > 0
-          ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
-          : ""
-      }
-      <p style="margin: 16px 0 0; color: #64748b; font-size: 12px;">
-        Revisa la agenda libre para marcar interes en las instancias disponibles.
-      </p>
+  const contentHtml = `
+    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
+      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Responsable:</strong> ${responsableLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Estado:</strong> ${statusLabel}</p>
+      <p style="margin:0;color:#223042;"><strong>Instancias:</strong> ${input.instanceStarts.length}</p>
     </div>
+    <p style="margin:0 0 8px;color:#223042;"><strong>Fechas previstas</strong></p>
+    <ol style="margin:0 0 12px;padding-left:20px;color:#223042;">
+      ${previewRows}
+    </ol>
+    ${
+      extraCount > 0
+        ? `<p style="margin:0 0 12px;color:#475569;">... y ${extraCount} instancia(s) mas.</p>`
+        : ""
+    }
   `;
+
+  return buildBrandedEmailLayout({
+    preheader: "Se registro una nueva solicitud que requiere asistencia Zoom.",
+    title: "Nueva solicitud con monitoreo requerido",
+    greeting: "Hola,",
+    paragraphs: ["Se registro una nueva solicitud que requiere asistencia Zoom."],
+    contentHtml,
+    metaLines: ["Revisa la agenda libre para marcar interes en las instancias disponibles."]
+  });
 }
 
 async function listAdminNotificationEmails(): Promise<string[]> {
@@ -944,7 +1030,6 @@ function buildDocenteSolicitudCreatedAdminEmailHtml(input: {
 }): string {
   const actorNombreLabel = escapeHtml(input.actorNombre);
   const actorEmailLabel = escapeHtml(input.actorEmail);
-  const solicitudLabel = escapeHtml(input.solicitudId);
   const tituloLabel = escapeHtml(input.titulo);
   const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
   const modalidadLabel = escapeHtml(input.modalidad);
@@ -955,37 +1040,34 @@ function buildDocenteSolicitudCreatedAdminEmailHtml(input: {
     .map((date, index) => `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(date, input.timezone))}</li>`)
     .join("");
   const extraCount = input.instanceStarts.length - previewCount;
-
-  return `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
-      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
-      <h2 style="margin: 0 0 6px;">Nueva solicitud creada por docente</h2>
-      <p style="margin: 0 0 16px; color: #334155;">
-        Se registro una nueva solicitud en el sistema.
-      </p>
-
-      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
-        <p style="margin: 0 0 8px;"><strong>${tituloLabel}</strong></p>
-        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Creada por:</strong> ${actorNombreLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Email creador:</strong> ${actorEmailLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Estado:</strong> ${estadoLabel}</p>
-        <p style="margin: 0;"><strong>Instancias:</strong> ${input.instanceStarts.length}</p>
-      </div>
-
-      <p style="margin: 0 0 8px;"><strong>Fechas previstas</strong></p>
-      <ol style="margin: 0 0 12px; padding-left: 20px;">
-        ${previewRows}
-      </ol>
-      ${
-        extraCount > 0
-          ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
-          : ""
-      }
+  const contentHtml = `
+    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
+      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${tituloLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Creada por:</strong> ${actorNombreLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Email creador:</strong> ${actorEmailLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Estado:</strong> ${estadoLabel}</p>
+      <p style="margin:0;color:#223042;"><strong>Instancias:</strong> ${input.instanceStarts.length}</p>
     </div>
+    <p style="margin:0 0 8px;color:#223042;"><strong>Fechas previstas</strong></p>
+    <ol style="margin:0 0 12px;padding-left:20px;color:#223042;">
+      ${previewRows}
+    </ol>
+    ${
+      extraCount > 0
+        ? `<p style="margin:0 0 12px;color:#475569;">... y ${extraCount} instancia(s) mas.</p>`
+        : ""
+    }
   `;
+
+  return buildBrandedEmailLayout({
+    preheader: "Se registro una nueva solicitud en el sistema.",
+    title: "Nueva solicitud creada por docente",
+    greeting: "Hola,",
+    paragraphs: ["Se registro una nueva solicitud en el sistema."],
+    contentHtml
+  });
 }
 
 async function sendDocenteSolicitudCreatedEmailToAdmins(input: {
@@ -1027,36 +1109,31 @@ function buildAssistantPreferenceAdminEmailHtml(input: {
   const asistenteNombreLabel = escapeHtml(input.asistenteNombre);
   const asistenteEmailLabel = escapeHtml(input.asistenteEmail);
   const estadoLabel = escapeHtml(input.estadoInteres);
-  const solicitudLabel = escapeHtml(input.solicitudId);
-  const eventoLabel = escapeHtml(input.eventoId);
   const tituloLabel = escapeHtml(input.titulo);
   const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
   const inicioLabel = escapeHtml(formatDateTimeForEmail(input.inicio, input.timezone));
   const finLabel = escapeHtml(formatDateTimeForEmail(input.fin, input.timezone));
   const comentarioLabel = escapeHtml((input.comentario ?? "").trim() || "Sin comentario");
-
-  return `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
-      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
-      <h2 style="margin: 0 0 6px;">Preferencia de asistencia actualizada</h2>
-      <p style="margin: 0 0 16px; color: #334155;">
-        Un asistente Zoom registro su preferencia para una instancia.
-      </p>
-
-      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
-        <p style="margin: 0 0 8px;"><strong>${tituloLabel}</strong></p>
-        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Evento:</strong> ${eventoLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Asistente:</strong> ${asistenteNombreLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Email asistente:</strong> ${asistenteEmailLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Preferencia:</strong> ${estadoLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Inicio:</strong> ${inicioLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Fin:</strong> ${finLabel}</p>
-        <p style="margin: 0;"><strong>Comentario:</strong> ${comentarioLabel}</p>
-      </div>
+  const contentHtml = `
+    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
+      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${tituloLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Asistente:</strong> ${asistenteNombreLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Email asistente:</strong> ${asistenteEmailLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Preferencia:</strong> ${estadoLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Inicio:</strong> ${inicioLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Fin:</strong> ${finLabel}</p>
+      <p style="margin:0;color:#223042;"><strong>Comentario:</strong> ${comentarioLabel}</p>
     </div>
   `;
+
+  return buildBrandedEmailLayout({
+    preheader: "Un asistente Zoom registro su preferencia para una instancia.",
+    title: "Preferencia de asistencia actualizada",
+    greeting: "Hola,",
+    paragraphs: ["Un asistente Zoom registro su preferencia para una instancia."],
+    contentHtml
+  });
 }
 
 async function sendAssistantPreferenceEmailToAdmins(input: {
@@ -1098,46 +1175,33 @@ function buildAssignmentNotificationHtml(input: {
   asistenteEmail: string;
 }): string {
   const titleLabel = escapeHtml(input.titulo);
-  const solicitudLabel = escapeHtml(input.solicitudId);
-  const eventoLabel = escapeHtml(input.eventoId);
   const modalidadLabel = escapeHtml(input.modalidad);
   const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
   const asistenteNombreLabel = escapeHtml(input.asistenteNombre);
   const asistenteEmailLabel = escapeHtml(input.asistenteEmail);
   const inicioLabel = escapeHtml(formatDateTimeForEmail(input.inicio, input.timezone));
   const finLabel = escapeHtml(formatDateTimeForEmail(input.fin, input.timezone));
-
-  return `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 720px;">
-      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
-      <h2 style="margin: 0 0 6px;">Asignacion de monitoreo confirmada</h2>
-      <p style="margin: 0 0 16px; color: #334155;">
-        Se confirmo la persona de asistencia para esta instancia.
-      </p>
-
-      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #f8fafc; margin: 0 0 14px;">
-        <p style="margin: 0 0 8px;"><strong>${titleLabel}</strong></p>
-        <p style="margin: 0 0 4px;"><strong>Solicitud:</strong> ${solicitudLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Evento:</strong> ${eventoLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Programa:</strong> ${programaLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Inicio:</strong> ${inicioLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Fin:</strong> ${finLabel}</p>
-        <p style="margin: 0 0 4px;"><strong>Asistente asignado:</strong> ${asistenteNombreLabel}</p>
-        <p style="margin: 0;"><strong>Email asistente:</strong> ${asistenteEmailLabel}</p>
-      </div>
-
-      ${
-        input.joinUrl
-          ? `<p style="margin: 0 0 16px;"><a href="${escapeHtml(input.joinUrl)}" target="_blank" rel="noreferrer" style="display: inline-block; padding: 10px 14px; border-radius: 8px; background: #1f4b8f; color: #ffffff; text-decoration: none; font-weight: 700;">Abrir reunion en Zoom</a></p>`
-          : ""
-      }
-
-      <p style="margin: 16px 0 0; color: #64748b; font-size: 12px;">
-        Este es un correo automatico de la herramienta de coordinacion de salas Zoom de FLACSO Uruguay.
-      </p>
+  const contentHtml = `
+    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
+      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Inicio:</strong> ${inicioLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Fin:</strong> ${finLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Asistente asignado:</strong> ${asistenteNombreLabel}</p>
+      <p style="margin:0;color:#223042;"><strong>Email asistente:</strong> ${asistenteEmailLabel}</p>
     </div>
   `;
+
+  return buildBrandedEmailLayout({
+    preheader: "Se confirmo la persona de asistencia para esta instancia.",
+    title: "Asignacion de monitoreo confirmada",
+    greeting: "Hola,",
+    paragraphs: ["Se confirmo la persona de asistencia para esta instancia."],
+    contentHtml,
+    actionLabel: input.joinUrl ? "Abrir reunion en Zoom" : undefined,
+    actionUrl: input.joinUrl ?? undefined
+  });
 }
 
 async function sendDefinitiveAssignmentEmails(input: {
@@ -1244,63 +1308,58 @@ function buildSolicitudReminderEmailHtml(input: {
     .join("");
   const extraCount = input.instancias.length - previewCount;
   const reminderMessage = (input.recordatorioMensaje ?? "").trim();
-
-  return `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5; max-width: 760px; width: 100%; margin: 0 auto;">
-      <p style="margin: 0 0 12px; color: #64748b; font-size: 12px;">Herramienta de coordinacion Zoom - FLACSO Uruguay</p>
-      <h2 style="margin: 0 0 6px;">Recordatorio de reunion</h2>
-      <p style="margin: 0 0 16px; color: #334155;">
-        Te compartimos nuevamente la informacion operativa de esta reunion.
-      </p>
-
-      <div style="border: 1px solid #dbe5f3; border-radius: 12px; padding: 14px; background: #f1f7ff; margin: 0 0 14px;">
-        <p style="margin: 0 0 8px; font-size: 18px; font-weight: 700; color: #0b2c5e;">${titleLabel}</p>
-        <p style="margin: 0 0 6px;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
-        <p style="margin: 0 0 6px;"><strong>ID de acceso:</strong> ${meetingLabel}</p>
-        <p style="margin: 0 0 6px;"><strong>Enlace de acceso:</strong></p>
-        ${
-          input.joinUrl
-            ? `<p style="margin: 0 0 6px; word-break: break-all;"><a href="${escapeHtml(input.joinUrl)}" target="_blank" rel="noreferrer" style="color: #1d4ed8; text-decoration: underline;">${joinUrlLabel}</a></p>`
-            : `<p style="margin: 0 0 6px;">${joinUrlLabel}</p>`
-        }
-        <p style="margin: 0 0 6px;"><strong>Contrasena de acceso:</strong> ${meetingPasswordLabel}</p>
-        <p style="margin: 0;"><strong>Instancias:</strong> ${input.instancias.length}</p>
-      </div>
-
-      <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #ffffff; margin: 0 0 14px;">
-        <p style="margin: 0 0 6px;"><strong>Programa:</strong> ${programaLabel}</p>
-        <p style="margin: 0 0 6px;"><strong>Responsable:</strong> ${responsableLabel}</p>
-        <p style="margin: 0 0 6px;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-        <p style="margin: 0;"><strong>Estado:</strong> ${estadoLabel}</p>
-      </div>
-
+  const contentHtml = `
+    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f1f7ff;margin:0 0 14px;">
+      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>ID de acceso:</strong> ${meetingLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Enlace de acceso:</strong></p>
       ${
-        reminderMessage
-          ? `<div style="border-left: 4px solid #1f4b8f; padding: 10px 12px; background: #eff6ff; margin: 0 0 14px;">
-              <p style="margin: 0 0 6px; font-weight: 700;">Mensaje adicional</p>
-              <p style="margin: 0;">${escapeHtml(reminderMessage)}</p>
-            </div>`
-          : ""
+        input.joinUrl
+          ? `<p style="margin:0 0 6px;word-break:break-all;"><a href="${escapeHtml(input.joinUrl)}" target="_blank" rel="noreferrer" style="color:#1d4ed8;text-decoration:underline;">${joinUrlLabel}</a></p>`
+          : `<p style="margin:0 0 6px;color:#223042;">${joinUrlLabel}</p>`
       }
-
-      <p style="margin: 0 0 8px;"><strong>Detalle de instancias</strong></p>
-      <ul style="margin: 0; padding: 0; list-style: none;">
-        ${previewRows}
-      </ul>
-      ${
-        extraCount > 0
-          ? `<p style="margin: 0 0 12px; color: #475569;">... y ${extraCount} instancia(s) mas.</p>`
-          : ""
-      }
-
-      <p style="margin: 16px 0 0; color: #64748b; font-size: 12px;">
-        Recordatorio enviado por ${actorNombreLabel} (${actorEmailLabel}).
-      </p>
-      <p style="margin: 8px 0 0; color: #94a3b8; font-size: 12px;">
-        Este es un correo automatico de la herramienta de coordinacion de salas Zoom de FLACSO Uruguay.
-      </p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Contrasena de acceso:</strong> ${meetingPasswordLabel}</p>
+      <p style="margin:0;color:#223042;"><strong>Instancias:</strong> ${input.instancias.length}</p>
     </div>
+
+    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#ffffff;margin:0 0 14px;">
+      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Responsable:</strong> ${responsableLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
+      <p style="margin:0;color:#223042;"><strong>Estado:</strong> ${estadoLabel}</p>
+    </div>
+
+    ${
+      reminderMessage
+        ? `<div style="border-left:4px solid #1f4b8f;padding:10px 12px;background:#eff6ff;margin:0 0 14px;">
+            <p style="margin:0 0 6px;font-weight:700;color:#223042;">Mensaje adicional</p>
+            <p style="margin:0;color:#223042;">${escapeHtml(reminderMessage)}</p>
+          </div>`
+        : ""
+    }
+
+    <p style="margin:0 0 8px;color:#223042;"><strong>Detalle de instancias</strong></p>
+    <ul style="margin:0;padding:0;list-style:none;">
+      ${previewRows}
+    </ul>
+    ${
+      extraCount > 0
+        ? `<p style="margin:0 0 12px;color:#475569;">... y ${extraCount} instancia(s) mas.</p>`
+        : ""
+    }
   `;
+
+  return buildBrandedEmailLayout({
+    preheader: "Te compartimos nuevamente la informacion operativa de esta reunion.",
+    title: "Recordatorio de reunion",
+    greeting: "Hola,",
+    paragraphs: ["Te compartimos nuevamente la informacion operativa de esta reunion."],
+    contentHtml,
+    actionLabel: input.joinUrl ? "Abrir reunion en Zoom" : undefined,
+    actionUrl: input.joinUrl ?? undefined,
+    metaLines: [`Recordatorio enviado por ${actorNombreLabel} (${actorEmailLabel}).`]
+  });
 }
 
 function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSnapshot {
@@ -2227,9 +2286,15 @@ function buildInstancePlans(input: CreateSolicitudInput, durationMinutes: number
   if (details.length > 0) {
     const parsed = details.map((item, index) => {
       const inicio = toDate(item.inicioProgramadoAt, `instanciasDetalle[${index}].inicioProgramadoAt`);
+      const fin = item.finProgramadoAt
+        ? toDate(item.finProgramadoAt, `instanciasDetalle[${index}].finProgramadoAt`)
+        : new Date(inicio.getTime() + durationMinutes * 60000);
+      if (fin <= inicio) {
+        throw new Error("En instanciasDetalle, finProgramadoAt debe ser posterior a inicioProgramadoAt.");
+      }
       return {
         inicio,
-        fin: new Date(inicio.getTime() + durationMinutes * 60000)
+        fin
       };
     });
 
@@ -2417,6 +2482,107 @@ type SpecificDatesSyntheticRecurrencePlan = {
 
 function toMinuteKey(value: Date): number {
   return Math.floor(value.getTime() / 60_000);
+}
+
+type SpecificDatesRequestedSchedule = {
+  plans: InstancePlan[];
+  minuteKeys: Set<number>;
+};
+
+function buildSpecificDatesRequestedSchedule(
+  instancePlans: InstancePlan[]
+): SpecificDatesRequestedSchedule {
+  const sortedPlans = [...instancePlans].sort((left, right) => left.inicio.getTime() - right.inicio.getTime());
+  const plans: InstancePlan[] = [];
+  const minuteKeys = new Set<number>();
+
+  for (const plan of sortedPlans) {
+    const minuteKey = toMinuteKey(plan.inicio);
+    if (minuteKeys.has(minuteKey)) {
+      throw new Error("No puede haber instancias repetidas en fecha y hora.");
+    }
+    minuteKeys.add(minuteKey);
+    plans.push(plan);
+  }
+
+  return {
+    plans,
+    minuteKeys
+  };
+}
+
+type OrderedAlignmentPair = {
+  sourceIndex: number;
+  targetIndex: number;
+};
+
+type OrderedAlignmentResult = {
+  totalShiftMs: number;
+  pairs: OrderedAlignmentPair[];
+};
+
+function buildMinimalOrderedAlignment(sourceStarts: Date[], targetStarts: Date[]): OrderedAlignmentResult | null {
+  const sourceCount = sourceStarts.length;
+  const targetCount = targetStarts.length;
+  if (sourceCount < targetCount) return null;
+
+  const INF = Number.POSITIVE_INFINITY;
+  const dp: number[][] = Array.from({ length: sourceCount + 1 }, () => (
+    Array.from({ length: targetCount + 1 }, () => INF)
+  ));
+  const choice: number[][] = Array.from({ length: sourceCount + 1 }, () => (
+    Array.from({ length: targetCount + 1 }, () => 0)
+  ));
+
+  dp[0]![0] = 0;
+  for (let i = 1; i <= sourceCount; i += 1) {
+    dp[i]![0] = 0;
+    choice[i]![0] = 1; // skip
+  }
+
+  for (let i = 1; i <= sourceCount; i += 1) {
+    const maxTargetsAtI = Math.min(i, targetCount);
+    for (let j = 1; j <= maxTargetsAtI; j += 1) {
+      let best = dp[i - 1]![j]!;
+      let bestChoice = 1; // skip source i-1
+
+      const sourceStart = sourceStarts[i - 1];
+      const targetStart = targetStarts[j - 1];
+      const shiftMs = Math.abs(sourceStart!.getTime() - targetStart!.getTime());
+      const matchCost = dp[i - 1]![j - 1]! + shiftMs;
+      if (matchCost <= best) {
+        best = matchCost;
+        bestChoice = 2; // match source i-1 with target j-1
+      }
+
+      dp[i]![j] = best;
+      choice[i]![j] = bestChoice;
+    }
+  }
+
+  const totalShiftMs = dp[sourceCount]![targetCount]!;
+  if (!Number.isFinite(totalShiftMs)) return null;
+
+  const pairs: OrderedAlignmentPair[] = [];
+  let i = sourceCount;
+  let j = targetCount;
+  while (i > 0 && j > 0) {
+    const picked = choice[i]![j]!;
+    if (picked === 2) {
+      pairs.push({ sourceIndex: i - 1, targetIndex: j - 1 });
+      i -= 1;
+      j -= 1;
+      continue;
+    }
+    i -= 1;
+  }
+
+  if (j !== 0) return null;
+  pairs.sort((left, right) => left.targetIndex - right.targetIndex);
+  return {
+    totalShiftMs,
+    pairs
+  };
 }
 
 function addDaysPreservingTime(base: Date, days: number): Date {
@@ -2619,26 +2785,17 @@ function buildMonthlyWeekdayStartsWithinRange(
 function buildSpecificDatesSyntheticRecurrencePlan(
   instancePlans: InstancePlan[]
 ): SpecificDatesSyntheticRecurrencePlan {
-  const sortedRequestedStarts = [...instancePlans]
-    .map((plan) => plan.inicio)
-    .sort((a, b) => a.getTime() - b.getTime());
+  const requestedSchedule = buildSpecificDatesRequestedSchedule(instancePlans);
+  const requestedPlans = [...requestedSchedule.plans];
+  const sortedRequestedStarts = requestedPlans.map((plan) => plan.inicio);
 
   if (sortedRequestedStarts.length < 2) {
     throw new Error("Se requieren al menos 2 fechas para construir una recurrencia unica.");
   }
 
-  const requestedMinuteKeys = new Set<number>();
-  const requestedStarts: Date[] = [];
-  for (const start of sortedRequestedStarts) {
-    const key = toMinuteKey(start);
-    if (requestedMinuteKeys.has(key)) continue;
-    requestedMinuteKeys.add(key);
-    requestedStarts.push(start);
-  }
-
-  const firstStart = requestedStarts[0] as Date;
-  const lastStart = requestedStarts[requestedStarts.length - 1] as Date;
-  const requestedCount = requestedMinuteKeys.size;
+  const firstStart = sortedRequestedStarts[0] as Date;
+  const lastStart = sortedRequestedStarts[sortedRequestedStarts.length - 1] as Date;
+  const requestedCount = requestedPlans.length;
   if (requestedCount < 2) {
     throw new Error("Se requieren al menos 2 fechas distintas para construir una recurrencia unica.");
   }
@@ -2647,6 +2804,7 @@ function buildSpecificDatesSyntheticRecurrencePlan(
     zoomRecurrence: ZoomRecurrencePayload;
     generatedStarts: Date[];
     extras: number;
+    alignmentShiftMs: number;
     priority: number;
   };
 
@@ -2659,36 +2817,41 @@ function buildSpecificDatesSyntheticRecurrencePlan(
   ) {
     if (generatedStarts.length < requestedCount) return;
     if (generatedStarts.length > 50) return;
-
-    const generatedMinuteKeys = new Set<number>(generatedStarts.map((item) => toMinuteKey(item)));
-    for (const key of requestedMinuteKeys) {
-      if (!generatedMinuteKeys.has(key)) {
-        return;
-      }
-    }
+    const alignment = buildMinimalOrderedAlignment(generatedStarts, sortedRequestedStarts);
+    if (!alignment) return;
 
     candidates.push({
       zoomRecurrence,
       generatedStarts,
       extras: generatedStarts.length - requestedCount,
+      alignmentShiftMs: alignment.totalShiftMs,
       priority
     });
   }
 
-  const requestedWeekdays = [...new Set(requestedStarts.map((item) => item.getDay() + 1))].sort((a, b) => a - b);
-  if (requestedWeekdays.length > 0) {
+  const weeklyDayCombinations: number[][] = [];
+  for (let mask = 1; mask < 1 << 7; mask += 1) {
+    const days: number[] = [];
+    for (let bit = 0; bit < 7; bit += 1) {
+      if ((mask & (1 << bit)) !== 0) days.push(bit + 1);
+    }
+    weeklyDayCombinations.push(days);
+  }
+  weeklyDayCombinations.sort((left, right) => left.length - right.length);
+
+  for (const weeklyDays of weeklyDayCombinations) {
     for (let intervalWeeks = 1; intervalWeeks <= 12; intervalWeeks += 1) {
       const generatedStarts = buildWeeklyStartsWithinRange(
         firstStart,
         lastStart,
         intervalWeeks,
-        requestedWeekdays
+        weeklyDays
       );
       registerCandidate(
         {
           type: 2,
           repeat_interval: intervalWeeks,
-          weekly_days: requestedWeekdays.join(","),
+          weekly_days: weeklyDays.join(","),
           end_times: generatedStarts.length
         },
         generatedStarts,
@@ -2711,7 +2874,7 @@ function buildSpecificDatesSyntheticRecurrencePlan(
   }
 
   const monthlyDay = firstStart.getDate();
-  const allSameDayOfMonth = requestedStarts.every((item) => item.getDate() === monthlyDay);
+  const allSameDayOfMonth = sortedRequestedStarts.every((item) => item.getDate() === monthlyDay);
   if (allSameDayOfMonth) {
     for (let intervalMonths = 1; intervalMonths <= 3; intervalMonths += 1) {
       const generatedStarts = buildMonthlyDayStartsWithinRange(
@@ -2735,7 +2898,7 @@ function buildSpecificDatesSyntheticRecurrencePlan(
 
   const monthlyWeek = getMonthlyWeekMarker(firstStart);
   const monthlyWeekDay = (firstStart.getDay() + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7;
-  const allSameWeekdayPattern = requestedStarts.every((item) => {
+  const allSameWeekdayPattern = sortedRequestedStarts.every((item) => {
     const itemWeek = getMonthlyWeekMarker(item);
     const itemWeekday = (item.getDay() + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7;
     return itemWeek === monthlyWeek && itemWeekday === monthlyWeekDay;
@@ -2771,6 +2934,9 @@ function buildSpecificDatesSyntheticRecurrencePlan(
 
   candidates.sort((left, right) => {
     if (left.extras !== right.extras) return left.extras - right.extras;
+    if (left.alignmentShiftMs !== right.alignmentShiftMs) {
+      return left.alignmentShiftMs - right.alignmentShiftMs;
+    }
     if (left.generatedStarts.length !== right.generatedStarts.length) {
       return left.generatedStarts.length - right.generatedStarts.length;
     }
@@ -2781,7 +2947,7 @@ function buildSpecificDatesSyntheticRecurrencePlan(
   return {
     zoomRecurrence: best.zoomRecurrence,
     generatedStarts: best.generatedStarts,
-    requestedMinuteKeys
+    requestedMinuteKeys: requestedSchedule.minuteKeys
   };
 }
 
@@ -2808,8 +2974,10 @@ function buildSingleMeetingInputForSpecificDates(
 async function cancelZoomOccurrencesOutsideRequestedSchedule(
   zoomClient: ZoomMeetingsClient,
   zoomSnapshot: ZoomMeetingSnapshot,
-  requestedMinuteKeys: Set<number>
+  requestedMinuteKeys: Set<number>,
+  options?: { strictOccurrenceId?: boolean }
 ): Promise<void> {
+  const strictOccurrenceId = Boolean(options?.strictOccurrenceId);
   const occurrenceIdsToCancel = new Set<string>();
 
   for (const item of zoomSnapshot.instances) {
@@ -2819,6 +2987,11 @@ async function cancelZoomOccurrencesOutsideRequestedSchedule(
     if (requestedMinuteKeys.has(minuteKey)) continue;
     if (item.status === "deleted") continue;
     if (!item.occurrenceId) {
+      if (strictOccurrenceId) {
+        throw new Error(
+          `No se pudo cancelar una ocurrencia extra en Zoom porque falta occurrence_id (${item.startTime}).`
+        );
+      }
       logger.warn("No se pudo cancelar una ocurrencia extra porque Zoom no devolvio occurrence_id.", {
         meetingId: zoomSnapshot.meetingId,
         startTime: item.startTime
@@ -2842,6 +3015,94 @@ async function cancelZoomOccurrencesOutsideRequestedSchedule(
       throw error;
     }
   }
+}
+
+async function alignSpecificDatesScheduleWithZoom(params: {
+  zoomClient: ZoomMeetingsClient;
+  zoomSnapshot: ZoomMeetingSnapshot;
+  requestedPlans: InstancePlan[];
+  timezone: string;
+}): Promise<ZoomMeetingSnapshot> {
+  const { zoomClient, zoomSnapshot, requestedPlans, timezone } = params;
+  const requestedSchedule = buildSpecificDatesRequestedSchedule(requestedPlans);
+  const requestedEntries = requestedSchedule.plans;
+
+  const availableOccurrences = zoomSnapshot.instances
+    .filter((occurrence) => occurrence.status !== "deleted")
+    .map((occurrence) => {
+      const parsedStart = new Date(occurrence.startTime);
+      if (Number.isNaN(parsedStart.getTime())) return null;
+      return {
+        occurrence,
+        parsedStart
+      };
+    })
+    .filter((item): item is { occurrence: ZoomOccurrenceSnapshot; parsedStart: Date } => item !== null)
+    .sort((left, right) => left.parsedStart.getTime() - right.parsedStart.getTime());
+
+  if (availableOccurrences.length < requestedEntries.length) {
+    throw new Error("Zoom no devolvio suficientes ocurrencias para ajustar las fechas solicitadas.");
+  }
+
+  const alignment = buildMinimalOrderedAlignment(
+    availableOccurrences.map((item) => item.parsedStart),
+    requestedEntries.map((item) => item.inicio)
+  );
+  if (!alignment) {
+    throw new Error("No se pudo alinear las ocurrencias de Zoom con las fechas solicitadas.");
+  }
+
+  for (const pair of alignment.pairs) {
+    const requestedPlan = requestedEntries[pair.targetIndex] as InstancePlan;
+    const matchedOccurrence = availableOccurrences[pair.sourceIndex]?.occurrence;
+    if (!matchedOccurrence) {
+      throw new Error("No se pudo resolver una ocurrencia de Zoom para ajustar el horario solicitado.");
+    }
+
+    const requestedDurationMinutes = Math.max(
+      1,
+      Math.floor((requestedPlan.fin.getTime() - requestedPlan.inicio.getTime()) / 60_000)
+    );
+    const matchedStartMs = new Date(matchedOccurrence.startTime).getTime();
+    const sameStart = Number.isFinite(matchedStartMs) && Math.abs(matchedStartMs - requestedPlan.inicio.getTime()) <= 60_000;
+    const matchedDuration = Math.max(1, matchedOccurrence.durationMinutes || requestedDurationMinutes);
+    const sameDuration = matchedDuration === requestedDurationMinutes;
+
+    if (sameStart && sameDuration) {
+      continue;
+    }
+
+    if (!matchedOccurrence.occurrenceId) {
+      throw new Error(
+        `No se pudo ajustar el horario en Zoom para ${requestedPlan.inicio.toISOString()} porque la ocurrencia no tiene occurrence_id.`
+      );
+    }
+
+    await zoomClient.updateMeeting(
+      zoomSnapshot.meetingId,
+      {
+        start_time: formatZoomDateTimeInTimezone(requestedPlan.inicio, timezone),
+        duration: requestedDurationMinutes,
+        timezone
+      },
+      { occurrence_id: matchedOccurrence.occurrenceId }
+    );
+  }
+
+  const snapshotAfterAdjustments = await fetchZoomMeetingSnapshot(zoomClient, zoomSnapshot.meetingId);
+  if (!snapshotAfterAdjustments) {
+    throw new Error("No se pudo refrescar la reunion en Zoom luego de ajustar horarios por fecha.");
+  }
+
+  await cancelZoomOccurrencesOutsideRequestedSchedule(
+    zoomClient,
+    snapshotAfterAdjustments,
+    requestedSchedule.minuteKeys,
+    { strictOccurrenceId: true }
+  );
+
+  const finalSnapshot = await fetchZoomMeetingSnapshot(zoomClient, zoomSnapshot.meetingId);
+  return finalSnapshot ?? snapshotAfterAdjustments;
 }
 
 export class SalasService {
@@ -4382,6 +4643,7 @@ export class SalasService {
             timezone
           });
 
+          candidateSnapshots.push(createdSnapshot);
           let resolvedSnapshot = createdSnapshot;
 
           if (shouldProvisionSpecificDatesWithSingleMeeting) {
@@ -4389,25 +4651,13 @@ export class SalasService {
               throw new Error("No se pudo resolver un plan de recurrencia para las fechas puntuales.");
             }
 
-            try {
-              const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
-              await cancelZoomOccurrencesOutsideRequestedSchedule(
-                zoomClient,
-                resolvedSnapshot,
-                specificDatesSyntheticPlan.requestedMinuteKeys
-              );
-
-              const refreshedSnapshot = await fetchZoomMeetingSnapshot(zoomClient, resolvedSnapshot.meetingId);
-              if (refreshedSnapshot) {
-                resolvedSnapshot = refreshedSnapshot;
-              }
-            } catch (error) {
-              logger.warn("No se pudieron cancelar automaticamente las ocurrencias extra en Zoom.", {
-                meetingId: resolvedSnapshot.meetingId,
-                ownerEmail: candidate.ownerEmail,
-                error: error instanceof Error ? error.message : String(error)
-              });
-            }
+            const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+            resolvedSnapshot = await alignSpecificDatesScheduleWithZoom({
+              zoomClient,
+              zoomSnapshot: resolvedSnapshot,
+              requestedPlans: instancePlans,
+              timezone
+            });
           } else if (
             input.tipoInstancias === TipoInstancias.MULTIPLE_COMPATIBLE_ZOOM &&
             !zoomSnapshotSupportsAllRequestedInstances(resolvedSnapshot, instancePlans)
@@ -4426,10 +4676,8 @@ export class SalasService {
             continue;
           }
 
-          candidateSnapshots.push(resolvedSnapshot);
-
           assignedAccount = candidate;
-          zoomSnapshot = candidateSnapshots[0] ?? null;
+          zoomSnapshot = resolvedSnapshot;
           break;
         } catch (error) {
           lastProvisionError = error instanceof Error ? error.message : "Error al provisionar reunion en Zoom.";

@@ -40,7 +40,7 @@ interface SpaTabUsuariosProps {
   isSendingSelfActivationLink: boolean;
   isLoadingUsers: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onUpdateUserRole: (userId: string, role: string) => void | Promise<void>;
+  onUpdateUserRole: (userId: string, role: string, emails: string[]) => void | Promise<void>;
   onResendActivationLink: (userId: string) => void | Promise<void>;
   onSendSelfActivationLinkTest: () => void | Promise<void>;
   onRefresh: () => void;
@@ -62,6 +62,16 @@ function normalizeEditableRole(role: string): EditableRole {
   return "DOCENTE";
 }
 
+function parseEmailLines(raw: string): string[] {
+  const unique = new Set<string>();
+  for (const line of raw.split(/\r?\n/)) {
+    const normalized = line.trim().toLowerCase();
+    if (!normalized) continue;
+    unique.add(normalized);
+  }
+  return Array.from(unique.values());
+}
+
 export function SpaTabUsuarios({
   users,
   createUserForm,
@@ -78,13 +88,18 @@ export function SpaTabUsuarios({
   onRefresh
 }: SpaTabUsuariosProps) {
   const [selectedRoleByUser, setSelectedRoleByUser] = useState<Record<string, EditableRole>>({});
+  const [selectedEmailsByUser, setSelectedEmailsByUser] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const nextState: Record<string, EditableRole> = {};
+    const nextEmailsState: Record<string, string> = {};
     for (const managedUser of users) {
       nextState[managedUser.id] = normalizeEditableRole(managedUser.role);
+      const accessEmails = managedUser.emails && managedUser.emails.length > 0 ? managedUser.emails : [managedUser.email];
+      nextEmailsState[managedUser.id] = accessEmails.join("\n");
     }
     setSelectedRoleByUser(nextState);
+    setSelectedEmailsByUser(nextEmailsState);
   }, [users]);
 
   return (
@@ -245,9 +260,20 @@ export function SpaTabUsuarios({
                 [managedUser.firstName, managedUser.lastName].filter(Boolean).join(" ") || "-";
               const currentRole = normalizeEditableRole(managedUser.role);
               const selectedRole = selectedRoleByUser[managedUser.id] ?? currentRole;
+              const currentEmails = managedUser.emails && managedUser.emails.length > 0 ? managedUser.emails : [managedUser.email];
+              const selectedEmailsRaw = selectedEmailsByUser[managedUser.id] ?? currentEmails.join("\n");
+              const selectedEmails = parseEmailLines(selectedEmailsRaw);
+              const hasEmailValidationError = selectedEmails.length === 0;
+              const roleChanged = selectedRole !== currentRole;
+              const emailsChanged =
+                selectedEmails.length !== currentEmails.length ||
+                selectedEmails.some((email, index) => email !== currentEmails[index]);
               const isUpdatingRole = updatingUserId === managedUser.id;
               const isResendingActivation = resendingActivationUserId === managedUser.id;
-              const canSaveRole = !isUpdatingRole && selectedRole !== currentRole;
+              const canSaveRole =
+                !isUpdatingRole &&
+                !hasEmailValidationError &&
+                (roleChanged || emailsChanged);
               const canResendActivation = !managedUser.emailVerified;
               const verificationLabel = managedUser.emailVerified ? "Verificado" : "Sin verificar";
 
@@ -327,6 +353,26 @@ export function SpaTabUsuarios({
                     sx={{ mt: 1.25 }}
                   >
                     <TextField
+                      label="Correos de acceso"
+                      size="small"
+                      multiline
+                      minRows={2}
+                      value={selectedEmailsRaw}
+                      onChange={(event) =>
+                        setSelectedEmailsByUser((prev) => ({
+                          ...prev,
+                          [managedUser.id]: event.target.value
+                        }))
+                      }
+                      error={hasEmailValidationError}
+                      helperText={
+                        hasEmailValidationError
+                          ? "Debes indicar al menos un correo."
+                          : "Uno por linea. El primero queda como correo principal."
+                      }
+                      sx={{ minWidth: 260, flex: 1 }}
+                    />
+                    <TextField
                       label="Rol"
                       select
                       size="small"
@@ -349,11 +395,11 @@ export function SpaTabUsuarios({
                       variant={canSaveRole ? "contained" : "outlined"}
                       disabled={!canSaveRole}
                       onClick={() => {
-                        void onUpdateUserRole(managedUser.id, selectedRole);
+                        void onUpdateUserRole(managedUser.id, selectedRole, selectedEmails);
                       }}
                       sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700 }}
                     >
-                      {isUpdatingRole ? "Guardando..." : "Guardar rol"}
+                      {isUpdatingRole ? "Guardando..." : "Guardar cambios"}
                     </Button>
                     {canResendActivation ? (
                       <Button

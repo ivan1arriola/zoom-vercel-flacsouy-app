@@ -52,6 +52,7 @@ export async function submitCreateUser(payload: Record<string, unknown>): Promis
 export async function submitUpdateUserRole(payload: {
   userId: string;
   role: string;
+  emails?: string[];
 }): Promise<{
   success: boolean;
   error?: string;
@@ -66,7 +67,7 @@ export async function submitUpdateUserRole(payload: {
   if (!response.ok) {
     return {
       success: false,
-      error: data.error ?? "No se pudo actualizar el rol."
+      error: data.error ?? "No se pudo actualizar el usuario."
     };
   }
 

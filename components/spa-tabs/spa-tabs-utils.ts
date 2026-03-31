@@ -114,6 +114,40 @@ export function formatZoomDateTime(value: string): string {
     .replace(",", "");
 }
 
+export function formatZoomDate(value: string): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-UY", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(date);
+}
+
+export function formatZoomTime(value: string): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-UY", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+export function formatDurationHuman(startIso: string, endIso: string): string {
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "-";
+  const totalMinutes = Math.max(0, Math.floor((end - start) / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const hoursLabel = hours === 1 ? "hora" : "horas";
+  const minutesLabel = minutes === 1 ? "minuto" : "minutos";
+  return `${hours} ${hoursLabel} y ${minutes} ${minutesLabel}`;
+}
+
 export function formatManagedUserRole(role: string): string {
   if (role === "ADMINISTRADOR") return "Administrador";
   if (role === "CONTADURIA") return "Contaduria";

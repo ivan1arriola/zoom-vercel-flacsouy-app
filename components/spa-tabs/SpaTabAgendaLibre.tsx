@@ -14,14 +14,15 @@ import type { ReactElement } from "react";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import HighlightOffIcon from "@mui/icons-material/HighlightOff";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
-import { formatDuration } from "@/src/lib/spa-home/recurrence";
 import {
   formatModalidad,
   isMeetingStartingSoon,
   getPreparacionDisplay,
   getEncargado,
   resolveZoomJoinUrl,
-  formatZoomDateTime
+  formatZoomDate,
+  formatZoomTime,
+  formatDurationHuman
 } from "./spa-tabs-utils";
 import type { AgendaEvent } from "@/src/services/agendaApi";
 
@@ -169,16 +170,12 @@ export function SpaTabAgendaLibre({
                       <Typography variant="caption" color="text.secondary">
                         Dia y hora
                       </Typography>
-                      <Typography variant="body2">
-                        {formatZoomDateTime(item.inicioProgramadoAt)} a {formatZoomDateTime(item.finProgramadoAt)}
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {formatZoomDate(item.inicioProgramadoAt)}
                       </Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Duracion
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                        {formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)}
+                      <Typography variant="body2" color="text.secondary">
+                        {formatZoomTime(item.inicioProgramadoAt)} a {formatZoomTime(item.finProgramadoAt)} (
+                        {formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
                       </Typography>
                     </Box>
                     <Box>
