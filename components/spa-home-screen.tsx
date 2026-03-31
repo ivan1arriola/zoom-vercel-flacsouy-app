@@ -138,6 +138,35 @@ type MonitorOption = {
 };
 
 const DEFAULT_ZOOM_PAST_MONTHS_BACK = 1;
+const MAX_ZOOM_PAST_MONTHS_BACK = 12;
+
+type ZoomPastMonthOption = {
+  value: string;
+  label: string;
+  monthsBack: number;
+};
+
+function buildZoomPastMonthOptions(maxMonthsBack = MAX_ZOOM_PAST_MONTHS_BACK): ZoomPastMonthOption[] {
+  const now = new Date();
+  const startOfCurrentMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const formatter = new Intl.DateTimeFormat("es-UY", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC"
+  });
+
+  return Array.from({ length: maxMonthsBack }, (_unused, index) => {
+    const monthDate = new Date(startOfCurrentMonth);
+    monthDate.setUTCMonth(monthDate.getUTCMonth() - index);
+    const value = `${monthDate.getUTCFullYear()}-${String(monthDate.getUTCMonth() + 1).padStart(2, "0")}`;
+    return {
+      value,
+      label: formatter.format(monthDate),
+      monthsBack: index + 1
+    };
+  });
+}
+
 export function SpaHomeScreen() {
   const [programas, setProgramas] = useState<Programa[]>([]);
   const [isCreatingPrograma, setIsCreatingPrograma] = useState(false);
@@ -201,9 +230,10 @@ export function SpaHomeScreen() {
     isLoadingZoomPastMeetings,
     setIsLoadingZoomPastMeetings
   } = useZoomPastMeetings();
-  const [zoomPastMonthsBack, setZoomPastMonthsBack] = useState(DEFAULT_ZOOM_PAST_MONTHS_BACK);
-  const [canLoadMoreZoomPastMeetings, setCanLoadMoreZoomPastMeetings] = useState(true);
-  const [isLoadingMoreZoomPastMeetings, setIsLoadingMoreZoomPastMeetings] = useState(false);
+  const zoomPastMonthOptions = useMemo(() => buildZoomPastMonthOptions(), []);
+  const [selectedZoomPastMonthKey, setSelectedZoomPastMonthKey] = useState(
+    () => zoomPastMonthOptions[0]?.value ?? ""
+  );
   
   // Managed Users
   const {
@@ -297,6 +327,12 @@ export function SpaHomeScreen() {
     }
     return grouped;
   }, [visibleNavigationTabs]);
+  const selectedZoomPastMonthsBack = useMemo(() => {
+    const selectedOption = zoomPastMonthOptions.find(
+      (option) => option.value === selectedZoomPastMonthKey
+    );
+    return selectedOption?.monthsBack ?? DEFAULT_ZOOM_PAST_MONTHS_BACK;
+  }, [selectedZoomPastMonthKey, zoomPastMonthOptions]);
   const canUseGoogleByEmail = useMemo(
     () => Boolean(user?.email?.trim().toLowerCase().endsWith("@flacso.edu.uy")),
     [user?.email]
@@ -621,8 +657,8 @@ export function SpaHomeScreen() {
 
   useEffect(() => {
     if (tab !== "pasadas_zoom" || !canSeeZoomAccounts) return;
-    void refreshZoomPastMeetings();
-  }, [tab, canSeeZoomAccounts]);
+    void refreshZoomPastMeetings(selectedZoomPastMonthsBack);
+  }, [tab, canSeeZoomAccounts, selectedZoomPastMonthsBack]);
 
   useEffect(() => {
     if (tab !== "usuarios" || !canSeeUsers) return;
@@ -1171,7 +1207,7 @@ export function SpaHomeScreen() {
     }
   }
 
-  async function refreshZoomPastMeetings(monthsBack = zoomPastMonthsBack) {
+  async function refreshZoomPastMeetings(monthsBack = selectedZoomPastMonthsBack) {
     setIsLoadingZoomPastMeetings(true);
     try {
       const result = await loadZoomPastMeetings({ monthsBack });
@@ -1181,22 +1217,13 @@ export function SpaHomeScreen() {
       }
       setZoomGroupName(result.groupName);
       setZoomPastMeetings(result.meetings);
-      setZoomPastMonthsBack(result.monthsBack);
-      setCanLoadMoreZoomPastMeetings(result.canLoadMoreBack);
     } finally {
       setIsLoadingZoomPastMeetings(false);
     }
   }
 
-  async function loadMoreZoomPastMeetings() {
-    if (!canLoadMoreZoomPastMeetings) return;
-    const nextMonthsBack = zoomPastMonthsBack + 1;
-    setIsLoadingMoreZoomPastMeetings(true);
-    try {
-      await refreshZoomPastMeetings(nextMonthsBack);
-    } finally {
-      setIsLoadingMoreZoomPastMeetings(false);
-    }
+  function selectZoomPastMonth(monthKey: string) {
+    setSelectedZoomPastMonthKey(monthKey);
   }
 
   function preloadPastMeetingFormFromZoom(meeting: ZoomUpcomingMeeting) {
@@ -1682,13 +1709,11 @@ export function SpaHomeScreen() {
           meetings={zoomPastMeetings}
           isLoading={isLoadingZoomPastMeetings}
           onRefresh={() => {
-            void refreshZoomPastMeetings();
+            void refreshZoomPastMeetings(selectedZoomPastMonthsBack);
           }}
-          onLoadMoreBack={() => {
-            void loadMoreZoomPastMeetings();
-          }}
-          canLoadMoreBack={canLoadMoreZoomPastMeetings}
-          isLoadingMoreBack={isLoadingMoreZoomPastMeetings}
+          monthOptions={zoomPastMonthOptions}
+          selectedMonthKey={selectedZoomPastMonthKey}
+          onSelectMonthKey={selectZoomPastMonth}
           onCreatePostMeetingRecord={preloadPastMeetingFormFromZoom}
         />
       )}
@@ -1820,7 +1845,3 @@ export function SpaHomeScreen() {
     </Box>
   );
 }
-
-
-
-

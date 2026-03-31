@@ -7,8 +7,10 @@ import {
   Card,
   CardContent,
   Chip,
+  MenuItem,
   Paper,
   Stack,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography
@@ -42,6 +44,11 @@ type ZoomRecurringSeries = {
   accountEmails: string[];
 };
 
+type MonthOption = {
+  value: string;
+  label: string;
+};
+
 interface SpaTabProximasReunionesProps {
   title?: string;
   subtitle?: string;
@@ -56,6 +63,10 @@ interface SpaTabProximasReunionesProps {
   onLoadMoreBack?: () => void;
   canLoadMoreBack?: boolean;
   isLoadingMoreBack?: boolean;
+  monthOptions?: MonthOption[];
+  selectedMonth?: string;
+  onSelectMonth?: (monthKey: string) => void;
+  isLoadingMonthSelection?: boolean;
 }
 
 function startOfWeek(date: Date): Date {
@@ -226,7 +237,11 @@ export function SpaTabProximasReuniones({
   defaultViewMode = "CALENDAR",
   onLoadMoreBack,
   canLoadMoreBack = false,
-  isLoadingMoreBack = false
+  isLoadingMoreBack = false,
+  monthOptions = [],
+  selectedMonth = "",
+  onSelectMonth,
+  isLoadingMonthSelection = false
 }: SpaTabProximasReunionesProps) {
   const [grouping, setGrouping] = useState<ZoomGroupingMode>("MONTH");
   const [viewMode, setViewMode] = useState<ZoomViewMode>(defaultViewMode);
@@ -615,6 +630,23 @@ export function SpaTabProximasReuniones({
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+            {onSelectMonth && monthOptions.length > 0 ? (
+              <TextField
+                select
+                size="small"
+                label="Mes"
+                value={selectedMonth}
+                onChange={(event) => onSelectMonth(String(event.target.value))}
+                disabled={isLoading || isLoadingMonthSelection}
+                sx={{ minWidth: { xs: 220, sm: 240 } }}
+              >
+                {monthOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : null}
             <Button variant="outlined" onClick={onRefresh} disabled={isLoading}>
               {isLoading ? "Actualizando..." : "Actualizar"}
             </Button>
