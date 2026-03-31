@@ -2849,7 +2849,8 @@ export class SalasService {
     const now = new Date();
 
     if (user.role === UserRole.ADMINISTRADOR) {
-      const [solicitudesTotales, manualPendings, eventosSinCobertura, agendaAbierta] =
+      const criticalWindowEnd = new Date(now.getTime() + 4 * 24 * 60 * 60_000);
+      const [solicitudesTotales, manualPendings, eventosSinCobertura, agendaAbierta, eventosCriticosSinAsistencia, eventosCriticosSinLinkZoom] =
         await Promise.all([
           db.solicitudSala.count(),
           db.solicitudSala.count({
@@ -2864,6 +2865,38 @@ export class SalasService {
               agendaAbiertaAt: { not: null },
               agendaCierraAt: { gt: now }
             }
+          }),
+          db.eventoZoom.count({
+            where: {
+              inicioProgramadoAt: {
+                gt: now,
+                lt: criticalWindowEnd
+              },
+              estadoEvento: {
+                notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO]
+              },
+              requiereAsistencia: true,
+              asignaciones: {
+                none: {
+                  tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+                  estadoAsignacion: {
+                    in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO]
+                  }
+                }
+              }
+            }
+          }),
+          db.eventoZoom.count({
+            where: {
+              inicioProgramadoAt: {
+                gt: now,
+                lt: criticalWindowEnd
+              },
+              estadoEvento: {
+                notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO]
+              },
+              OR: [{ zoomJoinUrl: null }, { zoomMeetingId: null }]
+            }
           })
         ]);
 
@@ -2872,7 +2905,9 @@ export class SalasService {
         solicitudesTotales,
         manualPendings,
         eventosSinCobertura,
-        agendaAbierta
+        agendaAbierta,
+        eventosCriticosSinAsistencia,
+        eventosCriticosSinLinkZoom
       };
     }
 

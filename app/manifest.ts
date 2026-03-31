@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "FLACSO Zoom Salas",
-    short_name: "ZoomSalas",
-    description: "Herramienta para coordinar salas Zoom y asistentes.",
+    name: "Plataforma Zoom de FLACSO Uruguay",
+    short_name: "Zoom FLACSO",
+    description: "Plataforma Zoom de FLACSO Uruguay para coordinar salas y asistentes.",
     id: "/",
     start_url: "/",
     scope: "/",

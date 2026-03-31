@@ -133,21 +133,24 @@ function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
   const manualPendings = metricValue(summary, "manualPendings");
   const eventosSinCobertura = metricValue(summary, "eventosSinCobertura");
   const agendaAbierta = metricValue(summary, "agendaAbierta");
-  const riskScore = manualPendings * 3 + eventosSinCobertura * 4 + Math.max(0, agendaAbierta - eventosSinCobertura);
+  const eventosCriticosSinAsistencia = metricValue(summary, "eventosCriticosSinAsistencia");
+  const eventosCriticosSinLinkZoom = metricValue(summary, "eventosCriticosSinLinkZoom");
+  const riesgosCriticosProximos = eventosCriticosSinAsistencia + eventosCriticosSinLinkZoom;
 
-  if (eventosSinCobertura >= 6 || manualPendings >= 8 || riskScore >= 45) {
+  if (riesgosCriticosProximos > 0) {
     return {
       label: "Critico",
       color: "error",
-      message: "Hay riesgo operativo alto. Priorizar cobertura y resolucion manual."
+      message:
+        "Hay riesgo operativo en reuniones de los proximos 4 dias (sin asistencia requerida o sin link de Zoom)."
     };
   }
 
-  if (eventosSinCobertura > 0 || manualPendings > 0 || riskScore >= 16) {
+  if (eventosSinCobertura > 0 || manualPendings > 0 || agendaAbierta > 0) {
     return {
       label: "Atencion",
       color: "warning",
-      message: "Operacion estable, pero con puntos a resolver en el corto plazo."
+      message: "Operacion estable, pero con puntos operativos a resolver."
     };
   }
 
@@ -412,6 +415,8 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
   const manualPendings = metricValue(summary, "manualPendings");
   const eventosSinCobertura = metricValue(summary, "eventosSinCobertura");
   const agendaAbierta = metricValue(summary, "agendaAbierta");
+  const eventosCriticosSinAsistencia = metricValue(summary, "eventosCriticosSinAsistencia");
+  const eventosCriticosSinLinkZoom = metricValue(summary, "eventosCriticosSinLinkZoom");
 
   return {
     title: "Estado operativo general",
@@ -451,6 +456,12 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
     status: deriveAdminStatus(summary),
     priorityItems: [
       `${solicitudesTotales} solicitud(es) totales registradas.`,
+      eventosCriticosSinAsistencia > 0
+        ? `${eventosCriticosSinAsistencia} evento(s) en menos de 4 dias con asistencia requerida y sin personal asignado.`
+        : "Sin eventos criticos por asistencia en los proximos 4 dias.",
+      eventosCriticosSinLinkZoom > 0
+        ? `${eventosCriticosSinLinkZoom} evento(s) en menos de 4 dias sin link Zoom generado.`
+        : "Sin eventos criticos por link Zoom en los proximos 4 dias.",
       eventosSinCobertura > 0
         ? `${eventosSinCobertura} evento(s) sin asistencia asignada.`
         : "No hay eventos sin asistencia asignada.",

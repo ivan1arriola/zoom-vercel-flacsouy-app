@@ -16,14 +16,14 @@ export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
 export const metadata: Metadata = {
-  applicationName: "FLACSO Zoom Salas",
-  title: "FLACSO Uruguay | Plataforma Zoom",
+  applicationName: "Plataforma Zoom de FLACSO Uruguay",
+  title: "Plataforma Zoom de FLACSO Uruguay",
   description: "Aplicacion modular con UI, base de datos e integraciones para FLACSO Uruguay",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "FLACSO Zoom"
+    title: "Plataforma Zoom de FLACSO Uruguay"
   },
   icons: {
     icon: [
@@ -85,7 +85,7 @@ export default async function RootLayout({
                   </Link>
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="h6" sx={{ fontWeight: 700, color: "primary.main" }}>
-                      Herramienta para coordinar Zoom
+                      Plataforma Zoom de FLACSO Uruguay
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       Facultad Latinoamericana de Ciencias Sociales - Uruguay

@@ -115,7 +115,7 @@ function buildEmailLayout(input: EmailTemplateInput): string {
   const logoUrl = `${input.baseUrl.replace(/\/$/, "")}/flacso-logo.png`;
   const preheader = escapeHtml(input.preheader);
   const title = escapeHtml(input.title);
-  const kicker = escapeHtml(input.kicker ?? "Plataforma Zoom FLACSO");
+  const kicker = escapeHtml(input.kicker ?? "Plataforma Zoom de FLACSO Uruguay");
   const greeting = escapeHtml(input.greeting);
   const paragraphs = input.paragraphs
     .map((line) => `<p style=\"margin:0 0 14px 0;color:#223042;font-size:16px;line-height:1.6;\">${escapeHtml(line)}</p>`)
@@ -225,10 +225,10 @@ function buildPasswordLinkEmail(input: {
   if (input.purpose === "activation") {
     const invitedBy = input.invitedBy?.trim();
     return {
-      subject: "Activa tu cuenta | Plataforma Zoom FLACSO",
+      subject: "Activa tu cuenta | Plataforma Zoom de FLACSO Uruguay",
       html: buildEmailLayout({
         baseUrl: input.baseUrl,
-        preheader: "Activa tu cuenta de Plataforma Zoom FLACSO.",
+        preheader: "Activa tu cuenta de Plataforma Zoom de FLACSO Uruguay.",
         title: "Activa tu cuenta",
         greeting,
       paragraphs: [
@@ -249,7 +249,7 @@ function buildPasswordLinkEmail(input: {
   }
 
   return {
-    subject: "Recuperacion de contrasena | Plataforma Zoom FLACSO",
+    subject: "Recuperacion de contrasena | Plataforma Zoom de FLACSO Uruguay",
     html: buildEmailLayout({
       baseUrl: input.baseUrl,
       preheader: "Recibimos una solicitud para cambiar tu contrasena.",
@@ -279,7 +279,7 @@ function buildRegistrationVerificationEmail(input: {
   const greeting = fullName ? `Hola ${fullName},` : "Hola,";
 
   return {
-    subject: "Confirma tu registro | Plataforma Zoom FLACSO",
+    subject: "Confirma tu registro | Plataforma Zoom de FLACSO Uruguay",
     html: buildEmailLayout({
       baseUrl: input.baseUrl,
       preheader: "Confirma tu correo para activar tu registro.",
@@ -306,7 +306,7 @@ function buildAccountConfirmedEmail(input: {
   const loginUrl = `${input.baseUrl.replace(/\/$/, "")}/`;
 
   return {
-    subject: "Cuenta activada correctamente | Plataforma Zoom FLACSO",
+    subject: "Cuenta activada correctamente | Plataforma Zoom de FLACSO Uruguay",
     html: buildEmailLayout({
       baseUrl: input.baseUrl,
       preheader: "Tu cuenta ya quedo activada.",

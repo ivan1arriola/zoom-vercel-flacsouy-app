@@ -75,6 +75,46 @@ async function findUserByLoginEmail(email: string): Promise<AuthUserRecord | nul
   return alias?.user ?? null;
 }
 
+function toNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+async function ensureUserAliasEmail(userId: string, email: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return;
+
+  const owner = await db.user.findUnique({
+    where: { id: userId },
+    select: { email: true }
+  });
+  if (!owner) return;
+  if (owner.email.trim().toLowerCase() === normalized) return;
+
+  const conflictPrimary = await db.user.findFirst({
+    where: {
+      email: normalized,
+      id: { not: userId }
+    },
+    select: { id: true }
+  });
+  if (conflictPrimary) return;
+
+  await db.userEmailAlias.upsert({
+    where: { email: normalized },
+    create: {
+      userId,
+      email: normalized
+    },
+    update: {
+      userId
+    }
+  });
+}
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(db) as Adapter,
   secret: authSecret,
@@ -224,35 +264,127 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const lastName = googleProfile.family_name;
       const fullName = googleProfile.name ?? user.name;
       const image = googleProfile.picture ?? user.image;
-      
-      await db.user.upsert({
+      const aliasOwner = await db.userEmailAlias.findUnique({
         where: { email },
-        create: {
-          email,
-          firstName: firstName ?? undefined,
-          lastName: lastName ?? undefined,
-          name: fullName,
-          image,
-          role,
-          emailVerified: new Date()
-        },
-        update: {
-          role,
-          firstName: firstName ?? undefined,
-          lastName: lastName ?? undefined,
-          name: fullName ?? undefined,
-          image: image ?? undefined
+        select: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              role: true
+            }
+          }
         }
       });
+      const matchedUser =
+        aliasOwner?.user && aliasOwner.user.id !== user.id
+          ? await db.user.findUnique({
+              where: { id: aliasOwner.user.id },
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                image: true,
+                role: true,
+                firstName: true,
+                lastName: true,
+                passwordHash: true,
+                emailVerified: true
+              }
+            })
+          : await findUserByLoginEmail(email);
+      const targetUser =
+        matchedUser
+          ? await db.user.update({
+              where: { id: matchedUser.id },
+              data: {
+                role: matchedUser.email === ADMIN_EMAIL ? UserRole.ADMINISTRADOR : matchedUser.role,
+                firstName: firstName ?? undefined,
+                lastName: lastName ?? undefined,
+                name: fullName ?? undefined,
+                image: image ?? undefined,
+                emailVerified: new Date()
+              },
+              select: {
+                id: true,
+                email: true
+              }
+            })
+          : await db.user.create({
+              data: {
+                email,
+                firstName: firstName ?? undefined,
+                lastName: lastName ?? undefined,
+                name: fullName,
+                image,
+                role,
+                emailVerified: new Date()
+              },
+              select: {
+                id: true,
+                email: true
+              }
+            });
+
+      await ensureUserAliasEmail(targetUser.id, email);
+
+      const providerAccountId = toNullableString(account.providerAccountId);
+      if (providerAccountId) {
+        await db.account.upsert({
+          where: {
+            provider_providerAccountId: {
+              provider: "google",
+              providerAccountId
+            }
+          },
+          create: {
+            userId: targetUser.id,
+            type: account.type,
+            provider: "google",
+            providerAccountId,
+            refresh_token: toNullableString(account.refresh_token),
+            access_token: toNullableString(account.access_token),
+            expires_at: toNullableNumber(account.expires_at),
+            token_type: toNullableString(account.token_type),
+            scope: toNullableString(account.scope),
+            id_token: toNullableString(account.id_token),
+            session_state: toNullableString(account.session_state)
+          },
+          update: {
+            userId: targetUser.id,
+            refresh_token: toNullableString(account.refresh_token),
+            access_token: toNullableString(account.access_token),
+            expires_at: toNullableNumber(account.expires_at),
+            token_type: toNullableString(account.token_type),
+            scope: toNullableString(account.scope),
+            id_token: toNullableString(account.id_token),
+            session_state: toNullableString(account.session_state)
+          }
+        });
+      }
+
+      if (user.id && user.id !== targetUser.id) {
+        await db.user.delete({ where: { id: user.id } }).catch(() => undefined);
+      }
 
       return true;
     },
     async jwt({ token, user }) {
       if (user) {
-        token.userId = user.id;
-        token.role = (user as { role?: UserRole }).role ?? UserRole.DOCENTE;
-        token.firstName = (user as { firstName?: string | null }).firstName;
-        token.lastName = (user as { lastName?: string | null }).lastName;
+        const signInEmail = String((user as { email?: string | null }).email ?? token.email ?? "")
+          .trim()
+          .toLowerCase();
+        const canonicalUser = signInEmail ? await findUserByLoginEmail(signInEmail) : null;
+
+        token.userId = canonicalUser?.id ?? user.id;
+        token.role =
+          canonicalUser?.email === ADMIN_EMAIL || signInEmail === ADMIN_EMAIL
+            ? UserRole.ADMINISTRADOR
+            : canonicalUser?.role ?? (user as { role?: UserRole }).role ?? UserRole.DOCENTE;
+        token.firstName =
+          canonicalUser?.firstName ?? (user as { firstName?: string | null }).firstName;
+        token.lastName =
+          canonicalUser?.lastName ?? (user as { lastName?: string | null }).lastName;
       }
 
       if (String(token.email ?? "").trim().toLowerCase() === ADMIN_EMAIL) {

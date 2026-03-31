@@ -19,6 +19,8 @@ export type DashboardSummary = {
   manualPendings?: number;
   eventosSinCobertura?: number;
   agendaAbierta?: number;
+  eventosCriticosSinAsistencia?: number;
+  eventosCriticosSinLinkZoom?: number;
   agendaDisponible?: number;
   misPostulaciones?: number;
   misAsignacionesProximas?: number;

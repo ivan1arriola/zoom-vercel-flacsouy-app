@@ -242,6 +242,25 @@ function parseEmailLines(raw: string): string[] {
   return Array.from(unique.values());
 }
 
+function resolveSnackbarSeverity(message: string): "success" | "info" | "warning" | "error" {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return "info";
+
+  if (
+    /(no se pudo|error|fall[oó]|no autenticado|unauthorized|inv[aá]lido|debes|denegad)/i.test(normalized)
+  ) {
+    return /(no autenticado|unauthorized|denegad|error)/i.test(normalized) ? "error" : "warning";
+  }
+
+  if (
+    /(correctamente|enviado|cread|actualizad|registrad|habilitad|sincronizad|listo)/i.test(normalized)
+  ) {
+    return "success";
+  }
+
+  return "info";
+}
+
 function resolveUserAccessEmails(
   user?: { email?: string | null; emails?: string[] | null } | null
 ): string[] {
@@ -2448,7 +2467,7 @@ export function SpaHomeScreen() {
         }}
       >
         <Alert
-          severity="info"
+          severity={resolveSnackbarSeverity(message)}
           variant="filled"
           onClose={() => setMessage("")}
           sx={{

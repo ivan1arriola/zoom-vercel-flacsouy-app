@@ -11,6 +11,8 @@ type SendEmailParams = {
   bcc?: string[];
 };
 
+const EMAIL_SENDER_NAME = "Herramienta de coordinacion Zoom - FLACSO Uruguay";
+
 export class EmailClient {
   private transporter: nodemailer.Transporter | null = null;
   private gmailClient: gmail_v1.Gmail | null = null;
@@ -87,7 +89,7 @@ export class EmailClient {
   }
 
   private buildRawMessage(params: SendEmailParams): string {
-    const from = env.SMTP_FROM || "noreply@flacso.edu.uy";
+    const from = this.getFromHeader();
     const headers = [
       `From: ${from}`,
       `To: ${params.to}`,
@@ -116,6 +118,14 @@ export class EmailClient {
     return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
   }
 
+  private getFromAddress(): string {
+    return env.SMTP_FROM || "noreply@flacso.edu.uy";
+  }
+
+  private getFromHeader(): string {
+    return `"${EMAIL_SENDER_NAME}" <${this.getFromAddress()}>`;
+  }
+
   async send(params: SendEmailParams): Promise<void> {
     if (this.isGmailServiceAccountConfigured()) {
       const gmailClient = await this.getGmailClient();
@@ -137,7 +147,7 @@ export class EmailClient {
     if (this.isSmtpConfigured()) {
       const transporter = await this.getTransporter();
       const info = await transporter.sendMail({
-        from: env.SMTP_FROM || "noreply@flacso.edu.uy",
+        from: this.getFromHeader(),
         to: params.to,
         subject: params.subject,
         html: params.html,
@@ -161,7 +171,7 @@ export class EmailClient {
 
     const transporter = await this.getTransporter();
     const info = await transporter.sendMail({
-      from: env.SMTP_FROM || "noreply@flacso.edu.uy",
+      from: this.getFromHeader(),
       to: params.to,
       subject: params.subject,
       html: params.html,

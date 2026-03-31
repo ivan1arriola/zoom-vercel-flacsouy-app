@@ -169,6 +169,19 @@ export function InlineLogin({
     setError("");
     setInfo("");
 
+    const existingLoginResult = await signIn("credentials", {
+      email,
+      password,
+      redirect: false
+    });
+
+    if (existingLoginResult && !existingLoginResult.error) {
+      setInfo("Ya tenias cuenta. Iniciando sesion...");
+      setIsRegisterSubmitting(false);
+      window.location.reload();
+      return;
+    }
+
     const response = await fetch("/api/v1/auth/register/initiate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -183,6 +196,24 @@ export function InlineLogin({
     const data = (await response.json()) as { error?: string; message?: string; verificationUrl?: string };
 
     if (!response.ok) {
+      const normalizedError = (data.error ?? "").toLowerCase();
+      const alreadyRegistered =
+        normalizedError.includes("ya esta registrado") || normalizedError.includes("ya está registrado");
+
+      if (alreadyRegistered) {
+        const fallbackLoginResult = await signIn("credentials", {
+          email,
+          password,
+          redirect: false
+        });
+        if (fallbackLoginResult && !fallbackLoginResult.error) {
+          setInfo("Cuenta existente detectada. Iniciando sesion...");
+          setIsRegisterSubmitting(false);
+          window.location.reload();
+          return;
+        }
+      }
+
       setError(data.error ?? "No se pudo iniciar el registro.");
       setIsRegisterSubmitting(false);
       return;
