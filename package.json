@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "NEXT_DIST_DIR=.next-dev next dev",
-    "build": "next build",
+    "build": "npm run db:generate && next build",
     "start": "next start",
     "check": "tsc --noEmit",
     "check:encoding": "node scripts/check-encoding.mjs",
