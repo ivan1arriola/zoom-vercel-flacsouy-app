@@ -204,6 +204,10 @@ function extractLocalDatePart(value: string): string | null {
   return `${year}-${month}-${day}`;
 }
 
+function isLikelyEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim().toLowerCase());
+}
+
 export function SpaTabSolicitudes({
   solicitudes,
   form,
@@ -709,14 +713,30 @@ export function SpaTabSolicitudes({
 
   function mapInstanciaAsistencia(instance: NonNullable<Solicitud["zoomInstances"]>[number]): {
     label: string;
-    color: "default" | "success";
+    color: "default" | "success" | "warning" | "error" | "info";
   } {
     const monitorLabel = instance.monitorNombre?.trim() || instance.monitorEmail?.trim() || "";
-    if (monitorLabel) {
-      return { label: `Asistencia: ${monitorLabel}`, color: "success" };
+    const requiresAssistance =
+      Boolean(instance.requiereAsistencia) &&
+      instance.estadoCobertura !== "NO_REQUIERE";
+
+    if (!requiresAssistance) {
+      return { label: "NO REQUIERE ASISTENCIA", color: "default" };
     }
 
-    return { label: "Asistencia: no requerida", color: "default" };
+    if (monitorLabel) {
+      return { label: `ASISTENCIA: ${monitorLabel}`, color: "success" };
+    }
+
+    if (instance.estadoCobertura === "CANCELADO") {
+      return { label: "ASISTENCIA CANCELADA", color: "default" };
+    }
+
+    if (instance.estadoCobertura === "ASIGNADO" || instance.estadoCobertura === "CONFIRMADO") {
+      return { label: "ASISTENCIA ASIGNADA", color: "info" };
+    }
+
+    return { label: "PENDIENTE DE ASISTENCIA", color: "warning" };
   }
 
   function renderInstanceList(
@@ -732,107 +752,121 @@ export function SpaTabSolicitudes({
       );
     }
 
-    return (
-      <Stack spacing={1.2}>
-        {instances.map((instance, index) => {
-          const status = mapInstanciaStatus(instance.estadoEvento, instance.status);
-          const asistencia = mapInstanciaAsistencia(instance);
-          const isInstanceCancelled = isSolicitudCancelled || !status.cancellable;
-          const instanceKey = `${item.id}:${instance.eventId ?? instance.occurrenceId ?? instance.startTime}`;
-          const isRestoreInProgress = restoringInstanciaKey === instanceKey;
-          const canRestoreThisInstance = canRestoreInstances && status.label === "Cancelada";
-          const canCancelThisInstance = canDeleteSolicitud && status.cancellable;
+    const preparedInstances = instances.map((instance, index) => {
+      const status = mapInstanciaStatus(instance.estadoEvento, instance.status);
+      return {
+        instance,
+        index,
+        status,
+        asistencia: mapInstanciaAsistencia(instance)
+      };
+    });
 
-          return (
-            <Paper
-              key={instanceKey}
-              variant="outlined"
-              sx={{
-                p: 1.2,
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 1
-              }}
-            >
-              <Box>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  {index + 1}. {formatDateTime(instance.startTime)}
-                </Typography>
-                <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
-                  <Chip size="small" color={status.color} label={status.label} />
-                  {status.label === "Finalizada" ? (
+    const activeOrFinalizedInstances = preparedInstances.filter((entry) => entry.status.label !== "Cancelada");
+    const cancelledInstances = preparedInstances.filter((entry) => entry.status.label === "Cancelada");
+
+    function renderInstanceRows(
+      rows: typeof preparedInstances,
+      options?: { muted?: boolean }
+    ) {
+      const isMuted = Boolean(options?.muted);
+      return (
+        <Stack spacing={1.2}>
+          {rows.map(({ instance, index, status, asistencia }) => {
+            const isInstanceCancelled = isSolicitudCancelled || !status.cancellable;
+            const instanceKey = `${item.id}:${instance.eventId ?? instance.occurrenceId ?? instance.startTime}`;
+            const isRestoreInProgress = restoringInstanciaKey === instanceKey;
+            const canRestoreThisInstance = canRestoreInstances && status.label === "Cancelada";
+            const canCancelThisInstance = canDeleteSolicitud && status.cancellable;
+
+            return (
+              <Paper
+                key={instanceKey}
+                variant="outlined"
+                sx={{
+                  p: 1.2,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 1,
+                  backgroundColor: isMuted ? "rgba(185, 28, 28, 0.04)" : "background.paper"
+                }}
+              >
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {index + 1}. {formatDateTime(instance.startTime)}
+                  </Typography>
+                  <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                    <Chip size="small" color={status.color} label={status.label} />
                     <Chip size="small" color={asistencia.color} label={asistencia.label} />
-                  ) : null}
-                  {instance.occurrenceId ? (
-                    <Chip size="small" variant="outlined" label={`occurrence_id ${instance.occurrenceId}`} />
-                  ) : null}
+                    {instance.occurrenceId ? (
+                      <Chip size="small" variant="outlined" label={`occurrence_id ${instance.occurrenceId}`} />
+                    ) : null}
+                  </Stack>
+                </Box>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                  {canCancelThisInstance && (
+                    <Button
+                      type="button"
+                      size="small"
+                      variant="outlined"
+                      color="warning"
+                      startIcon={<EventBusyOutlinedIcon fontSize="small" />}
+                      disabled={isInstanceCancelled || cancellingInstanciaKey === instanceKey || isRestoreInProgress}
+                      onClick={() =>
+                        onCancelSolicitudInstancia({
+                          solicitudId: item.id,
+                          titulo: item.titulo,
+                          eventoId: instance.eventId ?? undefined,
+                          occurrenceId: instance.occurrenceId ?? undefined,
+                          startTime: instance.startTime
+                        })
+                      }
+                    >
+                      {cancellingInstanciaKey === instanceKey ? "Cancelando..." : "Cancelar instancia"}
+                    </Button>
+                  )}
+                  {canRestoreThisInstance && (
+                    <Button
+                      type="button"
+                      size="small"
+                      variant="outlined"
+                      color="success"
+                      startIcon={<RestoreFromTrashOutlinedIcon fontSize="small" />}
+                      disabled={isRestoreInProgress || cancellingInstanciaKey === instanceKey}
+                      onClick={() =>
+                        onRestoreSolicitudInstancia({
+                          solicitudId: item.id,
+                          titulo: item.titulo,
+                          eventoId: instance.eventId ?? undefined,
+                          startTime: instance.startTime
+                        })
+                      }
+                    >
+                      {isRestoreInProgress ? "Sincronizando..." : "Descancelar instancia"}
+                    </Button>
+                  )}
                 </Stack>
-              </Box>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                {instance.joinUrl ? (
-                  <Button
-                    size="small"
-                    variant="text"
-                    href={instance.joinUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    endIcon={<LaunchIcon fontSize="small" />}
-                  >
-                    <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                      Abrir instancia
-                    </Box>
-                    <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                      Abrir
-                    </Box>
-                  </Button>
-                ) : null}
-                {canCancelThisInstance && (
-                  <Button
-                    type="button"
-                    size="small"
-                    variant="outlined"
-                    color="warning"
-                    startIcon={<EventBusyOutlinedIcon fontSize="small" />}
-                    disabled={isInstanceCancelled || cancellingInstanciaKey === instanceKey || isRestoreInProgress}
-                    onClick={() =>
-                      onCancelSolicitudInstancia({
-                        solicitudId: item.id,
-                        titulo: item.titulo,
-                        eventoId: instance.eventId ?? undefined,
-                        occurrenceId: instance.occurrenceId ?? undefined,
-                        startTime: instance.startTime
-                      })
-                    }
-                  >
-                    {cancellingInstanciaKey === instanceKey ? "Cancelando..." : "Cancelar instancia"}
-                  </Button>
-                )}
-                {canRestoreThisInstance && (
-                  <Button
-                    type="button"
-                    size="small"
-                    variant="outlined"
-                    color="success"
-                    startIcon={<RestoreFromTrashOutlinedIcon fontSize="small" />}
-                    disabled={isRestoreInProgress || cancellingInstanciaKey === instanceKey}
-                    onClick={() =>
-                      onRestoreSolicitudInstancia({
-                        solicitudId: item.id,
-                        titulo: item.titulo,
-                        eventoId: instance.eventId ?? undefined,
-                        startTime: instance.startTime
-                      })
-                    }
-                  >
-                    {isRestoreInProgress ? "Sincronizando..." : "Descancelar instancia"}
-                  </Button>
-                )}
-              </Stack>
-            </Paper>
-          );
-        })}
+              </Paper>
+            );
+          })}
+        </Stack>
+      );
+    }
+
+    return (
+      <Stack spacing={1.4}>
+        {activeOrFinalizedInstances.length > 0 ? renderInstanceRows(activeOrFinalizedInstances) : null}
+
+        {cancelledInstances.length > 0 ? (
+          <Box sx={{ pt: 0.4, borderTop: "1px dashed", borderColor: "divider" }}>
+            <Typography variant="caption" sx={{ color: "error.main", fontWeight: 700, mb: 0.8, display: "block" }}>
+              Instancias canceladas ({cancelledInstances.length})
+            </Typography>
+            {renderInstanceRows(cancelledInstances, { muted: true })}
+          </Box>
+        ) : null}
       </Stack>
     );
   }
@@ -1640,6 +1674,42 @@ export function SpaTabSolicitudes({
                   const hasEligibleInstanceForAssistance = sortedInstances.some((instance) =>
                     isInstanceActiveOrUpcoming(instance, Date.now())
                   );
+                  const assignedAssistantEmailsUpcoming = Array.from(
+                    new Set(
+                      sortedInstances
+                        .filter((instance) => isInstanceActiveOrUpcoming(instance, Date.now()))
+                        .map((instance) => (instance.monitorEmail ?? "").trim().toLowerCase())
+                        .filter((email) => isLikelyEmail(email))
+                    )
+                  );
+                  const assignedAssistantEmailsAny = Array.from(
+                    new Set(
+                      sortedInstances
+                        .map((instance) => (instance.monitorEmail ?? "").trim().toLowerCase())
+                        .filter((email) => isLikelyEmail(email))
+                    )
+                  );
+                  const assignedAssistantEmails =
+                    assignedAssistantEmailsUpcoming.length > 0
+                      ? assignedAssistantEmailsUpcoming
+                      : assignedAssistantEmailsAny;
+                  const assignedAssistantEmail =
+                    assignedAssistantEmails.length === 1 ? assignedAssistantEmails[0] : null;
+                  const canSendAssistantAccess =
+                    canSendReminder &&
+                    solicitudRequiresAssistance &&
+                    !isSolicitudCancelled &&
+                    Boolean(assignedAssistantEmail);
+                  const assistantAccessLabel = assignedAssistantEmail
+                    ? "Enviar acceso asistente"
+                    : assignedAssistantEmails.length > 1
+                      ? "Varios asistentes asignados"
+                      : "Sin asistente asignado";
+                  const assistantAccessTitle = assignedAssistantEmail
+                    ? `Enviar datos de acceso a ${assignedAssistantEmail}`
+                    : assignedAssistantEmails.length > 1
+                      ? "Hay mas de un asistente asignado. Usa Enviar recordatorio para elegir destinatario."
+                      : "Primero debes asignar una persona de asistencia Zoom.";
 
                   return (
                     <Paper
@@ -1720,6 +1790,27 @@ export function SpaTabSolicitudes({
                                 disabled={Boolean(sendingReminderSolicitudId)}
                               >
                                 {sendingReminderSolicitudId === item.id ? "Enviando..." : "Enviar recordatorio"}
+                              </Button>
+                            ) : null}
+                            {solicitudRequiresAssistance && canSendReminder ? (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="secondary"
+                                startIcon={<MailOutlineOutlinedIcon fontSize="small" />}
+                                onClick={() => {
+                                  if (!assignedAssistantEmail) return;
+                                  void onSendReminder({
+                                    solicitudId: item.id,
+                                    toEmail: assignedAssistantEmail,
+                                    mensaje:
+                                      "Este correo incluye todos los datos de acceso para tu asistencia Zoom asignada."
+                                  });
+                                }}
+                                disabled={Boolean(sendingReminderSolicitudId) || !canSendAssistantAccess}
+                                title={assistantAccessTitle}
+                              >
+                                {sendingReminderSolicitudId === item.id ? "Enviando..." : assistantAccessLabel}
                               </Button>
                             ) : null}
                             <Button

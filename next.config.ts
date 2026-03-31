@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
+const customDistDir = process.env.NEXT_DIST_DIR?.trim();
+
 const config: NextConfig = {
+  ...(customDistDir ? { distDir: customDistDir } : {}),
   reactStrictMode: true,
   async headers() {
     return [

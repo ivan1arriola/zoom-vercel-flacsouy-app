@@ -1009,6 +1009,26 @@ export function SpaTabDashboard({
           <Alert severity={config.status.color} sx={{ mt: 1.5 }}>
             {config.status.message}
           </Alert>
+          {role === "DOCENTE" ? (
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              alignItems={{ xs: "flex-start", sm: "center" }}
+              sx={{ mt: 1.2 }}
+            >
+              <Button
+                variant="contained"
+                size="large"
+                onClick={onGoToCreateMeeting}
+                disabled={!onGoToCreateMeeting}
+              >
+                Crear sala Zoom ahora
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                Esta es la accion principal del espacio docente.
+              </Typography>
+            </Stack>
+          ) : null}
           {role === "ADMINISTRADOR" ? (
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
               <Button

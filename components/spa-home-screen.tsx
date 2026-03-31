@@ -1808,7 +1808,7 @@ export function SpaHomeScreen() {
 
   const roleWorkspaceDescription = useMemo(() => {
     if (effectiveRole === "DOCENTE") {
-      return "Solicitar, editar y seguir tus reuniones.";
+      return "Crear salas Zoom rapido y dar seguimiento a tus reuniones.";
     }
     if (effectiveRole === "ASISTENTE_ZOOM") {
       return "Tomar agenda disponible y gestionar tus asistencias asignadas.";
@@ -1825,6 +1825,7 @@ export function SpaHomeScreen() {
     description: string;
     icon: ReactNode;
     active: boolean;
+    emphasis?: boolean;
     onClick: () => void;
   };
 
@@ -1832,19 +1833,12 @@ export function SpaHomeScreen() {
     if (effectiveRole === "DOCENTE") {
       return [
         {
-          id: "docente-inicio",
-          label: "Inicio",
-          description: "Resumen de actividad",
-          icon: getTabIcon("dashboard"),
-          active: tab === "dashboard",
-          onClick: () => setTab("dashboard")
-        },
-        {
           id: "docente-nueva",
-          label: "Nueva solicitud",
-          description: "Crear reunion",
+          label: "Crear sala Zoom",
+          description: "Accion principal",
           icon: getTabIcon("solicitudes"),
           active: tab === "solicitudes" && docenteSolicitudesView === "form",
+          emphasis: true,
           onClick: () => {
             setDocenteSolicitudesView("form");
             setTab("solicitudes");
@@ -1860,6 +1854,14 @@ export function SpaHomeScreen() {
             setDocenteSolicitudesView("list");
             setTab("solicitudes");
           }
+        },
+        {
+          id: "docente-inicio",
+          label: "Inicio",
+          description: "Resumen de actividad",
+          icon: getTabIcon("dashboard"),
+          active: tab === "dashboard",
+          onClick: () => setTab("dashboard")
         },
         {
           id: "docente-programas",
@@ -1976,6 +1978,20 @@ export function SpaHomeScreen() {
             flexWrap="wrap"
             sx={{ width: { xs: "100%", lg: "auto" } }}
           >
+            {effectiveRole === "DOCENTE" ? (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={getTabIcon("solicitudes")}
+                onClick={() => {
+                  setDocenteSolicitudesView("form");
+                  setTab("solicitudes");
+                }}
+                sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2 }}
+              >
+                Crear sala Zoom
+              </Button>
+            ) : null}
             <Chip size="small" variant="outlined" label={`Rol: ${normalizedRoleLabel}`} />
           </Stack>
         </Stack>
@@ -2023,14 +2039,18 @@ export function SpaHomeScreen() {
                 sx={{
                   p: 1.1,
                   borderRadius: 2,
-                  borderColor: action.active ? "primary.main" : "divider",
-                  backgroundColor: action.active ? "action.selected" : "background.paper"
+                  borderColor: action.active || action.emphasis ? "primary.main" : "divider",
+                  backgroundColor: action.emphasis
+                    ? "rgba(31, 75, 143, 0.08)"
+                    : action.active
+                      ? "action.selected"
+                      : "background.paper"
                 }}
               >
                 <Button
                   fullWidth
                   size="small"
-                  variant={action.active ? "contained" : "text"}
+                  variant={action.emphasis || action.active ? "contained" : "text"}
                   startIcon={action.icon}
                   onClick={action.onClick}
                   sx={{
