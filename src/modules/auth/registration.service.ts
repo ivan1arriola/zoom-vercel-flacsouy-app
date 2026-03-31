@@ -324,9 +324,49 @@ function buildAccountConfirmedEmail(input: {
   };
 }
 
+async function findUserByAnyEmail(email: string): Promise<{
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  };
+  matchedEmail: string;
+} | null> {
+  const primary = await db.user.findUnique({
+    where: { email },
+    select: { id: true, email: true, firstName: true, lastName: true }
+  });
+  if (primary) {
+    return { user: primary, matchedEmail: email };
+  }
+
+  const alias = await db.userEmailAlias.findUnique({
+    where: { email },
+    select: {
+      email: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true
+        }
+      }
+    }
+  });
+  if (!alias) return null;
+
+  return {
+    user: alias.user,
+    matchedEmail: alias.email
+  };
+}
+
 async function requestPasswordLink(input: RequestPasswordLinkInput): Promise<{ resetUrl?: string }> {
   const email = normalizeEmail(input.email);
-  const user = await db.user.findUnique({ where: { email } });
+  const resolved = await findUserByAnyEmail(email);
+  const user = resolved?.user;
 
   if (!user) {
     return {};
@@ -551,10 +591,14 @@ export async function confirmPasswordRecovery(
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 12);
+  const resolved = await findUserByAnyEmail(email);
+  if (!resolved) {
+    throw new Error("No existe una cuenta asociada a ese correo.");
+  }
 
   const updatedUser = await db.$transaction(async (tx) => {
     const user = await tx.user.update({
-      where: { email },
+      where: { id: resolved.user.id },
       data: {
         passwordHash,
         emailVerified: new Date()

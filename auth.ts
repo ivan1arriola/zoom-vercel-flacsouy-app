@@ -24,6 +24,57 @@ function canUseGoogle(email: string): boolean {
   return email.trim().toLowerCase().endsWith(GOOGLE_ALLOWED_DOMAIN);
 }
 
+type AuthUserRecord = {
+  id: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+  role: UserRole;
+  firstName: string | null;
+  lastName: string | null;
+  passwordHash: string | null;
+  emailVerified: Date | null;
+};
+
+async function findUserByLoginEmail(email: string): Promise<AuthUserRecord | null> {
+  const primary = await db.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      image: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      passwordHash: true,
+      emailVerified: true
+    }
+  });
+  if (primary) return primary;
+
+  const alias = await db.userEmailAlias.findUnique({
+    where: { email },
+    select: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          image: true,
+          role: true,
+          firstName: true,
+          lastName: true,
+          passwordHash: true,
+          emailVerified: true
+        }
+      }
+    }
+  });
+
+  return alias?.user ?? null;
+}
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(db) as Adapter,
   secret: authSecret,
@@ -79,21 +130,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           };
         }
 
-        const user = await db.user.findUnique({ where: { email } });
+        const user = await findUserByLoginEmail(email);
         if (!user || !user.passwordHash) return null;
         if (!user.emailVerified) return null;
 
         const validPassword = await bcrypt.compare(password, user.passwordHash);
         if (!validPassword) return null;
 
-        if (email === ADMIN_EMAIL && user.role !== UserRole.ADMINISTRADOR) {
+        if (user.email === ADMIN_EMAIL && user.role !== UserRole.ADMINISTRADOR) {
           await db.user.update({
-            where: { email },
+            where: { id: user.id },
             data: { role: UserRole.ADMINISTRADOR }
           });
         }
 
-        const effectiveRole = email === ADMIN_EMAIL ? UserRole.ADMINISTRADOR : user.role;
+        const effectiveRole = user.email === ADMIN_EMAIL ? UserRole.ADMINISTRADOR : user.role;
 
         return {
           id: user.id,

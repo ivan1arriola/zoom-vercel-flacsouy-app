@@ -26,7 +26,7 @@ import type { ManagedUser } from "@/src/services/userApi";
 interface CreateUserForm {
   firstName: string;
   lastName: string;
-  email: string;
+  emails: string;
   role: string;
 }
 
@@ -183,12 +183,14 @@ export function SpaTabUsuarios({
                 onChange={(e) => setCreateUserForm((prev) => ({ ...prev, lastName: e.target.value }))}
               />
               <TextField
-                label="Email"
+                label="Correos de acceso"
                 required
-                type="email"
                 size="small"
-                value={createUserForm.email}
-                onChange={(e) => setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))}
+                multiline
+                minRows={2}
+                value={createUserForm.emails}
+                onChange={(e) => setCreateUserForm((prev) => ({ ...prev, emails: e.target.value }))}
+                helperText="Ingresa uno o varios correos, uno por linea. El primero queda como principal."
               />
               <TextField
                 label="Rol"
@@ -281,6 +283,11 @@ export function SpaTabUsuarios({
                       <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.15 }}>
                         {managedUser.email}
                       </Typography>
+                      {managedUser.emails && managedUser.emails.length > 1 ? (
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
+                          Acceso alternativo: {managedUser.emails.slice(1).join(" | ")}
+                        </Typography>
+                      ) : null}
                       <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.65 }}>
                         <Chip size="small" variant="outlined" label={formatManagedUserRole(managedUser.role)} />
                         <Chip

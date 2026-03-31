@@ -1,6 +1,7 @@
 export type CurrentUser = {
   id: string;
   email: string;
+  emails?: string[];
   role: string;
   firstName?: string | null;
   lastName?: string | null;
@@ -10,6 +11,7 @@ export type CurrentUser = {
 export type ManagedUser = {
   id: string;
   email: string;
+  emails?: string[];
   role: string;
   firstName?: string | null;
   lastName?: string | null;

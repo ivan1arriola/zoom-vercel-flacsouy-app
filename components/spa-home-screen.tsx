@@ -116,6 +116,7 @@ import { buildDocenteSolicitudPayload } from "@/components/spa-tabs/solicitud-pa
 export type CurrentUser = {
   id: string;
   email: string;
+  emails?: string[];
   role: string;
   firstName?: string | null;
   lastName?: string | null;
@@ -219,6 +220,31 @@ function buildZoomPastMonthOptions(maxMonthsBack = MAX_ZOOM_PAST_MONTHS_BACK): Z
       monthsBack: index + 1
     };
   });
+}
+
+function parseEmailLines(raw: string): string[] {
+  const unique = new Set<string>();
+  for (const line of raw.split(/\r?\n/)) {
+    const normalized = line.trim().toLowerCase();
+    if (!normalized) continue;
+    unique.add(normalized);
+  }
+  return Array.from(unique.values());
+}
+
+function resolveUserAccessEmails(
+  user?: { email?: string | null; emails?: string[] | null } | null
+): string[] {
+  if (!user) return [];
+  const unique = new Set<string>();
+  const primary = user.email?.trim().toLowerCase();
+  if (primary) unique.add(primary);
+  for (const email of user.emails ?? []) {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) continue;
+    unique.add(normalized);
+  }
+  return Array.from(unique.values());
 }
 
 export function SpaHomeScreen() {
@@ -389,6 +415,10 @@ export function SpaHomeScreen() {
   const canUseGoogleByEmail = useMemo(
     () => Boolean(user?.email?.trim().toLowerCase().endsWith("@flacso.edu.uy")),
     [user?.email]
+  );
+  const docenteLinkedEmailOptions = useMemo(
+    () => resolveUserAccessEmails(user),
+    [user]
   );
   const requesterDisplayName = useMemo(() => {
     if (!user) return "";
@@ -759,6 +789,20 @@ export function SpaHomeScreen() {
   }, [requesterDisplayName, setForm]);
 
   useEffect(() => {
+    if (docenteLinkedEmailOptions.length === 0) return;
+    setForm((prev) => {
+      const current = prev.correoVinculado.trim().toLowerCase();
+      if (current && docenteLinkedEmailOptions.includes(current)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        correoVinculado: docenteLinkedEmailOptions[0] ?? ""
+      };
+    });
+  }, [docenteLinkedEmailOptions, setForm]);
+
+  useEffect(() => {
     if (tab !== "perfil" || !user) return;
     if (!canUseGoogleByEmail) {
       setGoogleLinked(false);
@@ -943,7 +987,25 @@ export function SpaHomeScreen() {
         .filter(Boolean)
         .join("\n");
 
-      const normalizedDocentesCorreos = normalizeDocentesCorreosByLine(form.correosDocentes);
+      const linkedDocenteEmail = form.correoVinculado.trim().toLowerCase();
+      if (!linkedDocenteEmail) {
+        setMessage("Debes seleccionar el correo vinculado de la reunion.");
+        return;
+      }
+      if (!docenteLinkedEmailOptions.includes(linkedDocenteEmail)) {
+        setMessage("El correo vinculado debe pertenecer a tu cuenta.");
+        return;
+      }
+
+      const normalizedAdditionalDocenteCopies = normalizeDocentesCorreosByLine(form.correosDocentes);
+      const normalizedDocentesCorreos = Array.from(
+        new Set([
+          linkedDocenteEmail,
+          ...(normalizedAdditionalDocenteCopies
+            ? normalizedAdditionalDocenteCopies.split("\n").filter(Boolean)
+            : [])
+        ])
+      ).join("\n");
       const payload = buildDocenteSolicitudPayload({
         form,
         metadata,
@@ -1367,10 +1429,16 @@ export function SpaHomeScreen() {
     setIsCreatingUser(true);
 
     try {
+      const parsedEmails = parseEmailLines(createUserForm.emails);
+      if (parsedEmails.length === 0) {
+        setMessage("Debes indicar al menos un correo de acceso.");
+        return;
+      }
+
       const response = await submitCreateUserApi({
         firstName: createUserForm.firstName,
         lastName: createUserForm.lastName,
-        email: createUserForm.email,
+        emails: parsedEmails,
         role: createUserForm.role
       });
 
@@ -1381,7 +1449,7 @@ export function SpaHomeScreen() {
 
       setCreateUserForm((prev) => ({
         ...prev,
-        email: "",
+        emails: "",
         firstName: "",
         lastName: "",
         role: "DOCENTE"
@@ -2114,6 +2182,7 @@ export function SpaHomeScreen() {
           canCreateShortcut={canCreateSolicitudShortcut}
           canDelegateResponsable={canDelegateSolicitudResponsable}
           responsableOptions={responsableOptions}
+          docenteLinkedEmailOptions={docenteLinkedEmailOptions}
           programaOptions={programaOptions}
           isCreatingPrograma={isCreatingPrograma}
           onCreatePrograma={createProgramaOnDemand}

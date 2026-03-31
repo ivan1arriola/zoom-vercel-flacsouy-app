@@ -40,6 +40,7 @@ async function getAdminViewRoleFromCookie(): Promise<UserRole | null> {
 export type SessionUser = {
   id: string;
   email: string;
+  emails: string[];
   role: UserRole;
   firstName?: string | null;
   lastName?: string | null;
@@ -62,7 +63,15 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       firstName: true,
       lastName: true,
       name: true,
-      image: true
+      image: true,
+      emailAliases: {
+        select: {
+          email: true
+        },
+        orderBy: {
+          email: "asc"
+        }
+      }
     }
   });
 
@@ -72,9 +81,17 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     dbUser.role === UserRole.ADMINISTRADOR ? await getAdminViewRoleFromCookie() : null;
   const effectiveRole = normalizeOperationalRole(adminViewRole ?? dbUser.role);
 
+  const emails = Array.from(
+    new Set([
+      dbUser.email.trim().toLowerCase(),
+      ...dbUser.emailAliases.map((item) => item.email.trim().toLowerCase())
+    ])
+  );
+
   return {
     id: dbUser.id,
     email: dbUser.email,
+    emails,
     role: effectiveRole,
     firstName: dbUser.firstName,
     lastName: dbUser.lastName,

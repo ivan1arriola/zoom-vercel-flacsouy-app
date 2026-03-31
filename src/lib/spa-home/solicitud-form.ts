@@ -9,6 +9,7 @@ export type SolicitudVariasModo = "RECURRENCIA_ZOOM" | "FECHAS_ESPECIFICAS";
 export type SolicitudFormState = {
   tema: string;
   responsable: string;
+  correoVinculado: string;
   programa: string;
   asistenciaZoom: SolicitudAsistencia;
   modalidad: SolicitudModalidad;
@@ -40,6 +41,7 @@ export type SolicitudFormState = {
 export const DEFAULT_SOLICITUD_FORM: SolicitudFormState = {
   tema: "",
   responsable: "",
+  correoVinculado: "",
   programa: "",
   asistenciaZoom: "SI",
   modalidad: "VIRTUAL",

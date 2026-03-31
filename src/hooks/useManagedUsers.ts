@@ -10,7 +10,7 @@ export function useManagedUsers() {
   const [createUserForm, setCreateUserForm] = useState({
     firstName: "",
     lastName: "",
-    email: "",
+    emails: "",
     role: "DOCENTE"
   });
 

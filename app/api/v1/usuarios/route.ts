@@ -8,21 +8,38 @@ import { requestUserActivationLink } from "@/src/modules/auth/registration.servi
 
 export const runtime = "nodejs";
 
-const createUserSchema = z.object({
-  firstName: z.string().trim().max(80).optional().or(z.literal("")),
-  lastName: z.string().trim().max(80).optional().or(z.literal("")),
-  email: z.string().trim().email("Email invalido."),
-  role: z.nativeEnum(UserRole)
-});
+const createUserSchema = z
+  .object({
+    firstName: z.string().trim().max(80).optional().or(z.literal("")),
+    lastName: z.string().trim().max(80).optional().or(z.literal("")),
+    email: z.string().trim().email("Email invalido.").optional(),
+    emails: z.array(z.string().trim().email("Email invalido.")).min(1).optional(),
+    role: z.nativeEnum(UserRole)
+  })
+  .refine((data) => Boolean(data.email || data.emails?.length), {
+    message: "Debes indicar al menos un email.",
+    path: ["email"]
+  });
 
 const updateUserRoleSchema = z.object({
   userId: z.string().trim().min(1, "userId es obligatorio."),
-  role: z.nativeEnum(UserRole)
+  role: z.nativeEnum(UserRole),
+  emails: z.array(z.string().trim().email("Email invalido.")).min(1).optional()
 });
 const ASSISTANT_ELIGIBLE_ROLES: UserRole[] = [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM];
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizeEmails(values: string[]): string[] {
+  const unique = new Set<string>();
+  for (const value of values) {
+    const normalized = normalizeEmail(value);
+    if (!normalized) continue;
+    unique.add(normalized);
+  }
+  return Array.from(unique.values());
 }
 
 function normalizeNullable(value?: string): string | null {
@@ -34,6 +51,12 @@ function normalizeNullable(value?: string): string | null {
 function buildDisplayName(firstName?: string | null, lastName?: string | null): string | undefined {
   const name = [firstName?.trim(), lastName?.trim()].filter(Boolean).join(" ").trim();
   return name || undefined;
+}
+
+function buildUserAccessEmails(input: { email: string; emailAliases: Array<{ email: string }> }): string[] {
+  return Array.from(
+    new Set([input.email.trim().toLowerCase(), ...input.emailAliases.map((item) => item.email.trim().toLowerCase())])
+  );
 }
 
 async function ensureAssistantProfileForRole(userId: string, role: UserRole): Promise<void> {
@@ -60,11 +83,24 @@ export async function GET() {
       firstName: true,
       lastName: true,
       emailVerified: true,
-      createdAt: true
+      createdAt: true,
+      emailAliases: {
+        select: {
+          email: true
+        },
+        orderBy: {
+          email: "asc"
+        }
+      }
     }
   });
 
-  return NextResponse.json({ users });
+  return NextResponse.json({
+    users: users.map((user) => ({
+      ...user,
+      emails: buildUserAccessEmails(user)
+    }))
+  });
 }
 
 export async function POST(request: Request) {
@@ -79,11 +115,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Datos invalidos." }, { status: 400 });
   }
 
-  const email = normalizeEmail(parsed.data.email);
+  const inputEmails = normalizeEmails(
+    parsed.data.emails && parsed.data.emails.length > 0
+      ? parsed.data.emails
+      : [parsed.data.email ?? ""]
+  );
+  if (inputEmails.length === 0) {
+    return NextResponse.json({ error: "Debes indicar al menos un email." }, { status: 400 });
+  }
 
-  const existing = await db.user.findUnique({ where: { email } });
-  if (existing) {
-    return NextResponse.json({ error: "Ya existe un usuario con ese email." }, { status: 409 });
+  const primaryEmail = inputEmails[0] ?? "";
+  const aliasEmails = inputEmails.slice(1);
+
+  const [existingPrimary, existingAlias] = await Promise.all([
+    db.user.findFirst({
+      where: { email: { in: inputEmails } },
+      select: { email: true }
+    }),
+    db.userEmailAlias.findFirst({
+      where: { email: { in: inputEmails } },
+      select: { email: true }
+    })
+  ]);
+
+  if (existingPrimary || existingAlias) {
+    const duplicated = existingPrimary?.email ?? existingAlias?.email ?? "ese email";
+    return NextResponse.json({ error: `Ya existe un usuario con ${duplicated}.` }, { status: 409 });
   }
 
   const firstName = normalizeNullable(parsed.data.firstName);
@@ -92,13 +149,22 @@ export async function POST(request: Request) {
 
   const user = await db.user.create({
     data: {
-      email,
+      email: primaryEmail,
       firstName,
       lastName,
       name,
       role: parsed.data.role,
       passwordHash: null,
-      emailVerified: null
+      emailVerified: null,
+      ...(aliasEmails.length > 0
+        ? {
+            emailAliases: {
+              createMany: {
+                data: aliasEmails.map((email) => ({ email }))
+              }
+            }
+          }
+        : {})
     },
     select: {
       id: true,
@@ -107,7 +173,15 @@ export async function POST(request: Request) {
       firstName: true,
       lastName: true,
       emailVerified: true,
-      createdAt: true
+      createdAt: true,
+      emailAliases: {
+        select: {
+          email: true
+        },
+        orderBy: {
+          email: "asc"
+        }
+      }
     }
   });
   await ensureAssistantProfileForRole(user.id, user.role);
@@ -121,7 +195,7 @@ export async function POST(request: Request) {
   let activationUrl: string | undefined;
   try {
     const activationResult = await requestUserActivationLink({
-      email,
+      email: primaryEmail,
       origin,
       firstName: firstName ?? undefined,
       lastName: lastName ?? undefined,
@@ -143,12 +217,23 @@ export async function POST(request: Request) {
     summary: user.email,
     details: {
       role: user.role,
+      emailsAcceso: buildUserAccessEmails(user),
       createdBy: adminUser?.id ?? "",
       activationLinkSent: true
     }
   });
 
-  return NextResponse.json({ ok: true, user, activationUrl }, { status: 201 });
+  return NextResponse.json(
+    {
+      ok: true,
+      user: {
+        ...user,
+        emails: buildUserAccessEmails(user)
+      },
+      activationUrl
+    },
+    { status: 201 }
+  );
 }
 
 export async function PATCH(request: Request) {
@@ -172,7 +257,15 @@ export async function PATCH(request: Request) {
       firstName: true,
       lastName: true,
       emailVerified: true,
-      createdAt: true
+      createdAt: true,
+      emailAliases: {
+        select: {
+          email: true
+        },
+        orderBy: {
+          email: "asc"
+        }
+      }
     }
   });
   if (!targetUser) {
@@ -186,22 +279,126 @@ export async function PATCH(request: Request) {
     );
   }
 
-  if (targetUser.role === parsed.data.role) {
-    return NextResponse.json({ ok: true, user: targetUser });
+  const requestedEmails = parsed.data.emails ? normalizeEmails(parsed.data.emails) : null;
+  const currentEmails = buildUserAccessEmails(targetUser);
+  const shouldUpdateEmails = Boolean(
+    requestedEmails &&
+      requestedEmails.length > 0 &&
+      (requestedEmails.length !== currentEmails.length ||
+        requestedEmails.some((email, index) => email !== currentEmails[index]))
+  );
+
+  if (targetUser.role === parsed.data.role && !shouldUpdateEmails) {
+    return NextResponse.json({
+      ok: true,
+      user: {
+        ...targetUser,
+        emails: currentEmails
+      }
+    });
   }
 
-  const updatedUser = await db.user.update({
-    where: { id: targetUser.id },
-    data: { role: parsed.data.role },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      firstName: true,
-      lastName: true,
-      emailVerified: true,
-      createdAt: true
+  if (requestedEmails && requestedEmails.length === 0) {
+    return NextResponse.json({ error: "Debes indicar al menos un email." }, { status: 400 });
+  }
+
+  if (shouldUpdateEmails && requestedEmails) {
+    const [existingPrimary, existingAlias] = await Promise.all([
+      db.user.findFirst({
+        where: {
+          email: { in: requestedEmails },
+          id: { not: targetUser.id }
+        },
+        select: { email: true }
+      }),
+      db.userEmailAlias.findFirst({
+        where: {
+          email: { in: requestedEmails },
+          userId: { not: targetUser.id }
+        },
+        select: { email: true }
+      })
+    ]);
+
+    if (existingPrimary || existingAlias) {
+      const duplicated = existingPrimary?.email ?? existingAlias?.email ?? "ese email";
+      return NextResponse.json({ error: `El email ${duplicated} ya esta en uso.` }, { status: 409 });
     }
+  }
+
+  const updatedUser = await db.$transaction(async (tx) => {
+    const nextPrimaryEmail = requestedEmails?.[0];
+    const nextAliasEmails = requestedEmails ? requestedEmails.slice(1) : null;
+
+    if (nextPrimaryEmail && nextPrimaryEmail !== targetUser.email) {
+      await tx.userEmailAlias.deleteMany({
+        where: {
+          userId: targetUser.id,
+          email: nextPrimaryEmail
+        }
+      });
+    }
+
+    await tx.user.update({
+      where: { id: targetUser.id },
+      data: {
+        role: parsed.data.role,
+        ...(nextPrimaryEmail ? { email: nextPrimaryEmail } : {})
+      }
+    });
+
+    if (nextAliasEmails) {
+      if (nextAliasEmails.length === 0) {
+        await tx.userEmailAlias.deleteMany({
+          where: {
+            userId: targetUser.id
+          }
+        });
+      } else {
+        await tx.userEmailAlias.deleteMany({
+          where: {
+            userId: targetUser.id,
+            email: {
+              notIn: nextAliasEmails
+            }
+          }
+        });
+      }
+
+      for (const aliasEmail of nextAliasEmails) {
+        await tx.userEmailAlias.upsert({
+          where: { email: aliasEmail },
+          create: {
+            userId: targetUser.id,
+            email: aliasEmail
+          },
+          update: {
+            userId: targetUser.id
+          }
+        });
+      }
+    }
+
+    return tx.user.findUniqueOrThrow({
+      where: { id: targetUser.id },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        emailVerified: true,
+        createdAt: true,
+        emailAliases: {
+          select: {
+            email: true
+          },
+          orderBy: {
+            email: "asc"
+          }
+        }
+      }
+    });
   });
   await ensureAssistantProfileForRole(updatedUser.id, updatedUser.role);
 
@@ -215,9 +412,16 @@ export async function PATCH(request: Request) {
     details: {
       roleAnterior: targetUser.role,
       roleNuevo: updatedUser.role,
+      emailsAcceso: buildUserAccessEmails(updatedUser),
       updatedBy: adminUser?.id ?? ""
     }
   });
 
-  return NextResponse.json({ ok: true, user: updatedUser });
+  return NextResponse.json({
+    ok: true,
+    user: {
+      ...updatedUser,
+      emails: buildUserAccessEmails(updatedUser)
+    }
+  });
 }

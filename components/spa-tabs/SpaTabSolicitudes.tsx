@@ -91,6 +91,7 @@ interface SpaTabSolicitudesProps {
   canCreateShortcut: boolean;
   canDelegateResponsable: boolean;
   responsableOptions: Array<{ value: string; label: string }>;
+  docenteLinkedEmailOptions: string[];
   programaOptions: string[];
   isCreatingPrograma: boolean;
   onCreatePrograma: (nombre: string) => Promise<string | null>;
@@ -235,6 +236,7 @@ export function SpaTabSolicitudes({
   canCreateShortcut,
   canDelegateResponsable,
   responsableOptions,
+  docenteLinkedEmailOptions,
   programaOptions,
   isCreatingPrograma,
   onCreatePrograma,
@@ -259,6 +261,17 @@ export function SpaTabSolicitudes({
   } | null>(null);
   const [addInstanceStartLocal, setAddInstanceStartLocal] = useState("");
   const [addInstanceEndLocal, setAddInstanceEndLocal] = useState("");
+  const linkedEmailOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          docenteLinkedEmailOptions
+            .map((item) => item.trim().toLowerCase())
+            .filter((item) => isLikelyEmail(item))
+        )
+      ),
+    [docenteLinkedEmailOptions]
+  );
 
   function extractEmailCandidate(raw?: string | null): string {
     const normalized = (raw ?? "").trim().toLowerCase();
@@ -974,6 +987,36 @@ export function SpaTabSolicitudes({
             />
           )}
           <TextField
+            label="Correo vinculado"
+            required
+            fullWidth
+            select
+            value={form.correoVinculado}
+            onChange={(e) => updateForm("correoVinculado", e.target.value)}
+            helperText={
+              linkedEmailOptions.length > 1
+                ? "Este correo quedara vinculado a la reunion para su gestion."
+                : "Se usara este correo para vincular la reunion."
+            }
+          >
+            {linkedEmailOptions.length === 0 ? (
+              <MenuItem value="" disabled>
+                Sin correos disponibles
+              </MenuItem>
+            ) : null}
+            {linkedEmailOptions.map((email) => (
+              <MenuItem key={email} value={email}>
+                {email}
+              </MenuItem>
+            ))}
+            {form.correoVinculado.trim() &&
+            !linkedEmailOptions.some((email) => email === form.correoVinculado.trim().toLowerCase()) ? (
+              <MenuItem value={form.correoVinculado.trim().toLowerCase()}>
+                {form.correoVinculado.trim().toLowerCase()}
+              </MenuItem>
+            ) : null}
+          </TextField>
+          <TextField
             label="Programa"
             required
             fullWidth
@@ -1463,14 +1506,14 @@ export function SpaTabSolicitudes({
           )}
 
           <TextField
-            label="Correos de docentes"
+            label="Copiar tambien a (opcional)"
             multiline
             minRows={3}
             fullWidth
             value={form.correosDocentes}
             onChange={(e) => updateForm("correosDocentes", normalizeEmailInputAsLines(e.target.value))}
             placeholder={"docente1@flacso.edu.uy\ndocente2@flacso.edu.uy"}
-            helperText="Se enviara una copia del correo de confirmacion cuando la solicitud quede provisionada. Ingresa un email por linea."
+            helperText="Se enviara copia del correo de confirmacion. Ingresa un email por linea."
             sx={{ mt: 1 }}
           />
 

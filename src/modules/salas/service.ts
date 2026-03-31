@@ -330,6 +330,35 @@ function normalizeDocentesCorreosForStorage(raw?: string | null): string | undef
   return parsed.length > 0 ? parsed.join("\n") : undefined;
 }
 
+async function listUserAccessEmails(userId: string, fallbackEmail?: string | null): Promise<string[]> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      email: true,
+      emailAliases: {
+        select: {
+          email: true
+        }
+      }
+    }
+  });
+
+  const unique = new Set<string>();
+  if (user?.email) {
+    unique.add(user.email.trim().toLowerCase());
+  }
+  for (const alias of user?.emailAliases ?? []) {
+    const normalized = alias.email.trim().toLowerCase();
+    if (!normalized) continue;
+    unique.add(normalized);
+  }
+  if (unique.size === 0 && fallbackEmail) {
+    unique.add(fallbackEmail.trim().toLowerCase());
+  }
+
+  return Array.from(unique.values());
+}
+
 async function resolveResponsibleNotificationEmail(
   responsableNombre?: string | null
 ): Promise<string | null> {
@@ -4143,7 +4172,14 @@ export class SalasService {
   async createSolicitud(user: SessionUser, input: CreateSolicitudInput) {
     validateZoomRecurrenceRestrictions(input);
     const docentesCopyEmails = parseDocentesEmailsByLine(input.docentesCorreos);
-    const normalizedDocentesCorreos = normalizeDocentesCorreosForStorage(input.docentesCorreos);
+    const userAccessEmails = await listUserAccessEmails(user.id, user.email);
+    const linkedDocenteEmail = (docentesCopyEmails[0] ?? userAccessEmails[0] ?? user.email).trim().toLowerCase();
+    if (!userAccessEmails.includes(linkedDocenteEmail)) {
+      throw new Error("El correo vinculado de la reunion debe pertenecer al usuario que crea la solicitud.");
+    }
+    const normalizedDocentesCorreos = normalizeDocentesCorreosForStorage(
+      [linkedDocenteEmail, ...docentesCopyEmails.filter((email) => email !== linkedDocenteEmail)].join("\n")
+    );
     const docente = await getOrCreateDocente(user);
     const start = toDate(input.fechaInicioSolicitada, "fechaInicioSolicitada");
     const end = toDate(input.fechaFinSolicitada, "fechaFinSolicitada");
