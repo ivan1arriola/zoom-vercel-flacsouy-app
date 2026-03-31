@@ -19,6 +19,7 @@ const updateUserRoleSchema = z.object({
   userId: z.string().trim().min(1, "userId es obligatorio."),
   role: z.nativeEnum(UserRole)
 });
+const ASSISTANT_ELIGIBLE_ROLES: UserRole[] = [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM];
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -33,6 +34,16 @@ function normalizeNullable(value?: string): string | null {
 function buildDisplayName(firstName?: string | null, lastName?: string | null): string | undefined {
   const name = [firstName?.trim(), lastName?.trim()].filter(Boolean).join(" ").trim();
   return name || undefined;
+}
+
+async function ensureAssistantProfileForRole(userId: string, role: UserRole): Promise<void> {
+  if (!ASSISTANT_ELIGIBLE_ROLES.includes(role)) return;
+
+  await db.asistenteZoom.upsert({
+    where: { usuarioId: userId },
+    update: {},
+    create: { usuarioId: userId }
+  });
 }
 
 export async function GET() {
@@ -99,6 +110,7 @@ export async function POST(request: Request) {
       createdAt: true
     }
   });
+  await ensureAssistantProfileForRole(user.id, user.role);
 
   const origin = request.headers.get("origin") ?? undefined;
   const invitedBy =
@@ -191,6 +203,7 @@ export async function PATCH(request: Request) {
       createdAt: true
     }
   });
+  await ensureAssistantProfileForRole(updatedUser.id, updatedUser.role);
 
   await notifyAdminTelegramMovement({
     action: "USUARIO_ROL_ACTUALIZADO",

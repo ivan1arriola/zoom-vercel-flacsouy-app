@@ -193,6 +193,23 @@ function toMonthKey(date: Date, timeZone: string): string {
   return `${year}-${month}`;
 }
 
+function toDayKey(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function isSameCalendarDayInTimezone(start: Date, end: Date, timezone: string): boolean {
+  return toDayKey(start, timezone) === toDayKey(end, timezone);
+}
+
 function normalizeZoomMeetingId(raw?: string | null): string | null {
   if (!raw) return null;
   const digits = raw.replace(/\D/g, "");
@@ -1475,6 +1492,28 @@ function findZoomOccurrenceByStart(
   return best;
 }
 
+function findAnyZoomOccurrenceByStart(
+  instances: ZoomOccurrenceSnapshot[],
+  expectedStart: Date
+): ZoomOccurrenceSnapshot | null {
+  const expectedMs = expectedStart.getTime();
+  let best: ZoomOccurrenceSnapshot | null = null;
+  let bestDiff = Number.POSITIVE_INFINITY;
+
+  for (const instance of instances) {
+    const currentMs = new Date(instance.startTime).getTime();
+    if (!Number.isFinite(currentMs)) continue;
+    const diff = Math.abs(currentMs - expectedMs);
+    if (diff > 60_000) continue;
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = instance;
+    }
+  }
+
+  return best;
+}
+
 async function createZoomMeetingForSolicitud(params: {
   accountOwnerEmail: string;
   input: CreateSolicitudInput;
@@ -1616,6 +1655,26 @@ async function getOrCreateAsistente(user: SessionUser) {
   const existing = await db.asistenteZoom.findUnique({ where: { usuarioId: user.id } });
   if (existing) return existing;
   return db.asistenteZoom.create({ data: { usuarioId: user.id } });
+}
+
+async function ensureAssistantProfilesForEligibleRoles() {
+  const assistantUsers = await db.user.findMany({
+    where: {
+      role: { in: [...LEGACY_ASSISTANT_ROLES] }
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (assistantUsers.length === 0) return;
+
+  await db.asistenteZoom.createMany({
+    data: assistantUsers.map((user) => ({
+      usuarioId: user.id
+    })),
+    skipDuplicates: true
+  });
 }
 
 function assertAssistantEligibleRole(user: SessionUser) {
@@ -4681,6 +4740,11 @@ export class SalasService {
       throw new Error("No se pueden agregar instancias en solicitudes canceladas.");
     }
 
+    const timezone = solicitud.timezone || "America/Montevideo";
+    if (!isSameCalendarDayInTimezone(inicio, fin, timezone)) {
+      throw new Error("La instancia debe comenzar y finalizar el mismo dia.");
+    }
+
     const isDuplicateStart = solicitud.eventos.some((event) => (
       Math.abs(event.inicioProgramadoAt.getTime() - inicio.getTime()) <= 60_000
     ));
@@ -4708,7 +4772,6 @@ export class SalasService {
     const durationMinutes = Math.max(1, Math.floor((fin.getTime() - inicio.getTime()) / 60000));
     const requiresAssistance = Boolean(solicitud.requiereAsistencia);
     const nextInstanceCount = solicitud.eventos.length + 1;
-    const timezone = solicitud.timezone || "America/Montevideo";
 
     const allInstances = [
       ...solicitud.eventos.map((event) => ({
@@ -5277,6 +5340,416 @@ export class SalasService {
     };
   }
 
+  async restoreSolicitudInstance(
+    admin: SessionUser,
+    solicitudId: string,
+    input: {
+      eventoId?: string;
+      inicioProgramadoAt?: string;
+      motivo?: string;
+    }
+  ) {
+    if (admin.role !== UserRole.ADMINISTRADOR) {
+      throw new Error("Solo administracion puede descancelar instancias.");
+    }
+
+    const solicitud = await db.solicitudSala.findUnique({
+      where: { id: solicitudId },
+      select: {
+        id: true,
+        titulo: true,
+        estadoSolicitud: true,
+        modalidadReunion: true,
+        tipoInstancias: true,
+        timezone: true,
+        meetingPrincipalId: true,
+        requiereGrabacion: true,
+        requiereAsistencia: true,
+        cuentaZoomAsignadaId: true,
+        eventos: {
+          select: {
+            id: true,
+            cuentaZoomId: true,
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            timezone: true,
+            estadoEvento: true,
+            estadoCobertura: true,
+            requiereAsistencia: true,
+            agendaAbiertaAt: true,
+            agendaCierraAt: true,
+            zoomMeetingId: true,
+            zoomJoinUrl: true,
+            zoomStartUrl: true,
+            asignaciones: {
+              where: {
+                tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+                estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+              },
+              take: 1,
+              orderBy: { createdAt: "desc" },
+              select: {
+                estadoAsignacion: true
+              }
+            }
+          },
+          orderBy: { inicioProgramadoAt: "asc" }
+        }
+      }
+    });
+
+    if (!solicitud) {
+      throw new Error("Solicitud no encontrada.");
+    }
+
+    const targetEventById = input.eventoId
+      ? solicitud.eventos.find((event) => event.id === input.eventoId)
+      : null;
+    const targetStartMs = input.inicioProgramadoAt ? new Date(input.inicioProgramadoAt).getTime() : NaN;
+    const targetEventByStart = !targetEventById && Number.isFinite(targetStartMs)
+      ? solicitud.eventos.find(
+          (event) => Math.abs(event.inicioProgramadoAt.getTime() - targetStartMs) <= 60_000
+        )
+      : null;
+    const targetEvent = targetEventById ?? targetEventByStart ?? null;
+
+    if (!targetEvent) {
+      throw new Error("No se encontro la instancia a descancelar.");
+    }
+    if (targetEvent.estadoEvento === EstadoEventoZoom.FINALIZADO) {
+      throw new Error("No se puede descancelar una instancia finalizada.");
+    }
+
+    const now = new Date();
+    if (targetEvent.finProgramadoAt <= now) {
+      throw new Error("No se puede descancelar una instancia que ya finalizo por horario.");
+    }
+
+    const timezone = solicitud.timezone || targetEvent.timezone || "America/Montevideo";
+    const durationMinutes = Math.max(
+      1,
+      Math.floor((targetEvent.finProgramadoAt.getTime() - targetEvent.inicioProgramadoAt.getTime()) / 60000)
+    );
+    const primaryMeetingId = normalizeZoomMeetingId(solicitud.meetingPrincipalId);
+    const currentTargetMeetingId = normalizeZoomMeetingId(targetEvent.zoomMeetingId);
+    const accountId =
+      targetEvent.cuentaZoomId ??
+      solicitud.cuentaZoomAsignadaId ??
+      solicitud.eventos.find((event) => event.cuentaZoomId)?.cuentaZoomId ??
+      null;
+
+    if (!accountId) {
+      throw new Error("No se pudo resolver la cuenta Zoom para resincronizar la instancia.");
+    }
+
+    const assignedAccount = await db.cuentaZoom.findUnique({
+      where: { id: accountId }
+    });
+    if (!assignedAccount) {
+      throw new Error("No se pudo resolver la cuenta Zoom para resincronizar la instancia.");
+    }
+
+    const preferredJoinUrl =
+      targetEvent.zoomJoinUrl ??
+      (currentTargetMeetingId ? buildZoomJoinUrlFromMeetingId(currentTargetMeetingId) : null) ??
+      (primaryMeetingId ? buildZoomJoinUrlFromMeetingId(primaryMeetingId) : null);
+
+    let resolvedMeetingId = currentTargetMeetingId;
+    let resolvedJoinUrl = preferredJoinUrl ?? null;
+    let resolvedStartUrl: string | null = targetEvent.zoomStartUrl ?? null;
+    let resolvedPayload: Prisma.InputJsonValue | undefined;
+    let synchronizedAt: Date | null = null;
+    let occurrenceId: string | null = null;
+    let usedPrimaryMeeting = false;
+    let selectedAccount = assignedAccount;
+    let sourceLabel = "SIN_CAMBIOS";
+
+    const ensureDedicatedMeeting = async () => {
+      const singlePlan: InstancePlan[] = [
+        {
+          inicio: targetEvent.inicioProgramadoAt,
+          fin: targetEvent.finProgramadoAt
+        }
+      ];
+      const availableAccounts = await listAvailableCuentaZoomCandidatesForAllInstances(singlePlan);
+      selectedAccount =
+        availableAccounts.find((account) => account.id === assignedAccount.id) ??
+        availableAccounts[0] ??
+        assignedAccount;
+
+      const zoomUserRef = resolveZoomUserRefForCuenta(selectedAccount);
+      if (!zoomUserRef) {
+        throw new Error("La cuenta Zoom seleccionada no tiene referencia valida para sincronizar la instancia.");
+      }
+
+      const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+      const hostRef = await resolveZoomHostEmail(zoomUserRef, zoomClient);
+      const desiredAutoRecording = solicitud.requiereGrabacion ? "cloud" : "none";
+
+      const createdData = await zoomClient.createMeeting(hostRef, {
+        topic: solicitud.titulo,
+        type: 2,
+        start_time: formatZoomDateTimeInTimezone(targetEvent.inicioProgramadoAt, timezone),
+        duration: durationMinutes,
+        timezone,
+        settings: {
+          waiting_room: true,
+          auto_recording: desiredAutoRecording
+        }
+      });
+
+      const createdSnapshot = parseZoomMeetingSnapshot(createdData);
+      const refreshedSnapshot = await fetchZoomMeetingSnapshot(zoomClient, createdSnapshot.meetingId);
+      const effectiveSnapshot = refreshedSnapshot ?? createdSnapshot;
+
+      resolvedMeetingId = effectiveSnapshot.meetingId;
+      resolvedJoinUrl = effectiveSnapshot.joinUrl ?? buildZoomJoinUrlFromMeetingId(effectiveSnapshot.meetingId);
+      resolvedStartUrl = effectiveSnapshot.startUrl ?? null;
+      resolvedPayload = effectiveSnapshot.rawPayload;
+      synchronizedAt = new Date();
+      occurrenceId = null;
+      usedPrimaryMeeting = false;
+      sourceLabel = "MEETING_DEDICADO";
+    };
+
+    if (currentTargetMeetingId && currentTargetMeetingId !== primaryMeetingId) {
+      try {
+        const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+        const dedicatedSnapshot = await fetchZoomMeetingSnapshot(zoomClient, currentTargetMeetingId);
+        if (!dedicatedSnapshot) {
+          await ensureDedicatedMeeting();
+        } else {
+          resolvedMeetingId = dedicatedSnapshot.meetingId;
+          resolvedJoinUrl =
+            dedicatedSnapshot.joinUrl ?? resolvedJoinUrl ?? buildZoomJoinUrlFromMeetingId(dedicatedSnapshot.meetingId);
+          resolvedStartUrl = dedicatedSnapshot.startUrl ?? null;
+          resolvedPayload = dedicatedSnapshot.rawPayload;
+          synchronizedAt = new Date();
+          occurrenceId = null;
+          usedPrimaryMeeting = false;
+          sourceLabel = "MEETING_DEDICADO_EXISTENTE";
+        }
+      } catch (error) {
+        if (error instanceof ZoomApiError && (error.status === 404 || error.code === 3001)) {
+          await ensureDedicatedMeeting();
+        } else {
+          throw new Error(
+            error instanceof Error
+              ? `No se pudo resincronizar la instancia en Zoom: ${error.message}`
+              : "No se pudo resincronizar la instancia en Zoom."
+          );
+        }
+      }
+    } else if (primaryMeetingId) {
+      let shouldFallbackToDedicated = false;
+      try {
+        const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+        let primarySnapshot = await fetchZoomMeetingSnapshot(zoomClient, primaryMeetingId);
+
+        if (!primarySnapshot) {
+          shouldFallbackToDedicated = true;
+        } else {
+          let matchedOccurrence = findZoomOccurrenceByStart(
+            primarySnapshot.instances,
+            targetEvent.inicioProgramadoAt
+          );
+
+          if (!matchedOccurrence) {
+            const matchedAnyOccurrence = findAnyZoomOccurrenceByStart(
+              primarySnapshot.instances,
+              targetEvent.inicioProgramadoAt
+            );
+
+            if (matchedAnyOccurrence?.status === "deleted") {
+              shouldFallbackToDedicated = true;
+            } else {
+              const recurrencePayload = buildZoomRecurrencePayloadFromMeetingSnapshot(primarySnapshot);
+              let updatedRecurrence = false;
+
+              if (recurrencePayload) {
+                if (recurrencePayload.end_date_time) {
+                  const parsedRecurrenceEnd = new Date(recurrencePayload.end_date_time);
+                  if (
+                    Number.isNaN(parsedRecurrenceEnd.getTime()) ||
+                    parsedRecurrenceEnd < targetEvent.inicioProgramadoAt
+                  ) {
+                    recurrencePayload.end_date_time = formatZoomDateTimeInTimezone(
+                      targetEvent.inicioProgramadoAt,
+                      timezone
+                    );
+                    updatedRecurrence = true;
+                  }
+                } else {
+                  const activeOccurrences = Math.max(1, countActiveZoomOccurrences(primarySnapshot.instances));
+                  const requiredEndTimes = Math.max(activeOccurrences + 1, solicitud.eventos.length);
+                  if (requiredEndTimes <= 50) {
+                    recurrencePayload.end_times = requiredEndTimes;
+                    delete recurrencePayload.end_date_time;
+                    updatedRecurrence = true;
+                  }
+                }
+              }
+
+              if (updatedRecurrence && recurrencePayload) {
+                await zoomClient.updateMeeting(primaryMeetingId, {
+                  recurrence: normalizeRecurrenceForTimezone(recurrencePayload, timezone)
+                });
+                const refreshedSnapshot = await fetchZoomMeetingSnapshot(zoomClient, primaryMeetingId);
+                if (refreshedSnapshot) {
+                  primarySnapshot = refreshedSnapshot;
+                }
+              }
+
+              matchedOccurrence = findZoomOccurrenceByStart(
+                primarySnapshot.instances,
+                targetEvent.inicioProgramadoAt
+              );
+              if (!matchedOccurrence) {
+                shouldFallbackToDedicated = true;
+              }
+            }
+          }
+
+          if (!shouldFallbackToDedicated && matchedOccurrence) {
+            resolvedMeetingId = null;
+            resolvedJoinUrl = matchedOccurrence.joinUrl ?? primarySnapshot.joinUrl ?? resolvedJoinUrl;
+            resolvedStartUrl = primarySnapshot.startUrl ?? null;
+            resolvedPayload = primarySnapshot.rawPayload;
+            synchronizedAt = new Date();
+            occurrenceId = matchedOccurrence.occurrenceId ?? null;
+            usedPrimaryMeeting = true;
+            sourceLabel = "RECURRENCIA_PRINCIPAL";
+          }
+        }
+      } catch (error) {
+        if (error instanceof ZoomApiError && (error.status === 404 || error.code === 3001)) {
+          shouldFallbackToDedicated = true;
+        } else {
+          throw new Error(
+            error instanceof Error
+              ? `No se pudo resincronizar la instancia en Zoom: ${error.message}`
+              : "No se pudo resincronizar la instancia en Zoom."
+          );
+        }
+      }
+
+      if (shouldFallbackToDedicated) {
+        await ensureDedicatedMeeting();
+      }
+    } else {
+      await ensureDedicatedMeeting();
+    }
+
+    const hasAcceptedAssignment = targetEvent.asignaciones.some(
+      (assignment) => assignment.estadoAsignacion === EstadoAsignacion.ACEPTADO
+    );
+    const hasAssignedAssignment = targetEvent.asignaciones.some(
+      (assignment) => assignment.estadoAsignacion === EstadoAsignacion.ASIGNADO
+    );
+    const requiresAssistance = Boolean(targetEvent.requiereAsistencia || solicitud.requiereAsistencia);
+    const restoredCoverage = requiresAssistance
+      ? hasAcceptedAssignment
+        ? EstadoCoberturaSoporte.CONFIRMADO
+        : hasAssignedAssignment
+          ? EstadoCoberturaSoporte.ASIGNADO
+          : EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+      : EstadoCoberturaSoporte.NO_REQUIERE;
+    const needsAgendaWindow = requiresAssistance && restoredCoverage === EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR;
+
+    const result = await db.$transaction(async (tx) => {
+      const updatedEvent = await tx.eventoZoom.update({
+        where: { id: targetEvent.id },
+        data: {
+          cuentaZoomId: selectedAccount.id,
+          tipoEvento: resolvedMeetingId ? TipoEventoZoom.SINGLE : TipoEventoZoom.RECURRENCE_INSTANCE,
+          grupoRecurrenciaId: resolvedMeetingId ? null : solicitud.id,
+          estadoEvento: EstadoEventoZoom.PROGRAMADO,
+          estadoCobertura: restoredCoverage,
+          agendaAbiertaAt: needsAgendaWindow ? new Date() : targetEvent.agendaAbiertaAt,
+          agendaCierraAt: needsAgendaWindow
+            ? new Date(targetEvent.inicioProgramadoAt.getTime() - 24 * 60 * 60_000)
+            : targetEvent.agendaCierraAt,
+          zoomMeetingId: resolvedMeetingId,
+          zoomJoinUrl: resolvedJoinUrl,
+          zoomStartUrl: resolvedStartUrl,
+          zoomPayloadUltimo: resolvedPayload,
+          sincronizadoConZoomAt: synchronizedAt ?? new Date(),
+          errorIntegracion: null,
+          costoEstimado: calculateEstimatedCost(durationMinutes, 0)
+        },
+        select: { id: true }
+      });
+
+      const activeEvents = await tx.eventoZoom.count({
+        where: {
+          solicitudSalaId: solicitud.id,
+          estadoEvento: { notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO] }
+        }
+      });
+
+      if (activeEvents > 0) {
+        await tx.solicitudSala.update({
+          where: { id: solicitud.id },
+          data: {
+            estadoSolicitud: EstadoSolicitudSala.PROVISIONADA,
+            canceladaPorDocenteAt: null,
+            canceladaMotivo: null,
+            meetingPrincipalId: solicitud.meetingPrincipalId ?? (resolvedMeetingId ?? undefined)
+          }
+        });
+      }
+
+      await tx.auditoria.create({
+        data: {
+          actorUsuarioId: admin.id,
+          accion: "SOLICITUD_DESCANCELADA_INSTANCIA",
+          entidadTipo: "EventoZoom",
+          entidadId: updatedEvent.id,
+          valorNuevo: {
+            solicitudId: solicitud.id,
+            zoomMeetingId: resolvedMeetingId ?? primaryMeetingId,
+            occurrenceId,
+            restoredCoverage,
+            source: sourceLabel,
+            usedPrimaryMeeting,
+            motivo: input.motivo ?? null
+          }
+        }
+      });
+
+      return {
+        eventoId: updatedEvent.id,
+        activeEvents
+      };
+    });
+
+    await notifyAdminTelegramMovement({
+      action: "SOLICITUD_DESCANCELADA_INSTANCIA",
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      entityType: "EventoZoom",
+      entityId: targetEvent.id,
+      summary: solicitud.titulo,
+      details: {
+        solicitudId: solicitud.id,
+        source: sourceLabel,
+        usedPrimaryMeeting,
+        zoomMeetingId: resolvedMeetingId ?? primaryMeetingId,
+        occurrenceId
+      }
+    });
+
+    return {
+      solicitudId: solicitud.id,
+      eventoId: result.eventoId,
+      zoomMeetingId: resolvedMeetingId ?? primaryMeetingId,
+      occurrenceId,
+      source: sourceLabel,
+      usedPrimaryMeeting,
+      activeEvents: result.activeEvents
+    };
+  }
+
   async deleteSolicitud(user: SessionUser, solicitudId: string) {
     const solicitud = await db.solicitudSala.findUnique({
       where: { id: solicitudId },
@@ -5667,6 +6140,8 @@ export class SalasService {
   }
 
   async listAssignmentBoard() {
+    await ensureAssistantProfilesForEligibleRoles();
+
     const [events, assistants] = await Promise.all([
       db.eventoZoom.findMany({
         where: {
@@ -5902,6 +6377,8 @@ export class SalasService {
     eventoId: string,
     input: { asistenteZoomId: string; motivoAsignacion?: string }
   ) {
+    await ensureAssistantProfilesForEligibleRoles();
+
     const event = await db.eventoZoom.findUnique({
       where: { id: eventoId },
       select: {

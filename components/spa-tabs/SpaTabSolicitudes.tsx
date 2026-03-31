@@ -8,6 +8,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EventBusyOutlinedIcon from "@mui/icons-material/EventBusyOutlined";
 import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSendOutlined";
+import RestoreFromTrashOutlinedIcon from "@mui/icons-material/RestoreFromTrashOutlined";
 import MailOutlineOutlinedIcon from "@mui/icons-material/MailOutlineOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import {
@@ -59,6 +60,13 @@ interface SpaTabSolicitudesProps {
     startTime: string;
   }) => void;
   cancellingInstanciaKey: string | null;
+  onRestoreSolicitudInstancia: (input: {
+    solicitudId: string;
+    titulo: string;
+    eventoId?: string | null;
+    startTime: string;
+  }) => void;
+  restoringInstanciaKey: string | null;
   canAddInstances: boolean;
   addingInstanceSolicitudId: string | null;
   onAddInstance: (input: {
@@ -78,6 +86,7 @@ interface SpaTabSolicitudesProps {
   updatingAssistanceSolicitudId: string | null;
   onEnableAssistance: (input: { solicitudId: string; titulo: string }) => void;
   canDeleteSolicitud: boolean;
+  canRestoreInstances: boolean;
   isSubmittingSolicitud: boolean;
   canCreateShortcut: boolean;
   canDelegateResponsable: boolean;
@@ -181,6 +190,20 @@ function toDateTimeLocalInput(value: string): string {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+function extractLocalDatePart(value: string): string | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+  const rawDate = normalized.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return rawDate;
+
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function SpaTabSolicitudes({
   solicitudes,
   form,
@@ -191,6 +214,8 @@ export function SpaTabSolicitudes({
   cancellingSerieSolicitudId,
   onCancelSolicitudInstancia,
   cancellingInstanciaKey,
+  onRestoreSolicitudInstancia,
+  restoringInstanciaKey,
   canAddInstances,
   addingInstanceSolicitudId,
   onAddInstance,
@@ -201,6 +226,7 @@ export function SpaTabSolicitudes({
   updatingAssistanceSolicitudId,
   onEnableAssistance,
   canDeleteSolicitud,
+  canRestoreInstances,
   isSubmittingSolicitud,
   canCreateShortcut,
   canDelegateResponsable,
@@ -302,6 +328,11 @@ export function SpaTabSolicitudes({
 
   async function submitAddInstanceDialog() {
     if (!addInstanceDialogSolicitud) return;
+    const sameDay =
+      extractLocalDatePart(addInstanceStartLocal) !== null &&
+      extractLocalDatePart(addInstanceStartLocal) === extractLocalDatePart(addInstanceEndLocal);
+    if (!sameDay) return;
+
     const start = new Date(addInstanceStartLocal);
     const end = new Date(addInstanceEndLocal);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
@@ -708,6 +739,9 @@ export function SpaTabSolicitudes({
           const asistencia = mapInstanciaAsistencia(instance);
           const isInstanceCancelled = isSolicitudCancelled || !status.cancellable;
           const instanceKey = `${item.id}:${instance.eventId ?? instance.occurrenceId ?? instance.startTime}`;
+          const isRestoreInProgress = restoringInstanciaKey === instanceKey;
+          const canRestoreThisInstance = canRestoreInstances && status.label === "Cancelada";
+          const canCancelThisInstance = canDeleteSolicitud && status.cancellable;
 
           return (
             <Paper
@@ -754,14 +788,14 @@ export function SpaTabSolicitudes({
                     </Box>
                   </Button>
                 ) : null}
-                {canDeleteSolicitud && (
+                {canCancelThisInstance && (
                   <Button
                     type="button"
                     size="small"
                     variant="outlined"
                     color="warning"
                     startIcon={<EventBusyOutlinedIcon fontSize="small" />}
-                    disabled={isInstanceCancelled || cancellingInstanciaKey === instanceKey}
+                    disabled={isInstanceCancelled || cancellingInstanciaKey === instanceKey || isRestoreInProgress}
                     onClick={() =>
                       onCancelSolicitudInstancia({
                         solicitudId: item.id,
@@ -775,6 +809,26 @@ export function SpaTabSolicitudes({
                     {cancellingInstanciaKey === instanceKey ? "Cancelando..." : "Cancelar instancia"}
                   </Button>
                 )}
+                {canRestoreThisInstance && (
+                  <Button
+                    type="button"
+                    size="small"
+                    variant="outlined"
+                    color="success"
+                    startIcon={<RestoreFromTrashOutlinedIcon fontSize="small" />}
+                    disabled={isRestoreInProgress || cancellingInstanciaKey === instanceKey}
+                    onClick={() =>
+                      onRestoreSolicitudInstancia({
+                        solicitudId: item.id,
+                        titulo: item.titulo,
+                        eventoId: instance.eventId ?? undefined,
+                        startTime: instance.startTime
+                      })
+                    }
+                  >
+                    {isRestoreInProgress ? "Sincronizando..." : "Descancelar instancia"}
+                  </Button>
+                )}
               </Stack>
             </Paper>
           );
@@ -785,13 +839,21 @@ export function SpaTabSolicitudes({
 
   const addInstanceStartDate = addInstanceStartLocal ? new Date(addInstanceStartLocal) : null;
   const addInstanceEndDate = addInstanceEndLocal ? new Date(addInstanceEndLocal) : null;
-  const isAddInstanceRangeValid = Boolean(
+  const addInstanceStartDay = extractLocalDatePart(addInstanceStartLocal);
+  const addInstanceEndDay = extractLocalDatePart(addInstanceEndLocal);
+  const isAddInstanceSameDay = Boolean(
+    addInstanceStartDay &&
+    addInstanceEndDay &&
+    addInstanceStartDay === addInstanceEndDay
+  );
+  const isAddInstanceChronological = Boolean(
     addInstanceStartDate &&
     addInstanceEndDate &&
     !Number.isNaN(addInstanceStartDate.getTime()) &&
     !Number.isNaN(addInstanceEndDate.getTime()) &&
     addInstanceEndDate.getTime() > addInstanceStartDate.getTime()
   );
+  const isAddInstanceRangeValid = isAddInstanceSameDay && isAddInstanceChronological;
   const isSubmittingAddInstance = Boolean(
     addInstanceDialogSolicitud &&
     addingInstanceSolicitudId === addInstanceDialogSolicitud.id
@@ -1812,7 +1874,9 @@ export function SpaTabSolicitudes({
           />
           {!isAddInstanceRangeValid ? (
             <Typography variant="caption" color="error" sx={{ mt: 0.8, display: "block" }}>
-              El fin debe ser posterior al inicio.
+              {!isAddInstanceSameDay
+                ? "Inicio y fin deben estar en el mismo dia."
+                : "El fin debe ser posterior al inicio."}
             </Typography>
           ) : null}
         </DialogContent>

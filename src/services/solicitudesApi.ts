@@ -127,6 +127,16 @@ type CancelSolicitudResponse<TScope extends CancelScope> = {
   result?: CancelSolicitudResult<TScope>;
 };
 
+type RestoreSolicitudInstanciaResult = {
+  solicitudId: string;
+  eventoId: string;
+  zoomMeetingId?: string | null;
+  occurrenceId?: string | null;
+  source?: string;
+  usedPrimaryMeeting?: boolean;
+  activeEvents?: number;
+};
+
 async function requestJson<T>(
   input: RequestInfo | URL,
   init?: RequestInit
@@ -344,6 +354,44 @@ export async function cancelSolicitudInstancia(input: {
     },
     "No se pudo cancelar la instancia."
   );
+}
+
+export async function restoreSolicitudInstancia(input: {
+  solicitudId: string;
+  eventoId?: string;
+  inicioProgramadoAt?: string;
+  motivo?: string;
+}): Promise<{
+  success: boolean;
+  result?: RestoreSolicitudInstanciaResult;
+  error?: string;
+}> {
+  const result = await requestJson<{
+    error?: string;
+    result?: RestoreSolicitudInstanciaResult;
+  }>(
+    `/api/v1/solicitudes-sala/${encodeURIComponent(input.solicitudId)}/instancias/restaurar`,
+    {
+      method: "POST",
+      ...withJsonBody({
+        eventoId: input.eventoId,
+        inicioProgramadoAt: input.inicioProgramadoAt,
+        motivo: input.motivo
+      })
+    }
+  );
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: result.data.error ?? "No se pudo descancelar la instancia."
+    };
+  }
+
+  return {
+    success: true,
+    result: result.data.result
+  };
 }
 
 export async function sendSolicitudReminder(input: {

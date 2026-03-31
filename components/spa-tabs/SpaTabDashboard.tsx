@@ -6,10 +6,12 @@ import {
   CardContent,
   Chip,
   LinearProgress,
+  MenuItem,
   Stack,
+  TextField,
   Typography
 } from "@mui/material";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import BuildCircleIcon from "@mui/icons-material/BuildCircle";
 import Groups2Icon from "@mui/icons-material/Groups2";
@@ -25,6 +27,12 @@ import EventNoteIcon from "@mui/icons-material/EventNote";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import GroupIcon from "@mui/icons-material/Group";
 import type { DashboardSummary } from "@/src/services/dashboardApi";
+import {
+  loadPersonHours,
+  loadTarifas,
+  type PersonHoursResponse,
+  type Tarifa
+} from "@/src/services/tarifasApi";
 
 type DashboardRole = "ADMINISTRADOR" | "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA";
 type DashboardMetricKey = Exclude<keyof DashboardSummary, "scope">;
@@ -72,6 +80,53 @@ function metricValue(summary: DashboardSummary, key: DashboardMetricKey): number
 
 function formatHours(value: number): string {
   return `${value.toFixed(value % 1 === 0 ? 0 : 1).replace(".", ",")} h`;
+}
+
+function formatMonthKey(monthKey: string): string {
+  const [yearRaw = "0", monthRaw = "1"] = monthKey.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey;
+  const date = new Date(Date.UTC(year, Math.max(0, month - 1), 1));
+  return date.toLocaleDateString("es-UY", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+function getMonthOptions(payload: PersonHoursResponse | null): string[] {
+  if (!payload) return [];
+
+  if (Array.isArray(payload.availableMonthKeys) && payload.availableMonthKeys.length > 0) {
+    return [...payload.availableMonthKeys].sort((a, b) => b.localeCompare(a));
+  }
+
+  const monthSet = new Set<string>();
+  for (const summary of payload.assistantSummaries ?? []) {
+    for (const month of summary.months) {
+      if (month.monthKey) monthSet.add(month.monthKey);
+    }
+  }
+
+  return Array.from(monthSet.values()).sort((a, b) => b.localeCompare(a));
+}
+
+function toMonthKey(isoDate: string): string {
+  const parsed = new Date(isoDate);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function parseDecimalInput(value: string): number {
+  const normalized = value.trim().replace(",", ".");
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoney(value: number, currency: string): string {
+  const rounded = Math.round(value * 100) / 100;
+  const amount = rounded.toFixed(2).replace(".", ",");
+  return currency ? `${currency} ${amount}` : amount;
 }
 
 function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
@@ -415,6 +470,80 @@ export function SpaTabDashboard({
   onGoToCreateMeeting,
   onGoToAssignAssistants
 }: SpaTabDashboardProps) {
+  const isAccountingRole = role === "CONTADURIA";
+  const [personHours, setPersonHours] = useState<PersonHoursResponse | null>(null);
+  const [isLoadingPersonHours, setIsLoadingPersonHours] = useState(false);
+  const [personHoursError, setPersonHoursError] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedMonthKey, setSelectedMonthKey] = useState("");
+  const [paymentAdjustment, setPaymentAdjustment] = useState("0");
+  const [tarifasByModalidad, setTarifasByModalidad] = useState<Record<"VIRTUAL" | "HIBRIDA", Tarifa | null>>({
+    VIRTUAL: null,
+    HIBRIDA: null
+  });
+
+  async function refreshAccountingData(userId?: string) {
+    setIsLoadingPersonHours(true);
+    setPersonHoursError("");
+    try {
+      const payload = await loadPersonHours(userId);
+      if (!payload) {
+        setPersonHoursError("No se pudo cargar el detalle de horas por persona.");
+        return;
+      }
+
+      setPersonHours(payload);
+      const monthOptions = getMonthOptions(payload);
+
+      setSelectedUserId((current) => {
+        if (payload.selectedUserId) return payload.selectedUserId;
+        if (current && payload.people.some((person) => person.userId === current)) return current;
+        return payload.people[0]?.userId ?? "";
+      });
+
+      setSelectedMonthKey((current) => {
+        if (monthOptions.length === 0) return "";
+        if (current && monthOptions.includes(current)) return current;
+        return monthOptions[0];
+      });
+    } finally {
+      setIsLoadingPersonHours(false);
+    }
+  }
+
+  async function refreshTarifasForEstimate() {
+    const rates = await loadTarifas();
+    if (!rates) return;
+
+    const next: Record<"VIRTUAL" | "HIBRIDA", Tarifa | null> = {
+      VIRTUAL: null,
+      HIBRIDA: null
+    };
+
+    for (const rate of rates) {
+      if (rate.modalidadReunion === "VIRTUAL" || rate.modalidadReunion === "HIBRIDA") {
+        if (!next[rate.modalidadReunion]) {
+          next[rate.modalidadReunion] = rate;
+        }
+      }
+    }
+
+    setTarifasByModalidad(next);
+  }
+
+  useEffect(() => {
+    if (!isAccountingRole) return;
+    void refreshAccountingData();
+    void refreshTarifasForEstimate();
+  }, [isAccountingRole]);
+
+  useEffect(() => {
+    if (!isAccountingRole) return;
+    if (!selectedUserId) return;
+    if (personHours?.selectedUserId === selectedUserId) return;
+    void refreshAccountingData(selectedUserId);
+  }, [isAccountingRole, selectedUserId, personHours?.selectedUserId]);
+
   if (!summary) {
     return (
       <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -427,11 +556,42 @@ export function SpaTabDashboard({
     );
   }
 
-  if (role === "CONTADURIA") {
+  if (isAccountingRole) {
     const rows = summary.contaduriaHorasPorAsistente ?? [];
     const horasVirtualesMes = Number(summary.horasVirtualesMes ?? 0);
     const horasPresencialesMes = Number(summary.horasPresencialesMes ?? 0);
     const horasTotalesMes = Number(summary.horasCompletadasMes ?? 0);
+    const monthOptions = getMonthOptions(personHours);
+    const selectedMonthLabel = selectedMonthKey ? formatMonthKey(selectedMonthKey) : "Sin datos";
+    const selectedPerson = personHours?.people.find((person) => person.userId === selectedUserId) ?? null;
+    const selectedMonthMeetings = (personHours?.meetings ?? [])
+      .filter((meeting) => meeting.isCompleted && (!selectedMonthKey || toMonthKey(meeting.inicioAt) === selectedMonthKey))
+      .sort((left, right) => new Date(right.inicioAt).getTime() - new Date(left.inicioAt).getTime());
+
+    const selectedMonthVirtualMinutes = selectedMonthMeetings.reduce((acc, meeting) => (
+      meeting.modalidadReunion === "VIRTUAL" ? acc + meeting.minutos : acc
+    ), 0);
+    const selectedMonthHibridaMinutes = selectedMonthMeetings.reduce((acc, meeting) => (
+      meeting.modalidadReunion === "HIBRIDA" ? acc + meeting.minutos : acc
+    ), 0);
+    const selectedMonthTotalMinutes = selectedMonthVirtualMinutes + selectedMonthHibridaMinutes;
+
+    const selectedMonthVirtualHours = Math.round((selectedMonthVirtualMinutes / 60) * 100) / 100;
+    const selectedMonthHibridaHours = Math.round((selectedMonthHibridaMinutes / 60) * 100) / 100;
+    const selectedMonthTotalHours = Math.round((selectedMonthTotalMinutes / 60) * 100) / 100;
+
+    const virtualRate = Number(tarifasByModalidad.VIRTUAL?.valorHora ?? 0);
+    const hibridaRate = Number(tarifasByModalidad.HIBRIDA?.valorHora ?? 0);
+    const virtualCurrency = tarifasByModalidad.VIRTUAL?.moneda ?? "";
+    const hibridaCurrency = tarifasByModalidad.HIBRIDA?.moneda ?? "";
+    const mixedCurrency = Boolean(virtualCurrency && hibridaCurrency && virtualCurrency !== hibridaCurrency);
+    const paymentCurrency = !mixedCurrency ? (virtualCurrency || hibridaCurrency || "") : "";
+
+    const baseEstimatedPayment =
+      selectedMonthVirtualHours * virtualRate +
+      selectedMonthHibridaHours * hibridaRate;
+    const manualAdjustment = parseDecimalInput(paymentAdjustment);
+    const adjustedEstimatedPayment = baseEstimatedPayment + manualAdjustment;
 
     return (
       <Stack spacing={2}>
@@ -457,6 +617,240 @@ export function SpaTabDashboard({
                 label={rows.length > 0 ? "Con actividad" : "Sin actividad"}
               />
             </Stack>
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={1}
+              alignItems={{ xs: "stretch", md: "center" }}
+              justifyContent="space-between"
+              sx={{ mb: 1.2 }}
+            >
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                Horas cumplidas y estimado de pago
+              </Typography>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <TextField
+                  select
+                  size="small"
+                  label="Persona"
+                  value={selectedUserId}
+                  onChange={(event) => setSelectedUserId(String(event.target.value))}
+                  disabled={isLoadingPersonHours || (personHours?.people.length ?? 0) === 0}
+                  sx={{ minWidth: { sm: 260 } }}
+                >
+                  {(personHours?.people ?? []).map((person) => (
+                    <MenuItem key={person.userId} value={person.userId}>
+                      {person.nombre} ({person.email})
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  size="small"
+                  label="Mes"
+                  value={selectedMonthKey}
+                  onChange={(event) => setSelectedMonthKey(String(event.target.value))}
+                  disabled={isLoadingPersonHours || monthOptions.length === 0}
+                  sx={{ minWidth: { sm: 180 } }}
+                >
+                  {monthOptions.length === 0 ? (
+                    <MenuItem value="" disabled>
+                      Sin actividad
+                    </MenuItem>
+                  ) : null}
+                  {monthOptions.map((monthKey) => (
+                    <MenuItem key={monthKey} value={monthKey}>
+                      {formatMonthKey(monthKey)}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <Button
+                  variant="outlined"
+                  disabled={isLoadingPersonHours}
+                  onClick={() => {
+                    void refreshAccountingData(selectedUserId || undefined);
+                  }}
+                >
+                  {isLoadingPersonHours ? "Actualizando..." : "Actualizar"}
+                </Button>
+              </Stack>
+            </Stack>
+
+            {personHoursError ? (
+              <Alert severity="error" sx={{ mb: 1.2 }}>
+                {personHoursError}
+              </Alert>
+            ) : null}
+
+            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mb: 1.2 }}>
+              <Chip variant="outlined" label={selectedMonthLabel} />
+              <Chip variant="outlined" label={selectedPerson ? selectedPerson.nombre : "Sin persona"} />
+              <Chip variant="outlined" label={`${selectedMonthMeetings.length} reuniones`} />
+            </Stack>
+
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "repeat(2, minmax(0, 1fr))",
+                  lg: "repeat(4, minmax(0, 1fr))"
+                },
+                gap: 1
+              }}
+            >
+              <Card variant="outlined" sx={{ borderRadius: 2 }}>
+                <CardContent sx={{ p: 1.2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Virtual
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                    {formatHours(selectedMonthVirtualHours)}
+                  </Typography>
+                </CardContent>
+              </Card>
+              <Card variant="outlined" sx={{ borderRadius: 2 }}>
+                <CardContent sx={{ p: 1.2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Hibrida
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                    {formatHours(selectedMonthHibridaHours)}
+                  </Typography>
+                </CardContent>
+              </Card>
+              <Card variant="outlined" sx={{ borderRadius: 2 }}>
+                <CardContent sx={{ p: 1.2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Total mes
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                    {formatHours(selectedMonthTotalHours)}
+                  </Typography>
+                </CardContent>
+              </Card>
+              <Card variant="outlined" sx={{ borderRadius: 2 }}>
+                <CardContent sx={{ p: 1.2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Tarifa base
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                    Virtual: {formatMoney(virtualRate, virtualCurrency)}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                    Hibrida: {formatMoney(hibridaRate, hibridaCurrency)}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Box>
+
+            <Box
+              sx={{
+                mt: 1.2,
+                p: 1.2,
+                borderRadius: 1.8,
+                border: "1px solid",
+                borderColor: "divider",
+                bgcolor: "grey.50",
+                display: "grid",
+                gap: 1,
+                gridTemplateColumns: { xs: "1fr", md: "minmax(180px, 1fr) minmax(180px, 1fr) minmax(240px, 2fr)" }
+              }}
+            >
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Estimado base
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                  {formatMoney(baseEstimatedPayment, paymentCurrency)}
+                </Typography>
+              </Box>
+              <TextField
+                size="small"
+                label="Ajuste manual del mes"
+                value={paymentAdjustment}
+                onChange={(event) => setPaymentAdjustment(event.target.value)}
+                helperText="No persiste. Solo referencia para calculo contable."
+              />
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Estimado ajustado
+                </Typography>
+                <Typography variant="h5" sx={{ fontWeight: 900 }}>
+                  {formatMoney(adjustedEstimatedPayment, paymentCurrency)}
+                </Typography>
+                {mixedCurrency ? (
+                  <Typography variant="caption" color="warning.main">
+                    Monedas distintas entre modalidades. Revisa conversion antes de liquidar.
+                  </Typography>
+                ) : null}
+              </Box>
+            </Box>
+
+            <Box sx={{ mt: 1.2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.8 }}>
+                Reuniones asistidas del mes
+              </Typography>
+              {selectedMonthMeetings.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No hay reuniones cumplidas para la persona y mes seleccionados.
+                </Typography>
+              ) : (
+                <Stack spacing={0.8}>
+                  {selectedMonthMeetings.map((meeting) => (
+                    <Box
+                      key={meeting.assignmentId}
+                      sx={{
+                        p: 1,
+                        borderRadius: 1.5,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        display: "grid",
+                        gridTemplateColumns: { xs: "1fr", md: "minmax(260px, 2fr) repeat(3, minmax(120px, 1fr))" },
+                        gap: 1
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                          {meeting.titulo}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Programa: {meeting.programaNombre || "Sin programa"}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Fecha
+                        </Typography>
+                        <Typography variant="body2">
+                          {new Date(meeting.inicioAt).toLocaleString("es-UY", {
+                            dateStyle: "short",
+                            timeStyle: "short"
+                          })}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Modalidad
+                        </Typography>
+                        <Typography variant="body2">{meeting.modalidadReunion}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Tiempo liquidable
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                          {formatHours(Math.round((meeting.minutos / 60) * 100) / 100)}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ))}
+                </Stack>
+              )}
+            </Box>
           </CardContent>
         </Card>
 

@@ -40,6 +40,7 @@ import {
   deleteSolicitud as deleteSolicitudApi,
   cancelSolicitudSerie as cancelSolicitudSerieApi,
   cancelSolicitudInstancia as cancelSolicitudInstanciaApi,
+  restoreSolicitudInstancia as restoreSolicitudInstanciaApi,
   addSolicitudInstancia as addSolicitudInstanciaApi,
   submitPastMeeting as submitPastMeetingApi,
   sendSolicitudReminder as sendSolicitudReminderApi,
@@ -148,6 +149,7 @@ type BusyOperationKey =
   | "DELETE_SOLICITUD"
   | "CANCEL_SERIE"
   | "CANCEL_INSTANCIA"
+  | "RESTORE_INSTANCIA"
   | "UPDATE_ASISTENCIA"
   | "GENERIC";
 
@@ -175,6 +177,10 @@ const BUSY_MESSAGES: Record<BusyOperationKey, string[]> = {
   CANCEL_INSTANCIA: [
     "Cancelando instancia seleccionada...",
     "Sincronizando cambios..."
+  ],
+  RESTORE_INSTANCIA: [
+    "Descancelando instancia...",
+    "Resincronizando Zoom con la app..."
   ],
   UPDATE_ASISTENCIA: [
     "Actualizando asistencia Zoom...",
@@ -237,6 +243,8 @@ export function SpaHomeScreen() {
     setCancellingSerieSolicitudId,
     cancellingInstanciaKey,
     setCancellingInstanciaKey,
+    restoringInstanciaKey,
+    setRestoringInstanciaKey,
     sendingReminderSolicitudId,
     setSendingReminderSolicitudId,
     form,
@@ -545,6 +553,7 @@ export function SpaHomeScreen() {
       Boolean(deletingSolicitudId) ||
       Boolean(cancellingSerieSolicitudId) ||
       Boolean(cancellingInstanciaKey) ||
+      Boolean(restoringInstanciaKey) ||
       Boolean(updatingAsistenciaSolicitudId),
     [
       loading,
@@ -552,6 +561,7 @@ export function SpaHomeScreen() {
       deletingSolicitudId,
       cancellingSerieSolicitudId,
       cancellingInstanciaKey,
+      restoringInstanciaKey,
       updatingAsistenciaSolicitudId
     ]
   );
@@ -562,6 +572,7 @@ export function SpaHomeScreen() {
     if (deletingSolicitudId) return "DELETE_SOLICITUD";
     if (cancellingSerieSolicitudId) return "CANCEL_SERIE";
     if (cancellingInstanciaKey) return "CANCEL_INSTANCIA";
+    if (restoringInstanciaKey) return "RESTORE_INSTANCIA";
     if (updatingAsistenciaSolicitudId) return "UPDATE_ASISTENCIA";
     return "GENERIC";
   }, [
@@ -570,6 +581,7 @@ export function SpaHomeScreen() {
     deletingSolicitudId,
     cancellingSerieSolicitudId,
     cancellingInstanciaKey,
+    restoringInstanciaKey,
     updatingAsistenciaSolicitudId
   ]);
   const [busyMessageIndex, setBusyMessageIndex] = useState(0);
@@ -1054,6 +1066,56 @@ export function SpaHomeScreen() {
       setMessage(error instanceof Error ? error.message : "No se pudo cancelar la instancia.");
     } finally {
       setCancellingInstanciaKey(null);
+    }
+  }
+
+  async function restoreSolicitudInstancia(input: {
+    solicitudId: string;
+    titulo: string;
+    eventoId?: string | null;
+    startTime: string;
+  }) {
+    const instanceDateLabel = formatDateTime(input.startTime);
+    if (
+      !window.confirm(
+        `Se descancelara la instancia ${instanceDateLabel} de "${input.titulo}" y se sincronizara Zoom con lo registrado en la app. ¿Continuar?`
+      )
+    ) {
+      return;
+    }
+
+    const instanceKey = `${input.solicitudId}:${input.eventoId ?? input.startTime}`;
+    setRestoringInstanciaKey(instanceKey);
+    setMessage("");
+
+    try {
+      const response = await restoreSolicitudInstanciaApi({
+        solicitudId: input.solicitudId,
+        eventoId: input.eventoId ?? undefined,
+        inicioProgramadoAt: input.startTime
+      });
+
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo descancelar la instancia.");
+        return;
+      }
+
+      const source = response.result?.source ?? "";
+      const sourceLabel =
+        source === "RECURRENCIA_PRINCIPAL"
+          ? "recurrencia principal"
+          : source === "MEETING_DEDICADO_EXISTENTE"
+            ? "meeting dedicado existente"
+            : source === "MEETING_DEDICADO"
+              ? "meeting dedicado nuevo"
+              : "Zoom";
+      const meetingIdLabel = response.result?.zoomMeetingId ? ` (${response.result.zoomMeetingId})` : "";
+      setMessage(`Instancia descancelada y sincronizada con ${sourceLabel}${meetingIdLabel}.`);
+      await refreshAfterSolicitudMutation();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo descancelar la instancia.");
+    } finally {
+      setRestoringInstanciaKey(null);
     }
   }
 
@@ -1752,7 +1814,7 @@ export function SpaHomeScreen() {
       return "Tomar agenda disponible y gestionar tus asistencias asignadas.";
     }
     if (effectiveRole === "CONTADURIA") {
-      return "Control mensual de horas por asistente y tarifas.";
+      return "Solo dos funciones: gestionar tarifas y controlar horas/pagos por asistente.";
     }
     return `Seccion activa: ${activeNavigationLabel}`;
   }, [effectiveRole, activeNavigationLabel]);
@@ -1851,8 +1913,8 @@ export function SpaHomeScreen() {
       return [
         {
           id: "conta-inicio",
-          label: "Horas del mes",
-          description: "Resumen por asistente",
+          label: "Horas y pagos",
+          description: "Horas por persona y estimado mensual",
           icon: getTabIcon("dashboard"),
           active: tab === "dashboard",
           onClick: () => setTab("dashboard")
@@ -1860,7 +1922,7 @@ export function SpaHomeScreen() {
         {
           id: "conta-tarifas",
           label: "Tarifas",
-          description: "Valores vigentes",
+          description: "Asignar valor por modalidad",
           icon: getTabIcon("tarifas"),
           active: tab === "tarifas",
           onClick: () => setTab("tarifas")
@@ -2015,6 +2077,8 @@ export function SpaHomeScreen() {
           cancellingSerieSolicitudId={cancellingSerieSolicitudId}
           onCancelSolicitudInstancia={cancelSolicitudInstancia}
           cancellingInstanciaKey={cancellingInstanciaKey}
+          onRestoreSolicitudInstancia={restoreSolicitudInstancia}
+          restoringInstanciaKey={restoringInstanciaKey}
           canAddInstances={canEditSolicitudAssistance}
           addingInstanceSolicitudId={addingInstanciaSolicitudId}
           onAddInstance={addSolicitudInstancia}
@@ -2025,6 +2089,7 @@ export function SpaHomeScreen() {
           updatingAssistanceSolicitudId={updatingAsistenciaSolicitudId}
           onEnableAssistance={enableSolicitudAssistance}
           canDeleteSolicitud={canCreateSolicitudShortcut}
+          canRestoreInstances={canEditSolicitudAssistance}
           isSubmittingSolicitud={isSubmittingSolicitud}
           canCreateShortcut={canCreateSolicitudShortcut}
           canDelegateResponsable={canDelegateSolicitudResponsable}
@@ -2125,6 +2190,7 @@ export function SpaHomeScreen() {
             HIBRIDA: currentTarifaByModalidad.HIBRIDA ?? undefined,
             VIRTUAL: currentTarifaByModalidad.VIRTUAL ?? undefined
           }}
+          showHoursPanel={effectiveRole !== "CONTADURIA"}
           onSubmit={submitTarifaUpdate}
         />
       )}

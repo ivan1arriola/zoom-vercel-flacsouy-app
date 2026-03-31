@@ -9,6 +9,7 @@ export function useSolicitudes() {
   const [deletingSolicitudId, setDeletingSolicitudId] = useState<string | null>(null);
   const [cancellingSerieSolicitudId, setCancellingSerieSolicitudId] = useState<string | null>(null);
   const [cancellingInstanciaKey, setCancellingInstanciaKey] = useState<string | null>(null);
+  const [restoringInstanciaKey, setRestoringInstanciaKey] = useState<string | null>(null);
   const [sendingReminderSolicitudId, setSendingReminderSolicitudId] = useState<string | null>(null);
   const [form, setForm] = useState<SolicitudFormState>(DEFAULT_SOLICITUD_FORM);
 
@@ -29,6 +30,8 @@ export function useSolicitudes() {
     setCancellingSerieSolicitudId,
     cancellingInstanciaKey,
     setCancellingInstanciaKey,
+    restoringInstanciaKey,
+    setRestoringInstanciaKey,
     sendingReminderSolicitudId,
     setSendingReminderSolicitudId,
     form,

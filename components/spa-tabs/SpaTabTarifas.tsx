@@ -30,6 +30,7 @@ interface SpaTabTarifasProps {
   isSubmittingTarifa: boolean;
   currentTarifaByModalidad: Record<TarifaModalidad, Tarifa | undefined>;
   onSubmit: (modalidad: TarifaModalidad) => void | Promise<void>;
+  showHoursPanel?: boolean;
 }
 
 const modalidadCards: Array<{ key: TarifaModalidad; label: string }> = [
@@ -67,7 +68,8 @@ export function SpaTabTarifas({
   setTarifaFormByModalidad,
   isSubmittingTarifa,
   currentTarifaByModalidad,
-  onSubmit
+  onSubmit,
+  showHoursPanel = true
 }: SpaTabTarifasProps) {
   const [personHours, setPersonHours] = useState<PersonHoursResponse | null>(null);
   const [isLoadingPersonHours, setIsLoadingPersonHours] = useState(false);
@@ -96,8 +98,9 @@ export function SpaTabTarifas({
   }
 
   useEffect(() => {
+    if (!showHoursPanel) return;
     void refreshPersonHours();
-  }, []);
+  }, [showHoursPanel]);
 
   const monthOptions = useMemo(() => getMonthOptions(personHours), [personHours]);
   const assistantRows = useMemo(() => {
@@ -224,137 +227,139 @@ export function SpaTabTarifas({
         </CardContent>
       </Card>
 
-      <Card variant="outlined" sx={{ borderRadius: 3 }}>
-        <CardContent>
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            spacing={1.2}
-            alignItems={{ xs: "stretch", md: "center" }}
-            justifyContent="space-between"
-            sx={{ mb: 1.5 }}
-          >
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                Horas cumplidas por persona
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Vista para Administracion y Contaduria: reuniones y horas efectivas por mes.
-              </Typography>
-            </Box>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ minWidth: { md: 320 } }}>
-              <TextField
-                select
-                size="small"
-                label="Mes"
-                value={selectedMonthKey}
-                onChange={(event) => setSelectedMonthKey(String(event.target.value))}
-                disabled={isLoadingPersonHours || monthOptions.length === 0}
-              >
-                {monthOptions.length === 0 ? (
-                  <MenuItem value="" disabled>
-                    Sin meses con actividad
-                  </MenuItem>
-                ) : null}
-                {monthOptions.map((monthKey) => (
-                  <MenuItem key={monthKey} value={monthKey}>
-                    {formatMonthKey(monthKey)}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <Button
-                variant="outlined"
-                disabled={isLoadingPersonHours}
-                onClick={() => {
-                  void refreshPersonHours();
-                }}
-              >
-                {isLoadingPersonHours ? "Actualizando..." : "Actualizar"}
-              </Button>
-            </Stack>
-          </Stack>
-
-          {personHoursError ? <Alert severity="error" sx={{ mb: 1.5 }}>{personHoursError}</Alert> : null}
-
-          {monthOptions.length > 0 ? (
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
-              <Chip variant="outlined" label={selectedMonthLabel} />
-              <Chip variant="outlined" label={`${selectedMonthTotals.assistants} asistentes`} />
-              <Chip variant="outlined" label={`${selectedMonthTotals.activeAssistants} con horas`} />
-              <Chip variant="outlined" label={`${selectedMonthTotals.meetings} reuniones`} />
-              <Chip color="success" variant="filled" label={`${selectedMonthTotals.hours} h`} />
-              {selectedMonthTotals.overrunAlerts > 0 ? (
-                <Chip
-                  color="warning"
+      {showHoursPanel ? (
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={1.2}
+              alignItems={{ xs: "stretch", md: "center" }}
+              justifyContent="space-between"
+              sx={{ mb: 1.5 }}
+            >
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                  Horas cumplidas por persona
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Vista para Administracion y Contaduria: reuniones y horas efectivas por mes.
+                </Typography>
+              </Box>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ minWidth: { md: 320 } }}>
+                <TextField
+                  select
+                  size="small"
+                  label="Mes"
+                  value={selectedMonthKey}
+                  onChange={(event) => setSelectedMonthKey(String(event.target.value))}
+                  disabled={isLoadingPersonHours || monthOptions.length === 0}
+                >
+                  {monthOptions.length === 0 ? (
+                    <MenuItem value="" disabled>
+                      Sin meses con actividad
+                    </MenuItem>
+                  ) : null}
+                  {monthOptions.map((monthKey) => (
+                    <MenuItem key={monthKey} value={monthKey}>
+                      {formatMonthKey(monthKey)}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <Button
                   variant="outlined"
-                  label={`${selectedMonthTotals.overrunAlerts} alerta(s) por exceso >= 60 min`}
-                />
-              ) : null}
+                  disabled={isLoadingPersonHours}
+                  onClick={() => {
+                    void refreshPersonHours();
+                  }}
+                >
+                  {isLoadingPersonHours ? "Actualizando..." : "Actualizar"}
+                </Button>
+              </Stack>
             </Stack>
-          ) : null}
 
-          {!isLoadingPersonHours && monthOptions.length === 0 ? (
-            <Alert severity="info" sx={{ mb: 1.5 }}>
-              No hay horas cumplidas registradas todavia.
-            </Alert>
-          ) : null}
+            {personHoursError ? <Alert severity="error" sx={{ mb: 1.5 }}>{personHoursError}</Alert> : null}
 
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-              gap: 1.2
-            }}
-          >
-            {assistantRows.map((assistant) => (
-              <Card key={assistant.userId} variant="outlined" sx={{ borderRadius: 2 }}>
-                <CardContent sx={{ p: 1.5 }}>
-                  <Stack spacing={1}>
-                    <Box>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                        {assistant.nombre}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {assistant.email}
-                      </Typography>
-                    </Box>
+            {monthOptions.length > 0 ? (
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
+                <Chip variant="outlined" label={selectedMonthLabel} />
+                <Chip variant="outlined" label={`${selectedMonthTotals.assistants} asistentes`} />
+                <Chip variant="outlined" label={`${selectedMonthTotals.activeAssistants} con horas`} />
+                <Chip variant="outlined" label={`${selectedMonthTotals.meetings} reuniones`} />
+                <Chip color="success" variant="filled" label={`${selectedMonthTotals.hours} h`} />
+                {selectedMonthTotals.overrunAlerts > 0 ? (
+                  <Chip
+                    color="warning"
+                    variant="outlined"
+                    label={`${selectedMonthTotals.overrunAlerts} alerta(s) por exceso >= 60 min`}
+                  />
+                ) : null}
+              </Stack>
+            ) : null}
 
-                    <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                      <Chip size="small" variant="outlined" label={assistant.role} />
-                      <Chip size="small" variant="outlined" label={`${assistant.selectedMonthMeetings} reuniones`} />
-                      <Chip
-                        size="small"
-                        color={assistant.selectedMonthHours > 0 ? "success" : "default"}
-                        label={`${assistant.selectedMonthHours} h`}
-                      />
-                      {assistant.selectedMonthOverrunAlerts > 0 ? (
+            {!isLoadingPersonHours && monthOptions.length === 0 ? (
+              <Alert severity="info" sx={{ mb: 1.5 }}>
+                No hay horas cumplidas registradas todavia.
+              </Alert>
+            ) : null}
+
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gap: 1.2
+              }}
+            >
+              {assistantRows.map((assistant) => (
+                <Card key={assistant.userId} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Stack spacing={1}>
+                      <Box>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                          {assistant.nombre}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {assistant.email}
+                        </Typography>
+                      </Box>
+
+                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                        <Chip size="small" variant="outlined" label={assistant.role} />
+                        <Chip size="small" variant="outlined" label={`${assistant.selectedMonthMeetings} reuniones`} />
                         <Chip
                           size="small"
-                          color="warning"
-                          variant="outlined"
-                          label={`${assistant.selectedMonthOverrunAlerts} alerta(s)`}
+                          color={assistant.selectedMonthHours > 0 ? "success" : "default"}
+                          label={`${assistant.selectedMonthHours} h`}
                         />
-                      ) : null}
-                    </Stack>
+                        {assistant.selectedMonthOverrunAlerts > 0 ? (
+                          <Chip
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                            label={`${assistant.selectedMonthOverrunAlerts} alerta(s)`}
+                          />
+                        ) : null}
+                      </Stack>
 
-                    {assistant.hasAssistantProfile ? (
-                      <Typography variant="caption" color="text.secondary">
-                        Acumulado historico: {assistant.totalCompletedHours} h en {assistant.totalCompletedMeetings} reunion(es)
-                        {assistant.totalOverrunAlerts > 0
-                          ? `. Alertas por exceso >= 60 min: ${assistant.totalOverrunAlerts}.`
-                          : "."}
-                      </Typography>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        Sin perfil de asistencia activo.
-                      </Typography>
-                    )}
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-        </CardContent>
-      </Card>
+                      {assistant.hasAssistantProfile ? (
+                        <Typography variant="caption" color="text.secondary">
+                          Acumulado historico: {assistant.totalCompletedHours} h en {assistant.totalCompletedMeetings} reunion(es)
+                          {assistant.totalOverrunAlerts > 0
+                            ? `. Alertas por exceso >= 60 min: ${assistant.totalOverrunAlerts}.`
+                            : "."}
+                        </Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          Sin perfil de asistencia activo.
+                        </Typography>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          </CardContent>
+        </Card>
+      ) : null}
     </Stack>
   );
 }
