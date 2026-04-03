@@ -16,6 +16,7 @@ import {
   TipoNotificacion,
   UserRole
 } from "@prisma/client";
+import * as XLSX from "xlsx";
 import { db } from "@/src/lib/db";
 import { env } from "@/src/lib/env";
 import { EmailClient } from "@/src/lib/email.client";
@@ -1244,6 +1245,123 @@ async function sendDefinitiveAssignmentEmails(input: {
       })
     )
   );
+}
+
+type AssistanceCancellationRecipient = {
+  email: string;
+  nombre: string;
+  instancias: Array<{
+    inicio: Date;
+    fin: Date;
+  }>;
+};
+
+function buildAssistanceCancelledEmailHtml(input: {
+  solicitudId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  responsableNombre?: string | null;
+  timezone: string;
+  recipientName: string;
+  actorNombre: string;
+  actorEmail: string;
+  motivo?: string | null;
+  instancias: Array<{
+    inicio: Date;
+    fin: Date;
+  }>;
+}): string {
+  const titleLabel = escapeHtml(input.titulo);
+  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
+  const responsableLabel = escapeHtml(input.responsableNombre?.trim() || "-");
+  const actorLabel = escapeHtml(input.actorNombre);
+  const actorEmailLabel = escapeHtml(input.actorEmail);
+  const motivoLabel = escapeHtml((input.motivo ?? "").trim() || "Sin detalle adicional.");
+  const previewCount = Math.min(input.instancias.length, 30);
+  const previewRows = input.instancias
+    .slice(0, previewCount)
+    .map((item, index) => (
+      `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(item.inicio, input.timezone))} - ${escapeHtml(formatDateTimeForEmail(item.fin, input.timezone))}</li>`
+    ))
+    .join("");
+  const extraCount = input.instancias.length - previewCount;
+  const contentHtml = `
+    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
+      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Responsable:</strong> ${responsableLabel}</p>
+      <p style="margin:0 0 6px;color:#223042;"><strong>Actualizado por:</strong> ${actorLabel} (${actorEmailLabel})</p>
+      <p style="margin:0;color:#223042;"><strong>Motivo:</strong> ${motivoLabel}</p>
+    </div>
+    <p style="margin:0 0 8px;color:#223042;font-weight:700;">Instancias afectadas:</p>
+    <ol style="margin:0 0 14px 18px;padding:0;color:#223042;line-height:1.5;">${previewRows}</ol>
+    ${
+      extraCount > 0
+        ? `<p style="margin:0;color:#5b6576;font-size:13px;">Se omitieron ${extraCount} instancia(s) adicionales en este resumen.</p>`
+        : ""
+    }
+  `;
+
+  return buildBrandedEmailLayout({
+    preheader: "Se cancelo la asistencia Zoom asignada para una solicitud.",
+    title: "Asistencia Zoom cancelada",
+    greeting: `Hola ${input.recipientName},`,
+    paragraphs: ["Se actualizo una solicitud y ya no requiere asistencia Zoom."],
+    contentHtml
+  });
+}
+
+async function sendAssistanceCancelledEmails(input: {
+  solicitudId: string;
+  titulo: string;
+  programaNombre?: string | null;
+  responsableNombre?: string | null;
+  timezone: string;
+  actorNombre: string;
+  actorEmail: string;
+  motivo?: string | null;
+  recipients: AssistanceCancellationRecipient[];
+}): Promise<number> {
+  if (input.recipients.length === 0) return 0;
+
+  const client = new EmailClient();
+  const subject = `Asistencia cancelada: ${input.titulo}`;
+  let sentCount = 0;
+
+  for (const recipient of input.recipients) {
+    const to = recipient.email.trim().toLowerCase();
+    if (!EMAIL_LINE_REGEX.test(to)) continue;
+
+    const html = buildAssistanceCancelledEmailHtml({
+      solicitudId: input.solicitudId,
+      titulo: input.titulo,
+      programaNombre: input.programaNombre,
+      responsableNombre: input.responsableNombre,
+      timezone: input.timezone,
+      recipientName: recipient.nombre || to,
+      actorNombre: input.actorNombre,
+      actorEmail: input.actorEmail,
+      motivo: input.motivo,
+      instancias: [...recipient.instancias].sort((a, b) => a.inicio.getTime() - b.inicio.getTime())
+    });
+
+    try {
+      await client.send({
+        to,
+        subject,
+        html
+      });
+      sentCount += 1;
+    } catch (error) {
+      logger.warn("No se pudo enviar correo de cancelacion de asistencia.", {
+        solicitudId: input.solicitudId,
+        to,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  return sentCount;
 }
 
 function buildSolicitudReminderEmailHtml(input: {
@@ -3787,13 +3905,15 @@ export class SalasService {
     });
   }
 
-  async enableSolicitudAssistance(
-    admin: SessionUser,
+  async updateSolicitudAssistance(
+    user: SessionUser,
     solicitudId: string,
-    input?: { motivo?: string | null }
+    input?: { motivo?: string | null; requiereAsistencia?: boolean | null }
   ) {
-    if (admin.role !== UserRole.ADMINISTRADOR) {
-      throw new Error("Solo administracion puede editar asistencia Zoom en solicitudes.");
+    const canManageAsAdmin = user.role === UserRole.ADMINISTRADOR;
+    const canManageAsDocente = user.role === UserRole.DOCENTE;
+    if (!canManageAsAdmin && !canManageAsDocente) {
+      throw new Error("Solo docentes y administracion pueden editar asistencia Zoom en solicitudes.");
     }
 
     const solicitud = await db.solicitudSala.findUnique({
@@ -3805,9 +3925,15 @@ export class SalasService {
         responsableNombre: true,
         modalidadReunion: true,
         timezone: true,
+        createdByUserId: true,
         estadoSolicitud: true,
         requiereAsistencia: true,
         motivoAsistencia: true,
+        docente: {
+          select: {
+            usuarioId: true
+          }
+        },
         eventos: {
           orderBy: { inicioProgramadoAt: "asc" },
           select: {
@@ -3818,7 +3944,28 @@ export class SalasService {
             requiereAsistencia: true,
             estadoCobertura: true,
             agendaAbiertaAt: true,
-            agendaCierraAt: true
+            agendaCierraAt: true,
+            asignaciones: {
+              where: {
+                tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+                estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+              },
+              select: {
+                id: true,
+                asistente: {
+                  select: {
+                    usuario: {
+                      select: {
+                        email: true,
+                        name: true,
+                        firstName: true,
+                        lastName: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -3826,6 +3973,12 @@ export class SalasService {
 
     if (!solicitud) {
       throw new Error("Solicitud no encontrada.");
+    }
+
+    const ownsSolicitud =
+      solicitud.createdByUserId === user.id || solicitud.docente.usuarioId === user.id;
+    if (!canManageAsAdmin && !ownsSolicitud) {
+      throw new Error("No tienes permisos para editar asistencia en esta solicitud.");
     }
 
     if (
@@ -3842,62 +3995,202 @@ export class SalasService {
       return event.finProgramadoAt > now;
     });
 
-    if (activeEvents.length === 0) {
-      throw new Error("No hay instancias activas o futuras para habilitar asistencia Zoom.");
-    }
+    const requiresAssistance = input?.requiereAsistencia ?? true;
 
-    const eventsToUpdate = activeEvents.filter((event) => {
-      if (!event.requiereAsistencia) return true;
-      if (event.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE) return true;
-      if (event.estadoCobertura === EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR) {
-        return !event.agendaAbiertaAt || !event.agendaCierraAt || event.agendaCierraAt <= now;
+    if (requiresAssistance) {
+      if (activeEvents.length === 0) {
+        throw new Error("No hay instancias activas o futuras para habilitar asistencia Zoom.");
       }
-      return false;
-    });
 
-    if (solicitud.requiereAsistencia && eventsToUpdate.length === 0) {
+      const eventsToUpdate = activeEvents.filter((event) => {
+        if (!event.requiereAsistencia) return true;
+        if (event.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE) return true;
+        if (event.estadoCobertura === EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR) {
+          return !event.agendaAbiertaAt || !event.agendaCierraAt || event.agendaCierraAt <= now;
+        }
+        return false;
+      });
+
+      if (solicitud.requiereAsistencia && eventsToUpdate.length === 0) {
+        return {
+          solicitudId: solicitud.id,
+          requiereAsistencia: true,
+          updatedEvents: 0,
+          alreadyEnabled: true
+        };
+      }
+
+      const motivo = (input?.motivo ?? "").trim() ||
+        "Asistencia Zoom habilitada desde la pestana Solicitudes.";
+
+      await db.$transaction(async (tx) => {
+        await tx.solicitudSala.update({
+          where: { id: solicitud.id },
+          data: {
+            requiereAsistencia: true,
+            motivoAsistencia: solicitud.motivoAsistencia?.trim() ? solicitud.motivoAsistencia : motivo
+          }
+        });
+
+        for (const event of eventsToUpdate) {
+          const closeAtBase = new Date(event.inicioProgramadoAt.getTime() - 24 * 60 * 60000);
+          const minCloseAt = new Date(now.getTime() + 30 * 60 * 1000);
+          const agendaCierraAt = closeAtBase > minCloseAt ? closeAtBase : minCloseAt;
+
+          await tx.eventoZoom.update({
+            where: { id: event.id },
+            data: {
+              requiereAsistencia: true,
+              estadoCobertura:
+                event.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE
+                  ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+                  : event.estadoCobertura,
+              agendaAbiertaAt: now,
+              agendaCierraAt
+            }
+          });
+        }
+
+        await tx.auditoria.create({
+          data: {
+            actorUsuarioId: user.id,
+            accion: "SOLICITUD_HABILITA_ASISTENCIA",
+            entidadTipo: "SolicitudSala",
+            entidadId: solicitud.id,
+            valorAnterior: {
+              requiereAsistencia: solicitud.requiereAsistencia,
+              estadoSolicitud: solicitud.estadoSolicitud
+            },
+            valorNuevo: {
+              requiereAsistencia: true,
+              updatedEvents: eventsToUpdate.length,
+              eventsUpdatedIds: eventsToUpdate.map((event) => event.id)
+            }
+          }
+        });
+      });
+
+      await notifyAdminTelegramMovement({
+        action: "SOLICITUD_HABILITA_ASISTENCIA",
+        actorEmail: user.email,
+        actorRole: user.role,
+        entityType: "SolicitudSala",
+        entityId: solicitud.id,
+        summary: solicitud.titulo,
+        details: {
+          updatedEvents: eventsToUpdate.length
+        }
+      });
+
+      if (eventsToUpdate.length > 0) {
+        await sendMonitoringRequiredEmailToAssistantPool({
+          solicitudId: solicitud.id,
+          titulo: solicitud.titulo,
+          modalidad: solicitud.modalidadReunion,
+          programaNombre: solicitud.programaNombre ?? null,
+          responsableNombre: solicitud.responsableNombre ?? null,
+          timezone: solicitud.timezone || "America/Montevideo",
+          instanceStarts: eventsToUpdate.map((event) => event.inicioProgramadoAt),
+          estadoSolicitud: solicitud.estadoSolicitud
+        }).catch((error) => {
+          logger.warn("No se pudo enviar correo al pool de asistentes Zoom (edicion de asistencia).", {
+            solicitudId: solicitud.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
+      }
+
       return {
         solicitudId: solicitud.id,
+        requiereAsistencia: true,
+        updatedEvents: eventsToUpdate.length,
+        alreadyEnabled: false
+      };
+    }
+
+    const eventsToDisable = activeEvents.filter((event) => {
+      const hasActiveAssignment = event.asignaciones.length > 0;
+      const hasAgendaWindow = Boolean(event.agendaAbiertaAt || event.agendaCierraAt);
+      if (event.requiereAsistencia) return true;
+      if (event.estadoCobertura !== EstadoCoberturaSoporte.NO_REQUIERE) return true;
+      if (hasActiveAssignment) return true;
+      return hasAgendaWindow;
+    });
+
+    if (!solicitud.requiereAsistencia && eventsToDisable.length === 0) {
+      return {
+        solicitudId: solicitud.id,
+        requiereAsistencia: false,
         updatedEvents: 0,
-        alreadyEnabled: true
+        cancelledAssignments: 0,
+        notifiedAssistants: 0,
+        alreadyDisabled: true
       };
     }
 
     const motivo = (input?.motivo ?? "").trim() ||
-      "Asistencia Zoom habilitada desde la pestana Solicitudes.";
+      "Asistencia Zoom deshabilitada desde la pestana Solicitudes.";
+    const eventsToDisableIds = eventsToDisable.map((event) => event.id);
 
-    await db.$transaction(async (tx) => {
+    const recipientsByEmail = new Map<string, AssistanceCancellationRecipient>();
+    for (const event of eventsToDisable) {
+      for (const assignment of event.asignaciones) {
+        const monitor = assignment.asistente.usuario;
+        const monitorEmail = (monitor.email ?? "").trim().toLowerCase();
+        if (!EMAIL_LINE_REGEX.test(monitorEmail)) continue;
+
+        if (!recipientsByEmail.has(monitorEmail)) {
+          recipientsByEmail.set(monitorEmail, {
+            email: monitorEmail,
+            nombre: getUserDisplayName(monitor),
+            instancias: []
+          });
+        }
+
+        recipientsByEmail.get(monitorEmail)?.instancias.push({
+          inicio: event.inicioProgramadoAt,
+          fin: event.finProgramadoAt
+        });
+      }
+    }
+
+    const result = await db.$transaction(async (tx) => {
       await tx.solicitudSala.update({
         where: { id: solicitud.id },
         data: {
-          requiereAsistencia: true,
-          motivoAsistencia: solicitud.motivoAsistencia?.trim() ? solicitud.motivoAsistencia : motivo
+          requiereAsistencia: false,
+          motivoAsistencia: null
         }
       });
 
-      for (const event of eventsToUpdate) {
-        const closeAtBase = new Date(event.inicioProgramadoAt.getTime() - 24 * 60 * 60000);
-        const minCloseAt = new Date(now.getTime() + 30 * 60 * 1000);
-        const agendaCierraAt = closeAtBase > minCloseAt ? closeAtBase : minCloseAt;
+      const eventsResult = eventsToDisableIds.length > 0
+        ? await tx.eventoZoom.updateMany({
+            where: { id: { in: eventsToDisableIds } },
+            data: {
+              requiereAsistencia: false,
+              estadoCobertura: EstadoCoberturaSoporte.NO_REQUIERE,
+              agendaAbiertaAt: null,
+              agendaCierraAt: null
+            }
+          })
+        : { count: 0 };
 
-        await tx.eventoZoom.update({
-          where: { id: event.id },
-          data: {
-            requiereAsistencia: true,
-            estadoCobertura:
-              event.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE
-                ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
-                : event.estadoCobertura,
-            agendaAbiertaAt: now,
-            agendaCierraAt
-          }
-        });
-      }
+      const assignmentsResult = eventsToDisableIds.length > 0
+        ? await tx.asignacionAsistente.updateMany({
+            where: {
+              eventoZoomId: { in: eventsToDisableIds },
+              estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+            },
+            data: {
+              estadoAsignacion: EstadoAsignacion.CANCELADO
+            }
+          })
+        : { count: 0 };
 
       await tx.auditoria.create({
         data: {
-          actorUsuarioId: admin.id,
-          accion: "SOLICITUD_HABILITA_ASISTENCIA",
+          actorUsuarioId: user.id,
+          accion: "SOLICITUD_DESHABILITA_ASISTENCIA",
           entidadTipo: "SolicitudSala",
           entidadId: solicitud.id,
           valorAnterior: {
@@ -3905,49 +4198,65 @@ export class SalasService {
             estadoSolicitud: solicitud.estadoSolicitud
           },
           valorNuevo: {
-            requiereAsistencia: true,
-            updatedEvents: eventsToUpdate.length,
-            eventsUpdatedIds: eventsToUpdate.map((event) => event.id)
+            requiereAsistencia: false,
+            updatedEvents: eventsResult.count,
+            eventsUpdatedIds: eventsToDisableIds,
+            cancelledAssignments: assignmentsResult.count,
+            motivo
           }
         }
       });
+
+      return {
+        updatedEvents: eventsResult.count,
+        cancelledAssignments: assignmentsResult.count
+      };
     });
 
     await notifyAdminTelegramMovement({
-      action: "SOLICITUD_HABILITA_ASISTENCIA",
-      actorEmail: admin.email,
-      actorRole: admin.role,
+      action: "SOLICITUD_DESHABILITA_ASISTENCIA",
+      actorEmail: user.email,
+      actorRole: user.role,
       entityType: "SolicitudSala",
       entityId: solicitud.id,
       summary: solicitud.titulo,
       details: {
-        updatedEvents: eventsToUpdate.length
+        updatedEvents: result.updatedEvents,
+        cancelledAssignments: result.cancelledAssignments
       }
     });
 
-    if (eventsToUpdate.length > 0) {
-      await sendMonitoringRequiredEmailToAssistantPool({
-        solicitudId: solicitud.id,
-        titulo: solicitud.titulo,
-        modalidad: solicitud.modalidadReunion,
-        programaNombre: solicitud.programaNombre ?? null,
-        responsableNombre: solicitud.responsableNombre ?? null,
-        timezone: solicitud.timezone || "America/Montevideo",
-        instanceStarts: eventsToUpdate.map((event) => event.inicioProgramadoAt),
-        estadoSolicitud: solicitud.estadoSolicitud
-      }).catch((error) => {
-        logger.warn("No se pudo enviar correo al pool de asistentes Zoom (edicion de asistencia).", {
-          solicitudId: solicitud.id,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      });
-    }
+    const notifiedAssistants = await sendAssistanceCancelledEmails({
+      solicitudId: solicitud.id,
+      titulo: solicitud.titulo,
+      programaNombre: solicitud.programaNombre ?? null,
+      responsableNombre: solicitud.responsableNombre ?? null,
+      timezone: solicitud.timezone || "America/Montevideo",
+      actorNombre: getUserDisplayName(user),
+      actorEmail: user.email,
+      motivo,
+      recipients: Array.from(recipientsByEmail.values())
+    });
 
     return {
       solicitudId: solicitud.id,
-      updatedEvents: eventsToUpdate.length,
-      alreadyEnabled: false
+      requiereAsistencia: false,
+      updatedEvents: result.updatedEvents,
+      cancelledAssignments: result.cancelledAssignments,
+      notifiedAssistants,
+      alreadyDisabled: false
     };
+  }
+
+  async enableSolicitudAssistance(
+    user: SessionUser,
+    solicitudId: string,
+    input?: { motivo?: string | null }
+  ) {
+    return this.updateSolicitudAssistance(user, solicitudId, {
+      motivo: input?.motivo,
+      requiereAsistencia: true
+    });
   }
 
   async sendSolicitudReminder(
@@ -7498,6 +7807,360 @@ export class SalasService {
     }
 
     return Array.from(uniqueByModalidad.values());
+  }
+
+  async buildMonthlyAccountingWorkbook(input: { monthKey?: string | null }) {
+    const requestedMonthKey = (input.monthKey ?? "").trim();
+    const defaultMonthKey = toMonthKey(new Date(), "America/Montevideo");
+    const monthKey = /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonthKey)
+      ? requestedMonthKey
+      : defaultMonthKey;
+
+    const [yearRaw = "0", monthRaw = "1"] = monthKey.split("-");
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const monthStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+    const nextMonthStart = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+    const queryStart = new Date(monthStart.getTime() - 48 * 60 * 60 * 1000);
+    const queryEnd = new Date(nextMonthStart.getTime() + 48 * 60 * 60 * 1000);
+
+    const rates = await this.listTarifas();
+    const virtualRate = rates.find((rate) => rate.modalidadReunion === ModalidadReunion.VIRTUAL) ?? null;
+    const hibridaRate = rates.find((rate) => rate.modalidadReunion === ModalidadReunion.HIBRIDA) ?? null;
+
+    const ratesByModalidad: Record<ModalidadReunion, { valorHora: number; moneda: string }> = {
+      [ModalidadReunion.VIRTUAL]: {
+        valorHora: Number(virtualRate?.valorHora ?? 0),
+        moneda: virtualRate?.moneda ?? ""
+      },
+      [ModalidadReunion.HIBRIDA]: {
+        valorHora: Number(hibridaRate?.valorHora ?? 0),
+        moneda: hibridaRate?.moneda ?? ""
+      }
+    };
+
+    const assignments = await db.asignacionAsistente.findMany({
+      where: {
+        tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+        estadoAsignacion: {
+          in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO]
+        },
+        asistente: {
+          usuario: {
+            role: { in: [...LEGACY_ASSISTANT_ROLES] }
+          }
+        },
+        evento: {
+          requiereAsistencia: true,
+          estadoEjecucion: EstadoEjecucionEvento.EJECUTADO,
+          estadoEvento: { not: EstadoEventoZoom.CANCELADO },
+          inicioProgramadoAt: {
+            gte: queryStart,
+            lt: queryEnd
+          }
+        }
+      },
+      select: {
+        id: true,
+        asistenteZoomId: true,
+        asistente: {
+          select: {
+            usuario: {
+              select: {
+                email: true,
+                name: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        },
+        evento: {
+          select: {
+            modalidadReunion: true,
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            inicioRealAt: true,
+            finRealAt: true,
+            minutosReales: true,
+            timezone: true,
+            solicitud: {
+              select: {
+                titulo: true,
+                programaNombre: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        evento: {
+          inicioProgramadoAt: "asc"
+        }
+      }
+    });
+
+    type DetailRow = {
+      assistantId: string;
+      assistantName: string;
+      assistantEmail: string;
+      programaNombre: string;
+      titulo: string;
+      inicio: Date;
+      fin: Date;
+      timeZone: string;
+      modalidad: ModalidadReunion;
+      minutos: number;
+      horas: number;
+      tarifaHora: number;
+      moneda: string;
+      monto: number;
+    };
+
+    type AssistantSummary = {
+      assistantId: string;
+      assistantName: string;
+      assistantEmail: string;
+      minutosVirtuales: number;
+      minutosHibridas: number;
+      montoVirtual: number;
+      montoHibrida: number;
+    };
+
+    const details: DetailRow[] = [];
+    const summaryByAssistant = new Map<string, AssistantSummary>();
+    const minutesByModalidad: Record<ModalidadReunion, number> = {
+      [ModalidadReunion.VIRTUAL]: 0,
+      [ModalidadReunion.HIBRIDA]: 0
+    };
+    const amountByModalidad: Record<ModalidadReunion, number> = {
+      [ModalidadReunion.VIRTUAL]: 0,
+      [ModalidadReunion.HIBRIDA]: 0
+    };
+
+    const getBillableMinutes = (event: {
+      inicioProgramadoAt: Date;
+      finProgramadoAt: Date;
+      inicioRealAt: Date | null;
+      finRealAt: Date | null;
+      minutosReales: number | null;
+    }): number => {
+      const scheduledMinutes = Math.max(
+        0,
+        Math.round((event.finProgramadoAt.getTime() - event.inicioProgramadoAt.getTime()) / 60000)
+      );
+      const realMinutes =
+        event.minutosReales ??
+        Math.max(
+          0,
+          Math.round(
+            (
+              (event.finRealAt ?? event.finProgramadoAt).getTime() -
+              (event.inicioRealAt ?? event.inicioProgramadoAt).getTime()
+            ) /
+              60000
+          )
+        );
+      return scheduledMinutes > 0 ? scheduledMinutes : realMinutes;
+    };
+
+    const round2 = (value: number) => Math.round(value * 100) / 100;
+
+    for (const assignment of assignments) {
+      const timezone = assignment.evento.timezone || "America/Montevideo";
+      if (toMonthKey(assignment.evento.inicioProgramadoAt, timezone) !== monthKey) {
+        continue;
+      }
+
+      const assistant = assignment.asistente?.usuario;
+      const assistantName =
+        assistant?.name ||
+        [assistant?.firstName, assistant?.lastName].filter(Boolean).join(" ").trim() ||
+        assistant?.email ||
+        assignment.asistenteZoomId;
+      const assistantEmail = assistant?.email ?? "";
+      const modalidad = assignment.evento.modalidadReunion;
+      const rateInfo = ratesByModalidad[modalidad];
+      const billableMinutes = getBillableMinutes(assignment.evento);
+      const billableHours = round2(billableMinutes / 60);
+      const calculatedAmount = round2((billableMinutes / 60) * rateInfo.valorHora);
+
+      details.push({
+        assistantId: assignment.asistenteZoomId,
+        assistantName,
+        assistantEmail,
+        programaNombre: assignment.evento.solicitud.programaNombre ?? "",
+        titulo: assignment.evento.solicitud.titulo,
+        inicio: assignment.evento.inicioProgramadoAt,
+        fin: assignment.evento.finProgramadoAt,
+        timeZone: timezone,
+        modalidad,
+        minutos: billableMinutes,
+        horas: billableHours,
+        tarifaHora: rateInfo.valorHora,
+        moneda: rateInfo.moneda,
+        monto: calculatedAmount
+      });
+
+      minutesByModalidad[modalidad] += billableMinutes;
+      amountByModalidad[modalidad] += calculatedAmount;
+
+      const existing = summaryByAssistant.get(assignment.asistenteZoomId);
+      if (existing) {
+        if (modalidad === ModalidadReunion.VIRTUAL) {
+          existing.minutosVirtuales += billableMinutes;
+          existing.montoVirtual = round2(existing.montoVirtual + calculatedAmount);
+        } else {
+          existing.minutosHibridas += billableMinutes;
+          existing.montoHibrida = round2(existing.montoHibrida + calculatedAmount);
+        }
+      } else {
+        summaryByAssistant.set(assignment.asistenteZoomId, {
+          assistantId: assignment.asistenteZoomId,
+          assistantName,
+          assistantEmail,
+          minutosVirtuales: modalidad === ModalidadReunion.VIRTUAL ? billableMinutes : 0,
+          minutosHibridas: modalidad === ModalidadReunion.HIBRIDA ? billableMinutes : 0,
+          montoVirtual: modalidad === ModalidadReunion.VIRTUAL ? calculatedAmount : 0,
+          montoHibrida: modalidad === ModalidadReunion.HIBRIDA ? calculatedAmount : 0
+        });
+      }
+    }
+
+    details.sort((left, right) => {
+      if (left.assistantName !== right.assistantName) {
+        return left.assistantName.localeCompare(right.assistantName, "es");
+      }
+      return left.inicio.getTime() - right.inicio.getTime();
+    });
+
+    const assistantSummaries = Array.from(summaryByAssistant.values())
+      .map((assistant) => {
+        const minutosTotales = assistant.minutosVirtuales + assistant.minutosHibridas;
+        const montoTotal = round2(assistant.montoVirtual + assistant.montoHibrida);
+        return {
+          ...assistant,
+          minutosTotales,
+          horasVirtuales: round2(assistant.minutosVirtuales / 60),
+          horasHibridas: round2(assistant.minutosHibridas / 60),
+          horasTotales: round2(minutosTotales / 60),
+          montoTotal
+        };
+      })
+      .sort((left, right) => left.assistantName.localeCompare(right.assistantName, "es"));
+
+    const totalMinutes = minutesByModalidad.VIRTUAL + minutesByModalidad.HIBRIDA;
+    const totalAmount = round2(amountByModalidad.VIRTUAL + amountByModalidad.HIBRIDA);
+    const totalHours = round2(totalMinutes / 60);
+    const virtualCurrency = ratesByModalidad.VIRTUAL.moneda;
+    const hibridaCurrency = ratesByModalidad.HIBRIDA.moneda;
+    const hasMixedCurrencies = Boolean(
+      virtualCurrency &&
+      hibridaCurrency &&
+      virtualCurrency !== hibridaCurrency
+    );
+    const totalCurrency = hasMixedCurrencies
+      ? "MIXTA"
+      : (virtualCurrency || hibridaCurrency || "");
+
+    const formatNumber = (value: number) => Number(value.toFixed(2));
+    const formatHours = (minutes: number) => formatNumber(minutes / 60);
+    const formatDateTime = (date: Date, timeZone: string) => {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone
+      }).formatToParts(date);
+      const yearPart = parts.find((part) => part.type === "year")?.value ?? "0000";
+      const monthPart = parts.find((part) => part.type === "month")?.value ?? "01";
+      const dayPart = parts.find((part) => part.type === "day")?.value ?? "01";
+      const hourPart = parts.find((part) => part.type === "hour")?.value ?? "00";
+      const minutePart = parts.find((part) => part.type === "minute")?.value ?? "00";
+      return `${yearPart}-${monthPart}-${dayPart} ${hourPart}:${minutePart}`;
+    };
+    const overviewRows: Array<Array<string | number>> = [
+      ["INFORME MENSUAL CONTADURIA", ""],
+      ["Mes", monthKey],
+      ["Generado", formatDateTime(new Date(), "America/Montevideo")],
+      ["Tarifa virtual actual", formatNumber(ratesByModalidad.VIRTUAL.valorHora), virtualCurrency],
+      ["Tarifa hibrida actual", formatNumber(ratesByModalidad.HIBRIDA.valorHora), hibridaCurrency],
+      ["Moneda total", totalCurrency]
+    ];
+    if (hasMixedCurrencies) {
+      overviewRows.push(["Observacion", "Hay modalidades con monedas distintas."]);
+    }
+
+    const summaryRows = assistantSummaries.map((assistant) => ({
+      Asistente: assistant.assistantName,
+      Email: assistant.assistantEmail,
+      "Horas virtuales": formatNumber(assistant.horasVirtuales),
+      "Horas hibridas": formatNumber(assistant.horasHibridas),
+      "Horas totales": formatNumber(assistant.horasTotales),
+      "Monto virtual": formatNumber(assistant.montoVirtual),
+      "Monto hibrida": formatNumber(assistant.montoHibrida),
+      "Monto total": formatNumber(assistant.montoTotal),
+      Moneda: totalCurrency
+    }));
+
+    const detailRows = details.map((detail) => ({
+      Asistente: detail.assistantName,
+      Email: detail.assistantEmail,
+      Programa: detail.programaNombre || "Sin programa",
+      Encuentro: detail.titulo,
+      Inicio: formatDateTime(detail.inicio, detail.timeZone),
+      Fin: formatDateTime(detail.fin, detail.timeZone),
+      Modalidad: detail.modalidad,
+      "Duracion (min)": detail.minutos,
+      "Duracion (h)": formatNumber(detail.horas),
+      "Tarifa hora actual": formatNumber(detail.tarifaHora),
+      Moneda: detail.moneda,
+      "Importe calculado": formatNumber(detail.monto)
+    }));
+
+    const totalsRows = [
+      {
+        Modalidad: "VIRTUAL",
+        Horas: formatHours(minutesByModalidad.VIRTUAL),
+        Monto: formatNumber(amountByModalidad.VIRTUAL),
+        Moneda: virtualCurrency
+      },
+      {
+        Modalidad: "HIBRIDA",
+        Horas: formatHours(minutesByModalidad.HIBRIDA),
+        Monto: formatNumber(amountByModalidad.HIBRIDA),
+        Moneda: hibridaCurrency
+      },
+      {
+        Modalidad: "TOTAL",
+        Horas: formatNumber(totalHours),
+        Monto: formatNumber(totalAmount),
+        Moneda: totalCurrency
+      }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    const overviewSheet = XLSX.utils.aoa_to_sheet(overviewRows);
+    const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
+    const detailSheet = XLSX.utils.json_to_sheet(detailRows);
+    const totalsSheet = XLSX.utils.json_to_sheet(totalsRows);
+
+    XLSX.utils.book_append_sheet(workbook, overviewSheet, "Resumen");
+    XLSX.utils.book_append_sheet(workbook, summarySheet, "Asistentes");
+    XLSX.utils.book_append_sheet(workbook, detailSheet, "Detalle");
+    XLSX.utils.book_append_sheet(workbook, totalsSheet, "Totales");
+
+    const content = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    return {
+      monthKey,
+      fileName: `informe-contaduria-${monthKey}.xlsx`,
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      content
+    };
   }
 
   async listPersonMeetingHours(input: { userId?: string | null }) {

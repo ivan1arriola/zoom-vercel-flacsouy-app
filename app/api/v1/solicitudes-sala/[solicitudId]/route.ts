@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 type Params = { params: Promise<{ solicitudId: string }> };
 
 const patchBodySchema = z.object({
-  motivo: z.string().trim().max(240).optional().or(z.literal(""))
+  motivo: z.string().trim().max(240).optional().or(z.literal("")),
+  requiereAsistencia: z.boolean().optional()
 });
 
 export async function DELETE(_request: Request, context: Params) {
@@ -40,7 +41,10 @@ export async function PATCH(request: Request, context: Params) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (user.role !== UserRole.ADMINISTRADOR) {
+  const canEditAssistance =
+    user.role === UserRole.ADMINISTRADOR ||
+    user.role === UserRole.DOCENTE;
+  if (!canEditAssistance) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -56,8 +60,9 @@ export async function PATCH(request: Request, context: Params) {
 
   try {
     const service = new SalasService();
-    const result = await service.enableSolicitudAssistance(user, solicitudId, {
-      motivo: typeof parsed.data.motivo === "string" ? parsed.data.motivo : undefined
+    const result = await service.updateSolicitudAssistance(user, solicitudId, {
+      motivo: typeof parsed.data.motivo === "string" ? parsed.data.motivo : undefined,
+      requiereAsistencia: parsed.data.requiereAsistencia
     });
     return NextResponse.json({ result });
   } catch (error) {

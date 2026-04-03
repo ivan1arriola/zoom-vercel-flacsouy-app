@@ -7,6 +7,7 @@ import LaunchIcon from "@mui/icons-material/Launch";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EventBusyOutlinedIcon from "@mui/icons-material/EventBusyOutlined";
+import EventAvailableOutlinedIcon from "@mui/icons-material/EventAvailableOutlined";
 import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSendOutlined";
 import RestoreFromTrashOutlinedIcon from "@mui/icons-material/RestoreFromTrashOutlined";
 import MailOutlineOutlinedIcon from "@mui/icons-material/MailOutlineOutlined";
@@ -86,7 +87,11 @@ interface SpaTabSolicitudesProps {
   }) => Promise<boolean>;
   canEditAssistance: boolean;
   updatingAssistanceSolicitudId: string | null;
-  onEnableAssistance: (input: { solicitudId: string; titulo: string }) => void;
+  onEnableAssistance: (input: {
+    solicitudId: string;
+    titulo: string;
+    requiereAsistencia: boolean;
+  }) => void;
   canDeleteSolicitud: boolean;
   canRestoreInstances: boolean;
   isSubmittingSolicitud: boolean;
@@ -269,6 +274,135 @@ function extractLocalDatePart(value: string): string | null {
 
 function isLikelyEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim().toLowerCase());
+}
+
+function toUtcCalendarStamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  const second = String(date.getUTCSeconds()).padStart(2, "0");
+  return `${year}${month}${day}T${hour}${minute}${second}Z`;
+}
+
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\r\n/g, "\\n")
+    .replace(/\n/g, "\\n")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,");
+}
+
+function slugifyForFileName(value: string): string {
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return normalized || "actividad";
+}
+
+function parseZoomMeetingIdFromJoinUrl(joinUrl?: string | null): string | null {
+  if (!joinUrl) return null;
+  try {
+    const parsed = new URL(joinUrl);
+    const pieces = parsed.pathname.split("/").filter(Boolean);
+    const roomTypeIndex = pieces.findIndex((piece) => piece === "j" || piece === "w");
+    if (roomTypeIndex < 0) return null;
+    const rawId = pieces[roomTypeIndex + 1] ?? "";
+    const meetingId = rawId.replace(/\D/g, "");
+    return meetingId || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveInstanceEndIso(
+  instance: NonNullable<Solicitud["zoomInstances"]>[number]
+): string {
+  const explicitEnd = (instance.endTime ?? "").trim();
+  if (explicitEnd) return explicitEnd;
+
+  const startDate = new Date(instance.startTime);
+  if (Number.isNaN(startDate.getTime())) return instance.startTime;
+  const durationMinutes = Number.isFinite(instance.durationMinutes) && instance.durationMinutes > 0
+    ? instance.durationMinutes
+    : 60;
+  return new Date(startDate.getTime() + durationMinutes * 60_000).toISOString();
+}
+
+function buildSolicitudInstanceIcsContent(input: {
+  solicitud: Pick<Solicitud, "id" | "titulo" | "programaNombre" | "meetingPrincipalId">;
+  instance: NonNullable<Solicitud["zoomInstances"]>[number];
+}): string {
+  const startIso = input.instance.startTime;
+  const endIso = resolveInstanceEndIso(input.instance);
+  const dtStamp = toUtcCalendarStamp(new Date().toISOString());
+  const dtStart = toUtcCalendarStamp(startIso);
+  const dtEnd = toUtcCalendarStamp(endIso);
+  const joinUrl = input.instance.joinUrl ?? null;
+  const meetingId = parseZoomMeetingIdFromJoinUrl(joinUrl) ?? input.solicitud.meetingPrincipalId ?? "-";
+  const summary = escapeIcsText(input.solicitud.titulo || "Actividad Zoom");
+  const detailsLines = [
+    `Solicitud: ${input.solicitud.id}`,
+    `Programa: ${input.solicitud.programaNombre || "Sin programa"}`,
+    `Meeting ID: ${meetingId}`,
+    joinUrl ? `Zoom: ${joinUrl}` : null
+  ].filter(Boolean) as string[];
+  const description = escapeIcsText(detailsLines.join("\n"));
+
+  const uidSeed = input.instance.eventId ?? input.instance.occurrenceId ?? startIso;
+  const uid = `${input.solicitud.id}-${uidSeed}@flacso-uruguay`;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//FLACSO Uruguay//Plataforma Zoom//ES",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${dtStamp}`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
+    `SUMMARY:${summary}`,
+    `DESCRIPTION:${description}`,
+    "LOCATION:Zoom",
+    "END:VEVENT",
+    "END:VCALENDAR"
+  ];
+
+  if (joinUrl) {
+    lines.splice(lines.length - 2, 0, `URL:${escapeIcsText(joinUrl)}`);
+  }
+
+  return lines.join("\r\n");
+}
+
+function downloadSolicitudInstanceIcs(input: {
+  solicitud: Pick<Solicitud, "id" | "titulo" | "programaNombre" | "meetingPrincipalId">;
+  instance: NonNullable<Solicitud["zoomInstances"]>[number];
+}): void {
+  const content = buildSolicitudInstanceIcsContent(input);
+  const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
+  const objectUrl = URL.createObjectURL(blob);
+  const dateLabel = input.instance.startTime.slice(0, 10).replace(/[^0-9]/g, "");
+  const uidSeed = input.instance.eventId ?? input.instance.occurrenceId ?? "instancia";
+  const fileName = `${slugifyForFileName(input.solicitud.titulo || "actividad")}-${dateLabel}-${uidSeed}.ics`;
+
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 export function SpaTabSolicitudes({
@@ -1002,6 +1136,7 @@ export function SpaTabSolicitudes({
             const isRestoreInProgress = restoringInstanciaKey === instanceKey;
             const canRestoreThisInstance = canRestoreInstances && status.label === "Cancelada";
             const canCancelThisInstance = canDeleteSolicitud && status.cancellable;
+            const canScheduleThisInstance = status.label !== "Cancelada";
 
             return (
               <Paper
@@ -1046,6 +1181,23 @@ export function SpaTabSolicitudes({
                   </Stack>
                 </Box>
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                  {canScheduleThisInstance && (
+                    <Button
+                      type="button"
+                      size="small"
+                      variant="outlined"
+                      color="info"
+                      startIcon={<EventAvailableOutlinedIcon fontSize="small" />}
+                      onClick={() =>
+                        downloadSolicitudInstanceIcs({
+                          solicitud: item,
+                          instance
+                        })
+                      }
+                    >
+                      Agendar
+                    </Button>
+                  )}
                   {canCancelThisInstance && (
                     <Button
                       type="button"
@@ -2039,9 +2191,8 @@ export function SpaTabSolicitudes({
                   const showAddInstanceAction = canAddInstances && !isSolicitudCancelled;
                   const showEditAssistanceAction =
                     canEditAssistance &&
-                    !solicitudRequiresAssistance &&
                     !isSolicitudCancelled &&
-                    hasEligibleInstanceForAssistance;
+                    (solicitudRequiresAssistance || hasEligibleInstanceForAssistance);
                   const showReminderAction = canSendReminder;
                   const showAssistantAccessAction = solicitudRequiresAssistance && canSendReminder;
                   const hasPrimaryActions = Boolean(joinUrl) || showAddInstanceAction || showEditAssistanceAction;
@@ -2119,12 +2270,21 @@ export function SpaTabSolicitudes({
                                     size="small"
                                     variant="outlined"
                                     startIcon={<EditOutlinedIcon fontSize="small" />}
-                                    onClick={() => onEnableAssistance({ solicitudId: item.id, titulo: item.titulo })}
+                                    color={solicitudRequiresAssistance ? "warning" : "primary"}
+                                    onClick={() =>
+                                      onEnableAssistance({
+                                        solicitudId: item.id,
+                                        titulo: item.titulo,
+                                        requiereAsistencia: solicitudRequiresAssistance
+                                      })
+                                    }
                                     disabled={Boolean(updatingAssistanceSolicitudId)}
                                   >
                                     {updatingAssistanceSolicitudId === item.id
                                       ? "Guardando..."
-                                      : "Editar asistencia"}
+                                      : solicitudRequiresAssistance
+                                        ? "Quitar asistencia"
+                                        : "Habilitar asistencia"}
                                   </Button>
                                 ) : null}
                               </Stack>

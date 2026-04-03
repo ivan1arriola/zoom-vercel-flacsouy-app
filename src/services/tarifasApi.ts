@@ -122,3 +122,62 @@ export async function loadPersonHours(userId?: string): Promise<PersonHoursRespo
   const json = (await res.json()) as PersonHoursResponse;
   return json;
 }
+
+function resolveFilenameFromDisposition(disposition: string | null): string | null {
+  if (!disposition) return null;
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ?? null;
+}
+
+export async function downloadMonthlyAccountingReport(monthKey?: string): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const query = monthKey ? `?month=${encodeURIComponent(monthKey)}` : "";
+  const response = await fetch(`/api/v1/tarifas-asistencia/reporte-mensual${query}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    try {
+      const payload = (await response.json()) as { error?: string };
+      return {
+        success: false,
+        error: payload.error ?? "No se pudo descargar el informe mensual."
+      };
+    } catch {
+      return {
+        success: false,
+        error: "No se pudo descargar el informe mensual."
+      };
+    }
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("content-disposition");
+  const filename = resolveFilenameFromDisposition(contentDisposition) ??
+    `informe-contaduria-${monthKey ?? "mensual"}.xlsx`;
+  const objectUrl = URL.createObjectURL(blob);
+
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+
+  return { success: true };
+}

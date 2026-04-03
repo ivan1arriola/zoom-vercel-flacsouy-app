@@ -432,37 +432,54 @@ export async function sendSolicitudReminder(input: {
 
 export async function enableSolicitudAsistencia(input: {
   solicitudId: string;
+  requiereAsistencia?: boolean;
   motivo?: string;
 }): Promise<{
   success: boolean;
+  requiereAsistencia?: boolean;
   updatedEvents?: number;
+  cancelledAssignments?: number;
+  notifiedAssistants?: number;
   alreadyEnabled?: boolean;
+  alreadyDisabled?: boolean;
   error?: string;
 }> {
   const result = await requestJson<{
     error?: string;
     result?: {
+      requiereAsistencia?: boolean;
       updatedEvents?: number;
+      cancelledAssignments?: number;
+      notifiedAssistants?: number;
       alreadyEnabled?: boolean;
+      alreadyDisabled?: boolean;
     };
   }>(`/api/v1/solicitudes-sala/${encodeURIComponent(input.solicitudId)}`, {
     method: "PATCH",
     ...withJsonBody({
+      requiereAsistencia: input.requiereAsistencia,
       motivo: input.motivo
     })
   });
 
   if (!result.ok) {
+    const defaultError = input.requiereAsistencia === false
+      ? "No se pudo deshabilitar asistencia Zoom."
+      : "No se pudo habilitar asistencia Zoom.";
     return {
       success: false,
-      error: result.data.error ?? "No se pudo habilitar asistencia Zoom."
+      error: result.data.error ?? defaultError
     };
   }
 
   return {
     success: true,
+    requiereAsistencia: result.data.result?.requiereAsistencia,
     updatedEvents: result.data.result?.updatedEvents,
-    alreadyEnabled: result.data.result?.alreadyEnabled
+    cancelledAssignments: result.data.result?.cancelledAssignments,
+    notifiedAssistants: result.data.result?.notifiedAssistants,
+    alreadyEnabled: result.data.result?.alreadyEnabled,
+    alreadyDisabled: result.data.result?.alreadyDisabled
   };
 }
 

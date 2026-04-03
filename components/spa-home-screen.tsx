@@ -420,7 +420,7 @@ export function SpaHomeScreen() {
     [effectiveRole]
   );
   const canEditSolicitudAssistance = useMemo(
-    () => effectiveRole === "ADMINISTRADOR",
+    () => ["DOCENTE", "ADMINISTRADOR"].includes(effectiveRole),
     [effectiveRole]
   );
   const canDelegateSolicitudResponsable = useMemo(
@@ -1287,12 +1287,16 @@ export function SpaHomeScreen() {
     }
   }
 
-  async function enableSolicitudAssistance(input: { solicitudId: string; titulo: string }) {
-    if (
-      !window.confirm(
-        `Se habilitara asistencia Zoom para "${input.titulo}" en sus instancias activas. ¿Continuar?`
-      )
-    ) {
+  async function enableSolicitudAssistance(input: {
+    solicitudId: string;
+    titulo: string;
+    requiereAsistencia: boolean;
+  }) {
+    const nextRequiresAssistance = !input.requiereAsistencia;
+    const confirmMessage = nextRequiresAssistance
+      ? `Se habilitara asistencia Zoom para "${input.titulo}" en sus instancias activas. ¿Continuar?`
+      : `Se quitara la asistencia Zoom para "${input.titulo}". Si hay asistentes asignados, recibiran un correo de cancelacion. ¿Continuar?`;
+    if (!window.confirm(confirmMessage)) {
       return;
     }
 
@@ -1301,27 +1305,53 @@ export function SpaHomeScreen() {
 
     try {
       const response = await enableSolicitudAsistenciaApi({
-        solicitudId: input.solicitudId
+        solicitudId: input.solicitudId,
+        requiereAsistencia: nextRequiresAssistance
       });
       if (!response.success) {
-        setMessage(response.error ?? "No se pudo habilitar asistencia Zoom.");
+        setMessage(
+          response.error ??
+            (nextRequiresAssistance
+              ? "No se pudo habilitar asistencia Zoom."
+              : "No se pudo deshabilitar asistencia Zoom.")
+        );
         return;
       }
 
-      if (response.alreadyEnabled) {
-        setMessage("La solicitud ya tenia asistencia Zoom habilitada.");
+      if (nextRequiresAssistance) {
+        if (response.alreadyEnabled) {
+          setMessage("La solicitud ya tenia asistencia Zoom habilitada.");
+        } else {
+          const updatedCount = response.updatedEvents ?? 0;
+          setMessage(
+            updatedCount > 0
+              ? `Asistencia Zoom habilitada. Se actualizaron ${updatedCount} instancia(s).`
+              : "Asistencia Zoom habilitada."
+          );
+        }
+      } else if (response.alreadyDisabled) {
+        setMessage("La solicitud ya tenia asistencia Zoom deshabilitada.");
       } else {
         const updatedCount = response.updatedEvents ?? 0;
-        setMessage(
-          updatedCount > 0
-            ? `Asistencia Zoom habilitada. Se actualizaron ${updatedCount} instancia(s).`
-            : "Asistencia Zoom habilitada."
-        );
+        const cancelledAssignments = response.cancelledAssignments ?? 0;
+        const notifiedAssistants = response.notifiedAssistants ?? 0;
+        const details = [
+          `instancia(s) actualizadas: ${updatedCount}`,
+          `asignacion(es) canceladas: ${cancelledAssignments}`,
+          `correo(s) enviados: ${notifiedAssistants}`
+        ];
+        setMessage(`Asistencia Zoom deshabilitada (${details.join(", ")}).`);
       }
 
       await refreshAfterSolicitudMutation();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No se pudo habilitar asistencia Zoom.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : nextRequiresAssistance
+            ? "No se pudo habilitar asistencia Zoom."
+            : "No se pudo deshabilitar asistencia Zoom."
+      );
     } finally {
       setUpdatingAsistenciaSolicitudId(null);
     }

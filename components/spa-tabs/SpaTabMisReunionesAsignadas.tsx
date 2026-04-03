@@ -103,6 +103,113 @@ function formatMinutesAsHHMM(totalMinutes: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function toUtcCalendarStamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  const second = String(date.getUTCSeconds()).padStart(2, "0");
+  return `${year}${month}${day}T${hour}${minute}${second}Z`;
+}
+
+function buildMeetingCalendarDetails(meeting: PersonHoursMeeting): string {
+  const lines = [
+    `Programa: ${meeting.programaNombre || "Sin programa"}`,
+    `Modalidad: ${meeting.modalidadReunion === "VIRTUAL" ? "Virtual" : "Hibrida"}`,
+    `Meeting ID: ${meeting.zoomMeetingId || "-"}`,
+    meeting.zoomJoinUrl ? `Zoom: ${meeting.zoomJoinUrl}` : null
+  ].filter(Boolean) as string[];
+  return lines.join("\n");
+}
+
+function buildGoogleCalendarUrl(meeting: PersonHoursMeeting): string {
+  const text = meeting.titulo || "Reunion Zoom";
+  const start = toUtcCalendarStamp(meeting.inicioProgramadoAt || meeting.inicioAt);
+  const end = toUtcCalendarStamp(meeting.finProgramadoAt || meeting.finAt);
+  const details = buildMeetingCalendarDetails(meeting);
+  const location = meeting.zoomJoinUrl || "Zoom";
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text,
+    dates: `${start}/${end}`,
+    details,
+    location
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\r\n/g, "\\n")
+    .replace(/\n/g, "\\n")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,");
+}
+
+function slugifyForFileName(value: string): string {
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return normalized || "reunion";
+}
+
+function buildIcsContent(meeting: PersonHoursMeeting): string {
+  const uid = `${meeting.assignmentId}-${meeting.eventId}@flacso-uruguay`;
+  const dtStamp = toUtcCalendarStamp(new Date().toISOString());
+  const dtStart = toUtcCalendarStamp(meeting.inicioProgramadoAt || meeting.inicioAt);
+  const dtEnd = toUtcCalendarStamp(meeting.finProgramadoAt || meeting.finAt);
+  const summary = escapeIcsText(meeting.titulo || "Reunion Zoom");
+  const description = escapeIcsText(buildMeetingCalendarDetails(meeting));
+  const location = escapeIcsText("Zoom");
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//FLACSO Uruguay//Plataforma Zoom//ES",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${dtStamp}`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
+    `SUMMARY:${summary}`,
+    `DESCRIPTION:${description}`,
+    `LOCATION:${location}`,
+    "END:VEVENT",
+    "END:VCALENDAR"
+  ];
+
+  if (meeting.zoomJoinUrl) {
+    lines.splice(lines.length - 2, 0, `URL:${escapeIcsText(meeting.zoomJoinUrl)}`);
+  }
+
+  return lines.join("\r\n");
+}
+
+function downloadMeetingIcs(meeting: PersonHoursMeeting): void {
+  const content = buildIcsContent(meeting);
+  const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
+  const objectUrl = URL.createObjectURL(blob);
+  const fileName = `${slugifyForFileName(meeting.titulo || "reunion")}-${meeting.assignmentId}.ics`;
+
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 function isFutureConfirmedMeeting(meeting: PersonHoursMeeting, nowMs: number): boolean {
   if (!["ASIGNADO", "ACEPTADO"].includes(meeting.estadoAsignacion)) return false;
   if (meeting.estadoEvento === "CANCELADO") return false;
@@ -464,6 +571,22 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                             Abrir
                           </Button>
                         ) : null}
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          href={buildGoogleCalendarUrl(meeting)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Google Calendar
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => downloadMeetingIcs(meeting)}
+                        >
+                          Descargar .ics
+                        </Button>
                       </Stack>
                     </Stack>
 
