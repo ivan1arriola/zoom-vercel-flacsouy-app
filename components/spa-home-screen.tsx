@@ -9,18 +9,24 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Menu,
+  MenuItem,
   Paper,
   Snackbar,
   Stack,
   Typography
 } from "@mui/material";
+import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 import {
   formatDateTime
 } from "@/src/lib/spa-home/recurrence";
 import {
+  type NavigationGroup,
+  NAVIGATION_GROUP_ORDER,
   NAVIGATION_GROUP_LABEL,
   TAB_CONFIG,
   canAccessTabForRole,
+  getNavigationGroupIcon,
   getTabIcon,
   isViewRole,
   normalizeAssistantRole,
@@ -31,7 +37,10 @@ import {
 import { normalizeDocentesCorreosByLine } from "@/src/lib/spa-home/validation";
 import {
   loadSummary,
-  loadAssignmentBoard
+  loadAssignmentBoard,
+  loadAssignmentSuggestion,
+  loadNextAssignmentSuggestion,
+  type AssignmentSuggestion
 } from "@/src/services/dashboardApi";
 import {
   loadPastMeetings,
@@ -316,7 +325,24 @@ export function SpaHomeScreen() {
   const { agendaLibre, setAgendaLibre, updatingInterestId, setUpdatingInterestId } = useAgendaLibre();
   
   // Assignment Board
-  const { assignmentBoardEvents, setAssignmentBoardEvents, assignableAssistants, setAssignableAssistants, isLoadingAssignmentBoard, setIsLoadingAssignmentBoard, assigningEventId, setAssigningEventId, selectedAssistantByEvent, setSelectedAssistantByEvent } = useAssignmentBoard();
+  const {
+    assignmentBoardEvents,
+    setAssignmentBoardEvents,
+    assignableAssistants,
+    setAssignableAssistants,
+    isLoadingAssignmentBoard,
+    setIsLoadingAssignmentBoard,
+    assigningEventId,
+    setAssigningEventId,
+    selectedAssistantByEvent,
+    setSelectedAssistantByEvent,
+    assignmentSuggestion,
+    setAssignmentSuggestion,
+    suggestionSessionId,
+    setSuggestionSessionId,
+    isLoadingSuggestion,
+    setIsLoadingSuggestion
+  } = useAssignmentBoard();
   
   // Tarifas
   const {
@@ -457,25 +483,49 @@ export function SpaHomeScreen() {
   const responsableOptions = useMemo(() => {
     const map = new Map<string, { value: string; label: string }>();
 
-    const addOption = (
+    const addOption = (firstName: string | null | undefined, lastName: string | null | undefined, email: string) => {
+      const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!normalizedEmail) return;
+      const value = fullName ? `${fullName} (${normalizedEmail})` : normalizedEmail;
+      const key = `${fullName.toLowerCase()}|${normalizedEmail}`;
+      if (map.has(key)) return;
+      const label = fullName ? `${fullName} (${normalizedEmail})` : normalizedEmail;
+      map.set(key, { value, label });
+    };
+
+    const addOptionsForPerson = (
       firstName: string | null | undefined,
       lastName: string | null | undefined,
-      email: string | null | undefined
+      primaryEmail: string | null | undefined,
+      emails: string[] | null | undefined
     ) => {
-      const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
-      const value = (fullName || email || "").trim();
-      if (!value) return;
-      if (map.has(value.toLowerCase())) return;
-      const label = fullName && email ? `${fullName} (${email})` : value;
-      map.set(value.toLowerCase(), { value, label });
+      const normalizedEmails = new Set<string>();
+      if (primaryEmail) {
+        const normalizedPrimary = primaryEmail.trim().toLowerCase();
+        if (normalizedPrimary) normalizedEmails.add(normalizedPrimary);
+      }
+      for (const alias of emails ?? []) {
+        const normalizedAlias = alias.trim().toLowerCase();
+        if (!normalizedAlias) continue;
+        normalizedEmails.add(normalizedAlias);
+      }
+      for (const email of normalizedEmails) {
+        addOption(firstName, lastName, email);
+      }
     };
 
     for (const managedUser of users) {
       if (!["DOCENTE", "ADMINISTRADOR"].includes(managedUser.role)) continue;
-      addOption(managedUser.firstName, managedUser.lastName, managedUser.email);
+      addOptionsForPerson(
+        managedUser.firstName,
+        managedUser.lastName,
+        managedUser.email,
+        managedUser.emails
+      );
     }
 
-    addOption(user?.firstName, user?.lastName, user?.email);
+    addOptionsForPerson(user?.firstName, user?.lastName, user?.email, user?.emails);
 
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "es"));
   }, [users, user]);
@@ -506,15 +556,24 @@ export function SpaHomeScreen() {
 
     for (const managedUser of users) {
       if (!["DOCENTE", "ADMINISTRADOR"].includes(managedUser.role)) continue;
-      addDocente(
+      const candidateEmails = new Set<string>([
         managedUser.email,
-        managedUser.firstName,
-        managedUser.lastName,
-        null
-      );
+        ...(managedUser.emails ?? [])
+      ]);
+      for (const candidateEmail of candidateEmails) {
+        addDocente(
+          candidateEmail,
+          managedUser.firstName,
+          managedUser.lastName,
+          null
+        );
+      }
     }
 
-    addDocente(user?.email, user?.firstName, user?.lastName, null);
+    const currentUserEmails = new Set<string>([user?.email ?? "", ...(user?.emails ?? [])]);
+    for (const candidateEmail of currentUserEmails) {
+      addDocente(candidateEmail, user?.firstName, user?.lastName, null);
+    }
 
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "es"));
   }, [users, user]);
@@ -540,7 +599,13 @@ export function SpaHomeScreen() {
 
     for (const managedUser of users) {
       if (normalizeAssistantRole(managedUser.role) !== "ASISTENTE_ZOOM") continue;
-      addMonitor(managedUser.email, managedUser.firstName, managedUser.lastName);
+      const candidateEmails = new Set<string>([
+        managedUser.email,
+        ...(managedUser.emails ?? [])
+      ]);
+      for (const candidateEmail of candidateEmails) {
+        addMonitor(candidateEmail, managedUser.firstName, managedUser.lastName);
+      }
     }
 
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "es"));
@@ -1428,6 +1493,76 @@ export function SpaHomeScreen() {
     }
   }
 
+  function applySuggestionSelection(suggestion: AssignmentSuggestion | null) {
+    if (!suggestion) return;
+    setSelectedAssistantByEvent((current) => {
+      const next = { ...current };
+      for (const event of suggestion.events) {
+        next[event.eventoId] = event.asistenteZoomId;
+      }
+      return next;
+    });
+  }
+
+  async function suggestMonthlyAssignment() {
+    setIsLoadingSuggestion(true);
+    try {
+      const response = await loadAssignmentSuggestion();
+      if (!response) {
+        setMessage("No se pudo generar sugerencias de asignación.");
+        return;
+      }
+
+      setSuggestionSessionId(response.sessionId);
+      setAssignmentSuggestion(response.suggestion ?? null);
+
+      if (!response.suggestion) {
+        setMessage(response.message ?? "No se encontró una sugerencia válida para los eventos pendientes.");
+        return;
+      }
+
+      applySuggestionSelection(response.suggestion);
+      setMessage(
+        `Sugerencia aplicada (alcance ${response.scopeKey}). Puntaje: ${response.suggestion.score.toFixed(2)}.`
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo generar sugerencias de asignación.");
+    } finally {
+      setIsLoadingSuggestion(false);
+    }
+  }
+
+  async function suggestNextMonthlyAssignment() {
+    if (!suggestionSessionId) {
+      setMessage("Primero debes generar una sugerencia inicial.");
+      return;
+    }
+
+    setIsLoadingSuggestion(true);
+    try {
+      const response = await loadNextAssignmentSuggestion(suggestionSessionId);
+      if (!response) {
+        setMessage("No se pudo obtener la siguiente sugerencia.");
+        return;
+      }
+
+      setSuggestionSessionId(response.sessionId);
+      setAssignmentSuggestion(response.suggestion ?? null);
+
+      if (!response.suggestion) {
+        setMessage(response.message ?? "No hay más sugerencias equivalentes disponibles.");
+        return;
+      }
+
+      applySuggestionSelection(response.suggestion);
+      setMessage(`Alternativa aplicada. Puntaje: ${response.suggestion.score.toFixed(2)}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo obtener la siguiente sugerencia.");
+    } finally {
+      setIsLoadingSuggestion(false);
+    }
+  }
+
   // Removed: loadGoogleAccountStatus function now called from useEffect with API service
 
   async function linkGoogleAccount() {
@@ -2068,6 +2203,31 @@ export function SpaHomeScreen() {
     return [];
   }, [effectiveRole, tab, docenteSolicitudesView, setDocenteSolicitudesView, setTab]);
 
+  const adminNavigationGroups = useMemo(
+    () =>
+      NAVIGATION_GROUP_ORDER.map((group) => {
+        const groupTabs = visibleNavigationTabs.filter((candidateTab) => TAB_CONFIG[candidateTab].group === group);
+        return {
+          group,
+          label: NAVIGATION_GROUP_LABEL[group],
+          tabs: groupTabs
+        };
+      }).filter((item) => item.tabs.length > 0),
+    [visibleNavigationTabs]
+  );
+  const [adminNavOpenGroup, setAdminNavOpenGroup] = useState<NavigationGroup | null>(null);
+  const [adminNavAnchorEl, setAdminNavAnchorEl] = useState<HTMLElement | null>(null);
+
+  function openAdminNavGroupMenu(group: NavigationGroup, anchorEl: HTMLElement) {
+    setAdminNavOpenGroup(group);
+    setAdminNavAnchorEl(anchorEl);
+  }
+
+  function closeAdminNavGroupMenu() {
+    setAdminNavOpenGroup(null);
+    setAdminNavAnchorEl(null);
+  }
+
   return (
     <Box component="section">
       <Paper
@@ -2136,25 +2296,102 @@ export function SpaHomeScreen() {
               pb: 0.2
             }}
           >
-            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-              {visibleNavigationTabs.map((navigationTab) => (
-                <Button
-                  key={navigationTab}
-                  size="small"
-                  variant={tab === navigationTab ? "contained" : "outlined"}
-                  color={tab === navigationTab ? "primary" : "inherit"}
-                  startIcon={getTabIcon(navigationTab)}
-                  onClick={() => setTab(navigationTab)}
-                  sx={{
-                    textTransform: "none",
-                    borderRadius: 2,
-                    fontWeight: tab === navigationTab ? 700 : 600,
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  {TAB_CONFIG[navigationTab].label}
-                </Button>
-              ))}
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={1}
+              useFlexGap
+              flexWrap="wrap"
+            >
+              {adminNavigationGroups.map((groupItem) => {
+                const activeTabInGroup = groupItem.tabs.find((candidateTab) => candidateTab === tab) ?? null;
+                const isGroupMenuOpen = adminNavOpenGroup === groupItem.group;
+                return (
+                  <Paper
+                    key={groupItem.group}
+                    variant="outlined"
+                    sx={{
+                      p: 0.8,
+                      borderRadius: 2,
+                      minWidth: { xs: "100%", sm: 250 },
+                      flex: { xs: "1 1 100%", sm: "1 1 250px" }
+                    }}
+                  >
+                    <Button
+                      fullWidth
+                      variant={activeTabInGroup ? "contained" : "outlined"}
+                      color={activeTabInGroup ? "primary" : "inherit"}
+                      onClick={(event) => openAdminNavGroupMenu(groupItem.group, event.currentTarget)}
+                      endIcon={<KeyboardArrowDownRoundedIcon />}
+                      sx={{
+                        minHeight: 52,
+                        borderRadius: 1.8,
+                        px: 1.2,
+                        justifyContent: "space-between",
+                        textTransform: "none",
+                        "& .MuiButton-startIcon": {
+                          display: "flex",
+                          alignItems: "center",
+                          mr: 1
+                        }
+                      }}
+                    >
+                      <Stack direction="row" spacing={0.9} alignItems="center">
+                        <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
+                          {getNavigationGroupIcon(groupItem.group)}
+                        </Box>
+                        <Stack spacing={0} alignItems="flex-start">
+                          <Typography variant="caption" sx={{ lineHeight: 1, opacity: 0.85 }}>
+                            {groupItem.label}
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                            {activeTabInGroup ? TAB_CONFIG[activeTabInGroup].label : "Elegir sección"}
+                          </Typography>
+                        </Stack>
+                      </Stack>
+                    </Button>
+                    <Menu
+                      open={isGroupMenuOpen}
+                      anchorEl={adminNavAnchorEl}
+                      onClose={closeAdminNavGroupMenu}
+                      anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+                      transformOrigin={{ vertical: "top", horizontal: "left" }}
+                      MenuListProps={{
+                        sx: {
+                          py: 0.4,
+                          "& .MuiMenuItem-root": {
+                            minHeight: 48,
+                            gap: 1
+                          }
+                        }
+                      }}
+                    >
+                      {groupItem.tabs.map((groupTab) => (
+                        <MenuItem
+                          key={groupTab}
+                          selected={groupTab === tab}
+                          onClick={() => {
+                            setTab(groupTab);
+                            closeAdminNavGroupMenu();
+                          }}
+                        >
+                          <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
+                            {getTabIcon(groupTab)}
+                          </Box>
+                          <Box component="span">{TAB_CONFIG[groupTab].label}</Box>
+                        </MenuItem>
+                      ))}
+                    </Menu>
+                    <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mt: 0.6, px: 0.4 }}>
+                      <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
+                        {getNavigationGroupIcon(groupItem.group)}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        {groupItem.tabs.length} opcion(es)
+                      </Typography>
+                    </Stack>
+                  </Paper>
+                );
+              })}
             </Stack>
           </Box>
         ) : (
@@ -2291,12 +2528,17 @@ export function SpaHomeScreen() {
           assignmentBoardEvents={assignmentBoardEvents}
           assignableAssistants={assignableAssistants}
           isLoadingAssignmentBoard={isLoadingAssignmentBoard}
+          assignmentSuggestion={assignmentSuggestion}
+          isLoadingSuggestion={isLoadingSuggestion}
+          hasSuggestionSession={Boolean(suggestionSessionId)}
           assigningEventId={assigningEventId}
           selectedAssistantByEvent={selectedAssistantByEvent}
           onSelectedAssistantChange={(eventId, assistantId) =>
             setSelectedAssistantByEvent((prev) => ({ ...prev, [eventId]: assistantId }))
           }
           onAssignAssistant={assignAssistantToEvent}
+          onSuggestMonthly={suggestMonthlyAssignment}
+          onSuggestNext={suggestNextMonthlyAssignment}
         />
       )}
 

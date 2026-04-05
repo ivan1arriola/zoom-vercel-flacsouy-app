@@ -17,6 +17,9 @@ export type DashboardSummary = {
   proximasReuniones?: number;
   reunionesConZoom?: number;
   manualPendings?: number;
+  solicitudesNoResueltas?: number;
+  colisionesZoom7d?: number;
+  eventosSinAsistencia7d?: number;
   eventosSinCobertura?: number;
   agendaAbierta?: number;
   eventosCriticosSinAsistencia?: number;
@@ -90,6 +93,31 @@ export type AssignableAssistant = {
   nombre: string;
 };
 
+export type AssignmentSuggestion = {
+  sessionId: string;
+  scopeKey: string;
+  score: number;
+  events: Array<{
+    eventoId: string;
+    titulo: string;
+    inicioProgramadoAt: string;
+    finProgramadoAt: string;
+    modalidadReunion: string;
+    coverageValue: number;
+    asistenteZoomId: string;
+    asistenteNombre: string;
+    asistenteEmail: string;
+  }>;
+  assistants: Array<{
+    asistenteZoomId: string;
+    asistenteNombre: string;
+    asistenteEmail: string;
+    baseValue: number;
+    suggestedValue: number;
+    projectedValue: number;
+  }>;
+};
+
 export async function loadAssignmentBoard(): Promise<{
   events: AssignmentBoardEvent[];
   assistants: AssignableAssistant[];
@@ -104,4 +132,43 @@ export async function loadAssignmentBoard(): Promise<{
     events: json.events ?? [],
     assistants: json.assistants ?? []
   };
+}
+
+export async function loadAssignmentSuggestion(monthKey?: string): Promise<{
+  sessionId: string | null;
+  scopeKey: string;
+  suggestion: AssignmentSuggestion | null;
+  message?: string | null;
+} | null> {
+  const qs = monthKey ? `?month=${encodeURIComponent(monthKey)}` : "";
+  const res = await fetch(`/api/v1/asignacion-personal/sugerencias${qs}`, { cache: "no-store" });
+  if (!res.ok) return null;
+  const json = (await res.json()) as {
+    sessionId: string | null;
+    scopeKey: string;
+    suggestion: AssignmentSuggestion | null;
+    message?: string | null;
+  };
+  return json;
+}
+
+export async function loadNextAssignmentSuggestion(sessionId: string): Promise<{
+  sessionId: string;
+  scopeKey: string;
+  suggestion: AssignmentSuggestion | null;
+  message?: string | null;
+} | null> {
+  const res = await fetch("/api/v1/asignacion-personal/sugerencias/next", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId })
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as {
+    sessionId: string;
+    scopeKey: string;
+    suggestion: AssignmentSuggestion | null;
+    message?: string | null;
+  };
+  return json;
 }

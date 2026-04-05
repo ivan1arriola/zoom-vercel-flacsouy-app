@@ -15,26 +15,40 @@ import {
 } from "@mui/material";
 import { formatDuration } from "@/src/lib/spa-home/recurrence";
 import { formatModalidad, formatZoomDate, formatZoomTime, formatDurationHuman } from "./spa-tabs-utils";
-import type { AssignmentBoardEvent, AssignableAssistant } from "@/src/services/dashboardApi";
+import type {
+  AssignmentBoardEvent,
+  AssignableAssistant,
+  AssignmentSuggestion
+} from "@/src/services/dashboardApi";
 
 interface SpaTabAsignacionProps {
   assignmentBoardEvents: AssignmentBoardEvent[];
   assignableAssistants: AssignableAssistant[];
   isLoadingAssignmentBoard: boolean;
+  assignmentSuggestion: AssignmentSuggestion | null;
+  isLoadingSuggestion: boolean;
+  hasSuggestionSession: boolean;
   assigningEventId: string | null;
   selectedAssistantByEvent: Record<string, string>;
   onSelectedAssistantChange: (eventId: string, assistantId: string) => void;
   onAssignAssistant: (eventId: string) => void;
+  onSuggestMonthly: () => void;
+  onSuggestNext: () => void;
 }
 
 export function SpaTabAsignacion({
   assignmentBoardEvents,
   assignableAssistants,
   isLoadingAssignmentBoard,
+  assignmentSuggestion,
+  isLoadingSuggestion,
+  hasSuggestionSession,
   assigningEventId,
   selectedAssistantByEvent,
   onSelectedAssistantChange,
-  onAssignAssistant
+  onAssignAssistant,
+  onSuggestMonthly,
+  onSuggestNext
 }: SpaTabAsignacionProps) {
   const sortedEvents = useMemo(
     () =>
@@ -283,6 +297,56 @@ export function SpaTabAsignacion({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           La asignacion/reasignacion valida choques de horario y exige un margen minimo de 30 minutos entre reuniones.
         </Typography>
+
+        <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2, mb: 2 }}>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1}
+            alignItems={{ xs: "stretch", sm: "center" }}
+            justifyContent="space-between"
+          >
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Sugerencias automáticas
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Se sugiere sobre todo lo pendiente y se optimiza la equidad dentro de cada mes usando duración x tarifa.
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1}>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={onSuggestMonthly}
+                disabled={isLoadingSuggestion}
+              >
+                {isLoadingSuggestion ? "Calculando..." : "Generar sugerencia"}
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={onSuggestNext}
+                disabled={isLoadingSuggestion || !hasSuggestionSession}
+              >
+                Otra sugerencia
+              </Button>
+            </Stack>
+          </Stack>
+
+          {assignmentSuggestion ? (
+            <Box sx={{ mt: 1.2 }}>
+              <Chip
+                size="small"
+                color="success"
+                variant="outlined"
+                label={`Puntaje sugerencia: ${assignmentSuggestion.score.toFixed(2)}`}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.6 }}>
+                La sugerencia ya fue cargada en los selectores de cada reunión para su confirmación manual.
+              </Typography>
+            </Box>
+          ) : null}
+        </Paper>
 
         {isLoadingAssignmentBoard ? (
           <Typography variant="body2" color="text.secondary">

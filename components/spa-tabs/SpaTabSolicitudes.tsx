@@ -2173,6 +2173,44 @@ export function SpaTabSolicitudes({
                       : assignedAssistantEmailsAny;
                   const assignedAssistantEmail =
                     assignedAssistantEmails.length === 1 ? assignedAssistantEmails[0] : null;
+                  const assignedAssistantNamesUpcoming = Array.from(
+                    new Set(
+                      sortedInstances
+                        .filter((instance) => isInstanceActiveOrUpcoming(instance, Date.now()))
+                        .map((instance) => (instance.monitorNombre ?? "").trim())
+                        .filter(Boolean)
+                    )
+                  );
+                  const assignedAssistantNamesAny = Array.from(
+                    new Set(
+                      sortedInstances
+                        .map((instance) => (instance.monitorNombre ?? "").trim())
+                        .filter(Boolean)
+                    )
+                  );
+                  const assignedAssistantNames =
+                    assignedAssistantNamesUpcoming.length > 0
+                      ? assignedAssistantNamesUpcoming
+                      : assignedAssistantNamesAny;
+                  const highlightedAssistantName = (highlightedInstance?.monitorNombre ?? "").trim();
+                  const highlightedAssistantEmail = (highlightedInstance?.monitorEmail ?? "").trim().toLowerCase();
+                  const assistantZoomLabel = !solicitudRequiresAssistance
+                    ? "No corresponde"
+                    : highlightedAssistantName
+                      ? highlightedAssistantEmail
+                        ? `${highlightedAssistantName} (${highlightedAssistantEmail})`
+                        : highlightedAssistantName
+                      : highlightedAssistantEmail
+                        ? highlightedAssistantEmail
+                        : assignedAssistantNames.length === 1 && assignedAssistantEmails.length === 1
+                          ? `${assignedAssistantNames[0]} (${assignedAssistantEmails[0]})`
+                          : assignedAssistantNames.length === 1
+                            ? assignedAssistantNames[0]
+                            : assignedAssistantEmails.length === 1
+                              ? assignedAssistantEmails[0]
+                              : assignedAssistantEmails.length > 1 || assignedAssistantNames.length > 1
+                                ? "Varios asistentes"
+                                : "Sin asistente asignado";
                   const canSendAssistantAccess =
                     canSendReminder &&
                     solicitudRequiresAssistance &&
@@ -2402,6 +2440,12 @@ export function SpaTabSolicitudes({
                             <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
                               {meetingIdDisplay}
                             </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Asistente Zoom
+                            </Typography>
+                            <Typography variant="body2">{assistantZoomLabel}</Typography>
                           </Box>
                         </Box>
 

@@ -16,6 +16,7 @@ import {
   TipoNotificacion,
   UserRole
 } from "@prisma/client";
+import { randomUUID } from "crypto";
 import * as XLSX from "xlsx";
 import { db } from "@/src/lib/db";
 import { env } from "@/src/lib/env";
@@ -80,7 +81,80 @@ type ProvisionedEventPlan = {
   zoomPayloadUltimo: Prisma.InputJsonValue | undefined;
 };
 
+type SuggestionAssistantNode = {
+  id: string;
+  email: string;
+  nombre: string;
+};
+
+type SuggestionEventNode = {
+  id: string;
+  titulo: string;
+  inicioProgramadoAtIso: string;
+  finProgramadoAtIso: string;
+  inicioProgramadoMs: number;
+  finProgramadoMs: number;
+  monthKey: string;
+  modalidadReunion: ModalidadReunion;
+  timezone: string;
+  coverageValue: number;
+  candidateAssistantIds: string[];
+};
+
+type SuggestionLoadsByMonth = Record<string, number[]>;
+
+type SuggestionSearchNode = {
+  eventIndex: number;
+  loadsByMonth: SuggestionLoadsByMonth;
+  assignmentByEvent: Array<string | null>;
+  schedulesByAssistant: Record<string, Array<[number, number]>>;
+};
+
+type AssignmentSuggestionSessionValue = {
+  version: 1;
+  sessionId: string;
+  createdByUserId: string;
+  scopeKey: string;
+  createdAtIso: string;
+  expiresAtIso: string;
+  assistants: SuggestionAssistantNode[];
+  events: SuggestionEventNode[];
+  baseLoadsByMonth: SuggestionLoadsByMonth;
+  targetScore: number | null;
+  returnedSignatures: string[];
+  frontier: SuggestionSearchNode[];
+};
+
+type AssignmentSuggestionResult = {
+  sessionId: string;
+  scopeKey: string;
+  score: number;
+  events: Array<{
+    eventoId: string;
+    titulo: string;
+    inicioProgramadoAt: string;
+    finProgramadoAt: string;
+    modalidadReunion: ModalidadReunion;
+    coverageValue: number;
+    asistenteZoomId: string;
+    asistenteNombre: string;
+    asistenteEmail: string;
+  }>;
+  assistants: Array<{
+    asistenteZoomId: string;
+    asistenteNombre: string;
+    asistenteEmail: string;
+    baseValue: number;
+    suggestedValue: number;
+    projectedValue: number;
+  }>;
+};
+
 const LEGACY_ASSISTANT_ROLES: UserRole[] = [UserRole.ASISTENTE_ZOOM, UserRole.SOPORTE_ZOOM];
+const SUGGESTION_SESSION_TTL_MS = 30 * 60 * 1000;
+const SUGGESTION_SESSION_KEY_PREFIX = "assignment_suggestion_session:";
+const SUGGESTION_SCORE_EPSILON = 1e-6;
+const ASSIGNMENT_CONFLICT_BUFFER_MS = 30 * 60 * 1000;
 
 export type CreateSolicitudInput = {
   titulo: string;
@@ -258,6 +332,125 @@ function calculateEstimatedCost(minutes: number, rate: number): Prisma.Decimal {
   return new Prisma.Decimal((minutes / 60) * rate);
 }
 
+function suggestionSessionKey(sessionId: string): string {
+  return `${SUGGESTION_SESSION_KEY_PREFIX}${sessionId}`;
+}
+
+function parseMonthKeyOrThrow(monthKey?: string | null): string {
+  const raw = (monthKey ?? "").trim();
+  if (!raw) {
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) {
+    throw new Error("El parámetro month debe tener formato YYYY-MM.");
+  }
+  return raw;
+}
+
+function getMonthUtcRange(monthKey: string): { start: Date; endExclusive: Date } {
+  const [yearRaw, monthRaw] = monthKey.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const endExclusive = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  return { start, endExclusive };
+}
+
+function computeCoverageValue(input: {
+  inicioProgramadoAt: Date;
+  finProgramadoAt: Date;
+  tarifaHora: number;
+}): number {
+  const durationMinutes = Math.max(
+    1,
+    Math.floor((input.finProgramadoAt.getTime() - input.inicioProgramadoAt.getTime()) / 60000)
+  );
+  return (durationMinutes / 60) * input.tarifaHora;
+}
+
+function hasScheduleConflict(
+  schedulesByAssistant: Record<string, Array<[number, number]>>,
+  assistantId: string,
+  startMs: number,
+  endMs: number,
+  bufferMs = ASSIGNMENT_CONFLICT_BUFFER_MS
+): boolean {
+  const schedule = schedulesByAssistant[assistantId] ?? [];
+  for (const [otherStart, otherEnd] of schedule) {
+    const hasConflict = startMs < otherEnd + bufferMs && endMs > otherStart - bufferMs;
+    if (hasConflict) return true;
+  }
+  return false;
+}
+
+function computeSuggestionScore(loads: number[]): number {
+  if (loads.length === 0) return 0;
+  const total = loads.reduce((sum, value) => sum + value, 0);
+  const avg = total / loads.length;
+  const min = Math.min(...loads);
+  const max = Math.max(...loads);
+  const varianceSum = loads.reduce((sum, value) => {
+    const delta = value - avg;
+    return sum + delta * delta;
+  }, 0);
+  return (max - min) * 1000 + varianceSum;
+}
+
+function cloneLoadsByMonth(loadsByMonth: SuggestionLoadsByMonth): SuggestionLoadsByMonth {
+  const clone: SuggestionLoadsByMonth = {};
+  for (const [key, value] of Object.entries(loadsByMonth)) {
+    clone[key] = [...value];
+  }
+  return clone;
+}
+
+function computeSuggestionScoreByMonth(loadsByMonth: SuggestionLoadsByMonth): number {
+  return Object.values(loadsByMonth).reduce(
+    (sum, loads) => sum + computeSuggestionScore(loads),
+    0
+  );
+}
+
+function buildSuggestionSignature(assignmentByEvent: Array<string | null>): string {
+  return assignmentByEvent.map((value) => value ?? "-").join("|");
+}
+
+async function loadSuggestionSession(sessionId: string): Promise<AssignmentSuggestionSessionValue | null> {
+  const setting = await db.appSetting.findUnique({ where: { key: suggestionSessionKey(sessionId) } });
+  if (!setting?.value || typeof setting.value !== "object" || Array.isArray(setting.value)) {
+    return null;
+  }
+
+  const payload = setting.value as unknown as AssignmentSuggestionSessionValue;
+  if (!payload || payload.version !== 1 || payload.sessionId !== sessionId) {
+    return null;
+  }
+
+  const expiresAt = new Date(payload.expiresAtIso);
+  if (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) {
+    await db.appSetting.delete({ where: { key: suggestionSessionKey(sessionId) } }).catch(() => null);
+    return null;
+  }
+
+  return payload;
+}
+
+async function persistSuggestionSession(session: AssignmentSuggestionSessionValue) {
+  await db.appSetting.upsert({
+    where: { key: suggestionSessionKey(session.sessionId) },
+    create: {
+      key: suggestionSessionKey(session.sessionId),
+      value: session as unknown as Prisma.InputJsonValue
+    },
+    update: {
+      value: session as unknown as Prisma.InputJsonValue
+    }
+  });
+}
+
 const EMAIL_LINE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SNAPSHOT_FALLBACK_MATCH_MAX_OFFSET_MS = 8 * 60 * 60 * 1000;
 
@@ -366,6 +559,12 @@ async function resolveResponsibleNotificationEmail(
 ): Promise<string | null> {
   const normalized = (responsableNombre ?? "").trim();
   if (!normalized) return null;
+
+  // Accept formats like "Nombre Apellido (correo@dominio.com)".
+  const embeddedEmailMatch = normalized.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  if (embeddedEmailMatch?.[0] && EMAIL_LINE_REGEX.test(embeddedEmailMatch[0])) {
+    return embeddedEmailMatch[0].toLowerCase();
+  }
 
   if (EMAIL_LINE_REGEX.test(normalized)) {
     return normalized.toLowerCase();
@@ -3228,12 +3427,31 @@ export class SalasService {
     const now = new Date();
 
     if (user.role === UserRole.ADMINISTRADOR) {
-      const criticalWindowEnd = new Date(now.getTime() + 4 * 24 * 60 * 60_000);
-      const [solicitudesTotales, manualPendings, eventosSinCobertura, agendaAbierta, eventosCriticosSinAsistencia, eventosCriticosSinLinkZoom] =
+      const criticalWindowEnd = new Date(now.getTime() + 7 * 24 * 60 * 60_000);
+      const [
+        solicitudesTotales,
+        manualPendings,
+        solicitudesNoResueltas,
+        eventosSinCobertura,
+        agendaAbierta,
+        eventosSinAsistencia7d,
+        eventosCriticosSinLinkZoom,
+        eventsForCollisionCheck
+      ] =
         await Promise.all([
           db.solicitudSala.count(),
           db.solicitudSala.count({
             where: { estadoSolicitud: EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID }
+          }),
+          db.solicitudSala.count({
+            where: {
+              estadoSolicitud: {
+                in: [
+                  EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID,
+                  EstadoSolicitudSala.SIN_CAPACIDAD_ZOOM
+                ]
+              }
+            }
           }),
           db.eventoZoom.count({
             where: { estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR }
@@ -3276,16 +3494,78 @@ export class SalasService {
               },
               OR: [{ zoomJoinUrl: null }, { zoomMeetingId: null }]
             }
+          }),
+          db.eventoZoom.findMany({
+            where: {
+              inicioProgramadoAt: {
+                gt: now,
+                lt: criticalWindowEnd
+              },
+              estadoEvento: {
+                notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO]
+              }
+            },
+            select: {
+              id: true,
+              cuentaZoomId: true,
+              inicioProgramadoAt: true,
+              finProgramadoAt: true
+            },
+            orderBy: {
+              inicioProgramadoAt: "asc"
+            }
           })
         ]);
+
+      const byAccount = new Map<string, Array<{
+        id: string;
+        startMs: number;
+        endMs: number;
+      }>>();
+
+      for (const event of eventsForCollisionCheck) {
+        const accountEvents = byAccount.get(event.cuentaZoomId) ?? [];
+        accountEvents.push({
+          id: event.id,
+          startMs: event.inicioProgramadoAt.getTime(),
+          endMs: event.finProgramadoAt.getTime()
+        });
+        byAccount.set(event.cuentaZoomId, accountEvents);
+      }
+
+      const collisionEventIds = new Set<string>();
+      for (const accountEvents of byAccount.values()) {
+        accountEvents.sort((left, right) => left.startMs - right.startMs);
+        const active: Array<{ id: string; endMs: number }> = [];
+
+        for (const current of accountEvents) {
+          for (let index = active.length - 1; index >= 0; index -= 1) {
+            if (active[index].endMs <= current.startMs) {
+              active.splice(index, 1);
+            }
+          }
+
+          for (const existing of active) {
+            collisionEventIds.add(existing.id);
+            collisionEventIds.add(current.id);
+          }
+
+          active.push({ id: current.id, endMs: current.endMs });
+        }
+      }
+
+      const colisionesZoom7d = collisionEventIds.size;
 
       return {
         scope: UserRole.ADMINISTRADOR,
         solicitudesTotales,
         manualPendings,
+        solicitudesNoResueltas,
+        colisionesZoom7d,
+        eventosSinAsistencia7d,
         eventosSinCobertura,
         agendaAbierta,
-        eventosCriticosSinAsistencia,
+        eventosCriticosSinAsistencia: eventosSinAsistencia7d,
         eventosCriticosSinLinkZoom
       };
     }
@@ -6915,6 +7195,452 @@ export class SalasService {
     };
   }
 
+  private async buildAssignmentSuggestionProblem() {
+    await ensureAssistantProfilesForEligibleRoles();
+
+    const activeStates: EstadoAsignacion[] = [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO];
+
+    const [virtualRate, hibridaRate, assistants] = await Promise.all([
+      getActiveRate(ModalidadReunion.VIRTUAL),
+      getActiveRate(ModalidadReunion.HIBRIDA),
+      db.asistenteZoom.findMany({
+        where: {
+          disponibleGeneral: true,
+          usuario: {
+            role: { in: [...LEGACY_ASSISTANT_ROLES] }
+          }
+        },
+        select: {
+          id: true,
+          usuario: {
+            select: {
+              email: true,
+              name: true,
+              firstName: true,
+              lastName: true
+            }
+          }
+        },
+        orderBy: {
+          usuario: {
+            email: "asc"
+          }
+        }
+      })
+    ]);
+
+    if (!virtualRate || !hibridaRate) {
+      throw new Error("No hay tarifas activas para ambas modalidades (VIRTUAL/HIBRIDA).");
+    }
+
+    if (assistants.length === 0) {
+      throw new Error("No hay asistentes Zoom disponibles para calcular sugerencias.");
+    }
+
+    const assistantNodes: SuggestionAssistantNode[] = assistants.map((assistant) => ({
+      id: assistant.id,
+      email: assistant.usuario.email,
+      nombre:
+        assistant.usuario.name ||
+        [assistant.usuario.firstName, assistant.usuario.lastName].filter(Boolean).join(" ") ||
+        assistant.usuario.email
+    }));
+
+    const assistantIds = assistantNodes.map((assistant) => assistant.id);
+    const assistantIdSet = new Set(assistantIds);
+    const assistantIndex = new Map<string, number>();
+    assistantIds.forEach((id, idx) => assistantIndex.set(id, idx));
+
+    const rateByModality = new Map<ModalidadReunion, number>([
+      [ModalidadReunion.VIRTUAL, Number(virtualRate.valorHora)],
+      [ModalidadReunion.HIBRIDA, Number(hibridaRate.valorHora)]
+    ]);
+
+    const candidateEvents = await db.eventoZoom.findMany({
+      where: {
+        requiereAsistencia: true,
+        estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR,
+        estadoEvento: { in: [EstadoEventoZoom.CREADO_ZOOM, EstadoEventoZoom.PROGRAMADO] },
+        inicioProgramadoAt: { gt: new Date() }
+      },
+      select: {
+        id: true,
+        inicioProgramadoAt: true,
+        finProgramadoAt: true,
+        modalidadReunion: true,
+        timezone: true,
+        solicitud: {
+          select: {
+            titulo: true
+          }
+        },
+        intereses: {
+          where: {
+            estadoInteres: EstadoInteresAsistente.ME_INTERESA
+          },
+          select: {
+            asistenteZoomId: true
+          }
+        }
+      },
+      orderBy: { inicioProgramadoAt: "asc" }
+    });
+
+    const unsatisfiedEvents: string[] = [];
+    const eventNodes: SuggestionEventNode[] = [];
+
+    for (const event of candidateEvents) {
+      const candidateAssistantIds = event.intereses
+        .map((interest) => interest.asistenteZoomId)
+        .filter((assistantId) => assistantIdSet.has(assistantId));
+
+      if (candidateAssistantIds.length === 0) {
+        unsatisfiedEvents.push(`${event.solicitud.titulo} (${event.id})`);
+        continue;
+      }
+
+      const hourlyRate = rateByModality.get(event.modalidadReunion) ?? 0;
+      const coverageValue = computeCoverageValue({
+        inicioProgramadoAt: event.inicioProgramadoAt,
+        finProgramadoAt: event.finProgramadoAt,
+        tarifaHora: hourlyRate
+      });
+
+      eventNodes.push({
+        id: event.id,
+        titulo: event.solicitud.titulo,
+        inicioProgramadoAtIso: event.inicioProgramadoAt.toISOString(),
+        finProgramadoAtIso: event.finProgramadoAt.toISOString(),
+        inicioProgramadoMs: event.inicioProgramadoAt.getTime(),
+        finProgramadoMs: event.finProgramadoAt.getTime(),
+        monthKey: toMonthKey(event.inicioProgramadoAt, event.timezone || "America/Montevideo"),
+        modalidadReunion: event.modalidadReunion,
+        timezone: event.timezone,
+        coverageValue,
+        candidateAssistantIds: Array.from(new Set(candidateAssistantIds))
+      });
+    }
+
+    const monthKeys = Array.from(new Set(eventNodes.map((event) => event.monthKey))).sort((a, b) =>
+      a.localeCompare(b)
+    );
+    const baseLoadsByMonth: SuggestionLoadsByMonth = Object.fromEntries(
+      monthKeys.map((key) => [key, Array.from({ length: assistantNodes.length }, () => 0)])
+    );
+    const schedulesByAssistant: Record<string, Array<[number, number]>> = Object.fromEntries(
+      assistantNodes.map((assistant) => [assistant.id, [] as Array<[number, number]>])
+    );
+
+    const activeAssignments = await db.asignacionAsistente.findMany({
+      where: {
+        tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+        estadoAsignacion: { in: activeStates },
+        asistenteZoomId: { in: assistantIds },
+        evento: {
+          estadoEvento: { not: EstadoEventoZoom.CANCELADO },
+          inicioProgramadoAt: { gt: new Date() }
+        }
+      },
+      select: {
+        asistenteZoomId: true,
+        tarifaAplicadaHora: true,
+        montoEstimado: true,
+        evento: {
+          select: {
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            timezone: true,
+            modalidadReunion: true
+          }
+        }
+      }
+    });
+
+    for (const assignment of activeAssignments) {
+      schedulesByAssistant[assignment.asistenteZoomId]?.push([
+        assignment.evento.inicioProgramadoAt.getTime(),
+        assignment.evento.finProgramadoAt.getTime()
+      ]);
+
+      const monthKey = toMonthKey(
+        assignment.evento.inicioProgramadoAt,
+        assignment.evento.timezone || "America/Montevideo"
+      );
+      const monthLoads = baseLoadsByMonth[monthKey];
+      if (!monthLoads) continue;
+
+      const idx = assistantIndex.get(assignment.asistenteZoomId);
+      if (idx === undefined) continue;
+
+      const estimatedValue = assignment.montoEstimado
+        ? Number(assignment.montoEstimado)
+        : computeCoverageValue({
+            inicioProgramadoAt: assignment.evento.inicioProgramadoAt,
+            finProgramadoAt: assignment.evento.finProgramadoAt,
+            tarifaHora: Number(assignment.tarifaAplicadaHora)
+          });
+      monthLoads[idx] += estimatedValue;
+    }
+
+    eventNodes.sort((left, right) => {
+      if (left.candidateAssistantIds.length !== right.candidateAssistantIds.length) {
+        return left.candidateAssistantIds.length - right.candidateAssistantIds.length;
+      }
+      if (left.inicioProgramadoMs !== right.inicioProgramadoMs) {
+        return left.inicioProgramadoMs - right.inicioProgramadoMs;
+      }
+      return left.id.localeCompare(right.id);
+    });
+
+    return {
+      scopeKey: monthKeys.length > 0 ? `${monthKeys[0]}..${monthKeys[monthKeys.length - 1]}` : "ALL",
+      assistants: assistantNodes,
+      events: eventNodes,
+      baseLoadsByMonth,
+      baseSchedulesByAssistant: schedulesByAssistant,
+      unsatisfiedEvents
+    };
+  }
+
+  private findNextSuggestionFromSession(
+    session: AssignmentSuggestionSessionValue
+  ): AssignmentSuggestionResult | null {
+    const assistantIndex = new Map<string, number>();
+    session.assistants.forEach((assistant, idx) => assistantIndex.set(assistant.id, idx));
+
+    while (session.frontier.length > 0) {
+      const node = session.frontier.pop();
+      if (!node) break;
+
+      if (node.eventIndex >= session.events.length) {
+        const score = computeSuggestionScoreByMonth(node.loadsByMonth);
+
+        if (session.targetScore === null) {
+          session.targetScore = score;
+        }
+        if (Math.abs(score - session.targetScore) > SUGGESTION_SCORE_EPSILON) {
+          continue;
+        }
+
+        const signature = buildSuggestionSignature(node.assignmentByEvent);
+        if (session.returnedSignatures.includes(signature)) {
+          continue;
+        }
+
+        session.returnedSignatures.push(signature);
+
+        const byAssistantProjected = new Map<string, number>();
+        const byAssistantBase = new Map<string, number>();
+        session.assistants.forEach((assistant, idx) => {
+          const projected = Object.values(node.loadsByMonth).reduce(
+            (sum, monthLoads) => sum + (monthLoads[idx] ?? 0),
+            0
+          );
+          const base = Object.values(session.baseLoadsByMonth).reduce(
+            (sum, monthLoads) => sum + (monthLoads[idx] ?? 0),
+            0
+          );
+          byAssistantProjected.set(assistant.id, projected);
+          byAssistantBase.set(assistant.id, base);
+        });
+
+        const events = session.events.map((event, idx) => {
+          const assistantId = node.assignmentByEvent[idx];
+          if (!assistantId) {
+            throw new Error("La sugerencia quedó incompleta durante el cálculo.");
+          }
+          const assistant = session.assistants.find((item) => item.id === assistantId);
+          if (!assistant) {
+            throw new Error("No se encontró información del asistente sugerido.");
+          }
+          return {
+            eventoId: event.id,
+            titulo: event.titulo,
+            inicioProgramadoAt: event.inicioProgramadoAtIso,
+            finProgramadoAt: event.finProgramadoAtIso,
+            modalidadReunion: event.modalidadReunion,
+            coverageValue: event.coverageValue,
+            asistenteZoomId: assistant.id,
+            asistenteNombre: assistant.nombre,
+            asistenteEmail: assistant.email
+          };
+        });
+
+        const assistants = session.assistants.map((assistant) => {
+          const baseValue = byAssistantBase.get(assistant.id) ?? 0;
+          const projectedValue = byAssistantProjected.get(assistant.id) ?? 0;
+          return {
+            asistenteZoomId: assistant.id,
+            asistenteNombre: assistant.nombre,
+            asistenteEmail: assistant.email,
+            baseValue,
+            suggestedValue: projectedValue - baseValue,
+            projectedValue
+          };
+        });
+
+        assistants.sort((left, right) => {
+          if (right.projectedValue !== left.projectedValue) {
+            return right.projectedValue - left.projectedValue;
+          }
+          return left.asistenteNombre.localeCompare(right.asistenteNombre, "es");
+        });
+
+        return {
+          sessionId: session.sessionId,
+          scopeKey: session.scopeKey,
+          score,
+          events,
+          assistants
+        };
+      }
+
+      const event = session.events[node.eventIndex];
+      const orderedCandidates = [...event.candidateAssistantIds].sort((left, right) => {
+        const leftIdx = assistantIndex.get(left) ?? -1;
+        const rightIdx = assistantIndex.get(right) ?? -1;
+        const eventLoads = node.loadsByMonth[event.monthKey] ?? [];
+        const leftLoad = leftIdx >= 0 ? eventLoads[leftIdx] ?? 0 : Number.POSITIVE_INFINITY;
+        const rightLoad = rightIdx >= 0 ? eventLoads[rightIdx] ?? 0 : Number.POSITIVE_INFINITY;
+        if (leftLoad !== rightLoad) {
+          return leftLoad - rightLoad;
+        }
+        return left.localeCompare(right);
+      });
+
+      const children: SuggestionSearchNode[] = [];
+      for (const assistantId of orderedCandidates) {
+        const assistantIdx = assistantIndex.get(assistantId);
+        if (assistantIdx === undefined) continue;
+
+        const hasConflict = hasScheduleConflict(
+          node.schedulesByAssistant,
+          assistantId,
+          event.inicioProgramadoMs,
+          event.finProgramadoMs
+        );
+        if (hasConflict) continue;
+
+        const nextLoadsByMonth = cloneLoadsByMonth(node.loadsByMonth);
+        const monthLoads = [...(nextLoadsByMonth[event.monthKey] ?? [])];
+        monthLoads[assistantIdx] = (monthLoads[assistantIdx] ?? 0) + event.coverageValue;
+        nextLoadsByMonth[event.monthKey] = monthLoads;
+
+        const nextAssignmentByEvent = [...node.assignmentByEvent];
+        nextAssignmentByEvent[node.eventIndex] = assistantId;
+
+        const nextSchedulesByAssistant: Record<string, Array<[number, number]>> = {
+          ...node.schedulesByAssistant,
+          [assistantId]: [
+            ...(node.schedulesByAssistant[assistantId] ?? []),
+            [event.inicioProgramadoMs, event.finProgramadoMs]
+          ]
+        };
+
+        children.push({
+          eventIndex: node.eventIndex + 1,
+          loadsByMonth: nextLoadsByMonth,
+          assignmentByEvent: nextAssignmentByEvent,
+          schedulesByAssistant: nextSchedulesByAssistant
+        });
+      }
+
+      for (let i = children.length - 1; i >= 0; i -= 1) {
+        session.frontier.push(children[i]);
+      }
+    }
+
+    return null;
+  }
+
+  async createMonthlyAssignmentSuggestion(
+    admin: SessionUser,
+    input?: { monthKey?: string | null }
+  ) {
+    const requestedMonth = input?.monthKey?.trim();
+    if (requestedMonth) {
+      parseMonthKeyOrThrow(requestedMonth);
+    }
+
+    const problem = await this.buildAssignmentSuggestionProblem();
+
+    if (problem.unsatisfiedEvents.length > 0) {
+      throw new Error(
+        `No se puede sugerir cobertura para todos los eventos. Sin candidatos interesados: ${problem.unsatisfiedEvents.join(", ")}`
+      );
+    }
+
+    if (problem.events.length === 0) {
+      return {
+        sessionId: null,
+        scopeKey: problem.scopeKey,
+        suggestion: null,
+        message: "No hay eventos pendientes para sugerir."
+      };
+    }
+
+    const sessionId = randomUUID();
+    const now = new Date();
+    const session: AssignmentSuggestionSessionValue = {
+      version: 1,
+      sessionId,
+      createdByUserId: admin.id,
+      scopeKey: problem.scopeKey,
+      createdAtIso: now.toISOString(),
+      expiresAtIso: new Date(now.getTime() + SUGGESTION_SESSION_TTL_MS).toISOString(),
+      assistants: problem.assistants,
+      events: problem.events,
+      baseLoadsByMonth: problem.baseLoadsByMonth,
+      targetScore: null,
+      returnedSignatures: [],
+      frontier: [
+        {
+          eventIndex: 0,
+          loadsByMonth: cloneLoadsByMonth(problem.baseLoadsByMonth),
+          assignmentByEvent: Array.from({ length: problem.events.length }, () => null),
+          schedulesByAssistant: problem.baseSchedulesByAssistant
+        }
+      ]
+    };
+
+    const suggestion = this.findNextSuggestionFromSession(session);
+    session.expiresAtIso = new Date(Date.now() + SUGGESTION_SESSION_TTL_MS).toISOString();
+    await persistSuggestionSession(session);
+
+    return {
+      sessionId,
+      scopeKey: problem.scopeKey,
+      suggestion,
+      message: suggestion ? null : "No se encontró una combinación válida para los eventos pendientes."
+    };
+  }
+
+  async getNextMonthlyAssignmentSuggestion(admin: SessionUser, sessionId: string) {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      throw new Error("sessionId es obligatorio para solicitar otra sugerencia.");
+    }
+
+    const session = await loadSuggestionSession(normalizedSessionId);
+    if (!session) {
+      throw new Error("La sesión de sugerencias no existe o expiró.");
+    }
+    if (session.createdByUserId !== admin.id) {
+      throw new Error("La sesión de sugerencias pertenece a otro usuario administrador.");
+    }
+
+    const suggestion = this.findNextSuggestionFromSession(session);
+    session.expiresAtIso = new Date(Date.now() + SUGGESTION_SESSION_TTL_MS).toISOString();
+    await persistSuggestionSession(session);
+
+    return {
+      sessionId: session.sessionId,
+      scopeKey: session.scopeKey,
+      suggestion,
+      message: suggestion ? null : "No quedan sugerencias alternativas con el mismo puntaje." 
+    };
+  }
+
   async setInterest(
     user: SessionUser,
     eventoId: string,
@@ -7300,14 +8026,15 @@ export class SalasService {
       const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
       const snapshot = await fetchZoomMeetingSnapshot(zoomClient, meetingId);
       if (snapshot && snapshot.instances.length > 0) {
-        const now = new Date();
         const mappedFromZoom = snapshot.instances
           .map((instance) => {
+            if (instance.status === "deleted" || instance.estadoEvento === EstadoEventoZoom.CANCELADO) {
+              return null;
+            }
             const inicio = new Date(instance.startTime);
             if (Number.isNaN(inicio.getTime())) return null;
             const durationMinutes = Math.max(1, instance.durationMinutes || baseDurationMinutes);
             const fin = new Date(inicio.getTime() + durationMinutes * 60_000);
-            if (fin <= now) return null;
             return {
               inicio,
               fin,

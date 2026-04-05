@@ -15,6 +15,22 @@ type TelegramMovementInput = {
 const TELEGRAM_MAX_TEXT_LENGTH = 3900;
 const TELEGRAM_REQUEST_TIMEOUT_MS = 10_000;
 const TELEGRAM_MAX_ATTEMPTS = 3;
+const TELEGRAM_MAX_DETAIL_LINES = 6;
+
+const DETAIL_PRIORITY: string[] = [
+  "titulo",
+  "solicitudId",
+  "eventoId",
+  "meetingId",
+  "zoomMeetingId",
+  "zoomAccount",
+  "responsableNombre",
+  "modalidadReunion",
+  "requiereAsistencia",
+  "toEmail",
+  "updatedEvents",
+  "cancelledAssignments"
+];
 
 function formatDateTime(value: Date): string {
   try {
@@ -42,11 +58,29 @@ function normalizeActionLabel(action: string): string {
     .join(" ");
 }
 
+function normalizeDetailKey(key: string): string {
+  if (!key) return "dato";
+  const humanized = key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim()
+    .toLowerCase();
+  return humanized[0]?.toUpperCase() + humanized.slice(1);
+}
+
 function stringifyDetailValue(value: unknown): string {
   if (value === undefined || value === null) return "";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "0";
+    if (value.length <= 3) return value.map((item) => String(item)).join(", ");
+    return `${value.length} items`;
+  }
   if (typeof value === "object") {
     try {
-      return JSON.stringify(value);
+      const asRecord = value as Record<string, unknown>;
+      const keys = Object.keys(asRecord);
+      if (keys.length === 0) return "objeto vacío";
+      return `objeto (${keys.length} claves)`;
     } catch {
       return "[object]";
     }
@@ -61,11 +95,30 @@ function truncate(value: string, maxLength: number): string {
 
 function formatDetails(details?: Record<string, unknown>): string[] {
   if (!details) return [];
+  const entries = Object.entries(details).filter(([_key, value]) => value !== undefined && value !== null);
+  entries.sort((left, right) => {
+    const leftPriority = DETAIL_PRIORITY.indexOf(left[0]);
+    const rightPriority = DETAIL_PRIORITY.indexOf(right[0]);
+    const normalizedLeft = leftPriority >= 0 ? leftPriority : Number.POSITIVE_INFINITY;
+    const normalizedRight = rightPriority >= 0 ? rightPriority : Number.POSITIVE_INFINITY;
+    if (normalizedLeft !== normalizedRight) {
+      return normalizedLeft - normalizedRight;
+    }
+    return left[0].localeCompare(right[0]);
+  });
+
   const lines: string[] = [];
-  for (const [key, value] of Object.entries(details).sort(([a], [b]) => a.localeCompare(b))) {
+  const trimmed = entries.slice(0, TELEGRAM_MAX_DETAIL_LINES);
+  for (const [key, value] of trimmed) {
     if (value === undefined || value === null) continue;
-    lines.push(`- ${key}: ${truncate(stringifyDetailValue(value), 500)}`);
+    lines.push(`- ${normalizeDetailKey(key)}: ${truncate(stringifyDetailValue(value), 180)}`);
   }
+
+  const omitted = entries.length - trimmed.length;
+  if (omitted > 0) {
+    lines.push(`- +${omitted} dato(s) adicionales`);
+  }
+
   return lines;
 }
 
@@ -73,21 +126,25 @@ function buildMovementMessage(input: TelegramMovementInput): string {
   const occurredAt = input.occurredAt ?? new Date();
   const timestamp = formatDateTime(occurredAt);
   const details = formatDetails(input.details);
+  const actionLabel = normalizeActionLabel(input.action);
+  const headlineParts = [actionLabel];
+  if (input.summary) {
+    headlineParts.push(truncate(input.summary, 140));
+  }
 
-  const lines = [
-    "ZoomApp | Movimiento",
-    `Accion: ${normalizeActionLabel(input.action)}`,
-    `Fecha: ${timestamp}`
-  ];
+  const lines = [`ZoomApp | ${headlineParts.join(" | ")}`];
 
-  if (input.actorEmail) lines.push(`Actor: ${input.actorEmail}`);
-  if (input.actorRole) lines.push(`Rol: ${input.actorRole}`);
-  if (input.entityType) lines.push(`Entidad: ${input.entityType}`);
-  if (input.entityId) lines.push(`ID: ${input.entityId}`);
-  if (input.summary) lines.push(`Resumen: ${truncate(input.summary, 700)}`);
+  const contextParts: string[] = [`Fecha ${timestamp}`];
+  if (input.actorEmail) contextParts.push(`Actor ${input.actorEmail}`);
+  if (input.actorRole) contextParts.push(`Rol ${input.actorRole}`);
+  if (input.entityType || input.entityId) {
+    contextParts.push(`Entidad ${(input.entityType ?? "-")}/${(input.entityId ?? "-")}`);
+  }
+
+  lines.push(contextParts.join(" | "));
 
   if (details.length > 0) {
-    lines.push("Detalles:");
+    lines.push("Datos clave:");
     lines.push(...details);
   }
 

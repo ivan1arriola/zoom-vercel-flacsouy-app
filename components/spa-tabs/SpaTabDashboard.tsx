@@ -117,18 +117,29 @@ function formatMoney(value: number, currency: string): string {
 
 function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
   const manualPendings = metricValue(summary, "manualPendings");
+  const solicitudesNoResueltas = metricValue(summary, "solicitudesNoResueltas");
+  const colisionesZoom7d = metricValue(summary, "colisionesZoom7d");
+  const eventosSinAsistencia7d = metricValue(summary, "eventosSinAsistencia7d");
   const eventosSinCobertura = metricValue(summary, "eventosSinCobertura");
   const agendaAbierta = metricValue(summary, "agendaAbierta");
-  const eventosCriticosSinAsistencia = metricValue(summary, "eventosCriticosSinAsistencia");
   const eventosCriticosSinLinkZoom = metricValue(summary, "eventosCriticosSinLinkZoom");
-  const riesgosCriticosProximos = eventosCriticosSinAsistencia + eventosCriticosSinLinkZoom;
+  const riesgosCriticosProximos =
+    solicitudesNoResueltas + colisionesZoom7d + eventosSinAsistencia7d + eventosCriticosSinLinkZoom;
 
-  if (riesgosCriticosProximos > 0) {
+  if (colisionesZoom7d > 0 || eventosSinAsistencia7d > 0) {
     return {
       label: "Critico",
       color: "error",
       message:
-        "Hay riesgo operativo en reuniones de los proximos 4 dias (sin asistencia requerida o sin link de Zoom)."
+        "Hay riesgo operativo en los proximos 7 dias: colisiones Zoom o reuniones con asistencia requerida sin asignar."
+    };
+  }
+
+  if (solicitudesNoResueltas > 0) {
+    return {
+      label: "Atencion",
+      color: "warning",
+      message: "Existen solicitudes que no se pudieron resolver y requieren intervención administrativa."
     };
   }
 
@@ -399,9 +410,11 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
 
   const solicitudesTotales = metricValue(summary, "solicitudesTotales");
   const manualPendings = metricValue(summary, "manualPendings");
+  const solicitudesNoResueltas = metricValue(summary, "solicitudesNoResueltas");
+  const colisionesZoom7d = metricValue(summary, "colisionesZoom7d");
+  const eventosSinAsistencia7d = metricValue(summary, "eventosSinAsistencia7d");
   const eventosSinCobertura = metricValue(summary, "eventosSinCobertura");
   const agendaAbierta = metricValue(summary, "agendaAbierta");
-  const eventosCriticosSinAsistencia = metricValue(summary, "eventosCriticosSinAsistencia");
   const eventosCriticosSinLinkZoom = metricValue(summary, "eventosCriticosSinLinkZoom");
 
   return {
@@ -425,6 +438,27 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
         icon: <BuildCircleIcon fontSize="small" />
       },
       {
+        key: "solicitudesNoResueltas",
+        title: "No resueltas",
+        description: "Solicitudes que no pudieron provisionarse automáticamente.",
+        color: "#C05621",
+        icon: <WarningAmberIcon fontSize="small" />
+      },
+      {
+        key: "colisionesZoom7d",
+        title: "Colisiones Zoom (7d)",
+        description: "Eventos superpuestos en la misma cuenta anfitriona.",
+        color: "#C53030",
+        icon: <WarningAmberIcon fontSize="small" />
+      },
+      {
+        key: "eventosSinAsistencia7d",
+        title: "Sin asistencia (7d)",
+        description: "Reuniones próximas con asistencia requerida sin personal asignado.",
+        color: "#9B2C2C",
+        icon: <Groups2Icon fontSize="small" />
+      },
+      {
         key: "eventosSinCobertura",
         title: "Sin asistencia",
         description: "Eventos que todavia no tienen cobertura asignada.",
@@ -442,12 +476,18 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
     status: deriveAdminStatus(summary),
     priorityItems: [
       `${solicitudesTotales} solicitud(es) totales registradas.`,
-      eventosCriticosSinAsistencia > 0
-        ? `${eventosCriticosSinAsistencia} evento(s) en menos de 4 dias con asistencia requerida y sin personal asignado.`
-        : "Sin eventos criticos por asistencia en los proximos 4 dias.",
+      eventosSinAsistencia7d > 0
+        ? `${eventosSinAsistencia7d} reunion(es) en los proximos 7 dias con asistencia requerida y sin personal asignado.`
+        : "Sin reuniones críticas por asistencia en los próximos 7 días.",
+      colisionesZoom7d > 0
+        ? `${colisionesZoom7d} evento(s) en colisión de horario en cuentas Zoom durante los próximos 7 días.`
+        : "Sin colisiones de horario en cuentas Zoom para los próximos 7 días.",
+      solicitudesNoResueltas > 0
+        ? `${solicitudesNoResueltas} solicitud(es) que no se pudieron resolver automáticamente.`
+        : "No hay solicitudes no resueltas.",
       eventosCriticosSinLinkZoom > 0
-        ? `${eventosCriticosSinLinkZoom} evento(s) en menos de 4 dias sin link Zoom generado.`
-        : "Sin eventos criticos por link Zoom en los proximos 4 dias.",
+        ? `${eventosCriticosSinLinkZoom} evento(s) en 7 dias sin link Zoom generado.`
+        : "Sin eventos críticos por link Zoom en los próximos 7 días.",
       eventosSinCobertura > 0
         ? `${eventosSinCobertura} evento(s) sin asistencia asignada.`
         : "No hay eventos sin asistencia asignada.",

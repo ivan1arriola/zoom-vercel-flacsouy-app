@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { AssignmentBoardEvent, AssignableAssistant } from "@/src/services/dashboardApi";
+import type {
+  AssignmentBoardEvent,
+  AssignableAssistant,
+  AssignmentSuggestion
+} from "@/src/services/dashboardApi";
 
 export function useAssignmentBoard() {
   const [assignmentBoardEvents, setAssignmentBoardEvents] = useState<AssignmentBoardEvent[]>([]);
@@ -7,6 +11,9 @@ export function useAssignmentBoard() {
   const [isLoadingAssignmentBoard, setIsLoadingAssignmentBoard] = useState(false);
   const [assigningEventId, setAssigningEventId] = useState<string | null>(null);
   const [selectedAssistantByEvent, setSelectedAssistantByEvent] = useState<Record<string, string>>({});
+  const [assignmentSuggestion, setAssignmentSuggestion] = useState<AssignmentSuggestion | null>(null);
+  const [suggestionSessionId, setSuggestionSessionId] = useState<string | null>(null);
+  const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
 
   return {
     assignmentBoardEvents,
@@ -18,6 +25,12 @@ export function useAssignmentBoard() {
     assigningEventId,
     setAssigningEventId,
     selectedAssistantByEvent,
-    setSelectedAssistantByEvent
+    setSelectedAssistantByEvent,
+    assignmentSuggestion,
+    setAssignmentSuggestion,
+    suggestionSessionId,
+    setSuggestionSessionId,
+    isLoadingSuggestion,
+    setIsLoadingSuggestion
   };
 }
