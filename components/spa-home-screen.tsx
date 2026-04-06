@@ -9,6 +9,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  IconButton,
   Menu,
   MenuItem,
   Paper,
@@ -17,6 +18,8 @@ import {
   Typography
 } from "@mui/material";
 import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import {
   formatDateTime
 } from "@/src/lib/spa-home/recurrence";
@@ -2217,6 +2220,7 @@ export function SpaHomeScreen() {
   );
   const [adminNavOpenGroup, setAdminNavOpenGroup] = useState<NavigationGroup | null>(null);
   const [adminNavAnchorEl, setAdminNavAnchorEl] = useState<HTMLElement | null>(null);
+  const [mobileNavbarExpanded, setMobileNavbarExpanded] = useState(false);
 
   function openAdminNavGroupMenu(group: NavigationGroup, anchorEl: HTMLElement) {
     setAdminNavOpenGroup(group);
@@ -2234,44 +2238,65 @@ export function SpaHomeScreen() {
         variant="outlined"
         sx={{
           mb: 2,
-          p: { xs: 1, sm: 1.5 },
-          borderRadius: 3,
+          p: { xs: 1.25, sm: 1.35 },
+          borderRadius: { xs: 3.5, sm: 4 },
           backgroundColor: "background.paper"
         }}
       >
-        <Stack
-          direction={{ xs: "column", lg: "row" }}
-          spacing={1.4}
-          justifyContent="space-between"
-          alignItems={{ xs: "flex-start", lg: "center" }}
-          sx={{ mb: 1.2 }}
-        >
-          <Box>
-            <Typography variant="overline" color="text.secondary">
-              {isAdminWorkspace ? "Panel principal" : "Vista por rol"}
-            </Typography>
-            <Typography
-              variant="h5"
-              sx={{
-                fontWeight: 700,
-                lineHeight: 1.15,
-                fontSize: { xs: "1.2rem", sm: "1.5rem" }
-              }}
-            >
-              {isAdminWorkspace ? TAB_CONFIG[tab].label : roleWorkspaceTitle}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {roleWorkspaceDescription}
-            </Typography>
-          </Box>
+        <Stack spacing={1}>
           <Stack
             direction="row"
-            spacing={0.8}
-            useFlexGap
-            flexWrap="wrap"
-            sx={{ width: { xs: "100%", lg: "auto" } }}
+            spacing={1}
+            justifyContent="space-between"
+            alignItems={{ xs: "flex-start", sm: "center" }}
           >
-            {effectiveRole === "DOCENTE" ? (
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="overline" color="text.secondary">
+                {isAdminWorkspace ? "Panel principal" : "Vista por rol"}
+              </Typography>
+              <Typography
+                variant="h5"
+                sx={{
+                  fontWeight: 700,
+                  lineHeight: 1.15,
+                  fontSize: { xs: "1.2rem", sm: "1.45rem" }
+                }}
+              >
+                {isAdminWorkspace ? TAB_CONFIG[tab].label : roleWorkspaceTitle}
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{
+                  mt: 0.2,
+                  display: "block",
+                  fontSize: { xs: "0.98rem", sm: "1rem" }
+                }}
+              >
+                {roleWorkspaceDescription}
+              </Typography>
+            </Box>
+
+            <Stack direction="row" spacing={0.6} alignItems="center" sx={{ flexShrink: 0 }}>
+              <Chip size="small" variant="outlined" label={`Rol: ${normalizedRoleLabel}`} />
+              <IconButton
+                size="small"
+                onClick={() => setMobileNavbarExpanded((prev) => !prev)}
+                sx={{
+                  display: { xs: "inline-flex", md: "none" },
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 2
+                }}
+                aria-label={mobileNavbarExpanded ? "Ocultar navegacion" : "Mostrar navegacion"}
+              >
+                {mobileNavbarExpanded ? <ExpandLessRoundedIcon fontSize="small" /> : <ExpandMoreRoundedIcon fontSize="small" />}
+              </IconButton>
+            </Stack>
+          </Stack>
+
+          {effectiveRole === "DOCENTE" ? (
+            <Box sx={{ display: { xs: "none", sm: "block" } }}>
               <Button
                 size="small"
                 variant="contained"
@@ -2284,70 +2309,81 @@ export function SpaHomeScreen() {
               >
                 Crear sala Zoom
               </Button>
-            ) : null}
-            <Chip size="small" variant="outlined" label={`Rol: ${normalizedRoleLabel}`} />
-          </Stack>
+            </Box>
+          ) : null}
         </Stack>
 
         {isAdminWorkspace ? (
           <Box
             sx={{
-              overflowX: "visible",
-              pb: 0.2
+              borderTop: "1px solid",
+              borderColor: "divider",
+              pt: 1,
+              pb: 0.2,
+              display: {
+                xs: mobileNavbarExpanded ? "block" : "none",
+                md: "block"
+              }
             }}
           >
             <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={1}
-              useFlexGap
-              flexWrap="wrap"
+              direction={{ xs: "column", sm: "row" }}
+              spacing={0.8}
+              sx={{
+                overflowX: { xs: "visible", sm: "auto" },
+                py: 0.2,
+                px: 0.1,
+                scrollbarWidth: "thin",
+                "&::-webkit-scrollbar": {
+                  height: 6
+                },
+                "&::-webkit-scrollbar-thumb": {
+                  backgroundColor: "rgba(0,0,0,0.22)",
+                  borderRadius: 10
+                }
+              }}
             >
               {adminNavigationGroups.map((groupItem) => {
                 const activeTabInGroup = groupItem.tabs.find((candidateTab) => candidateTab === tab) ?? null;
                 const isGroupMenuOpen = adminNavOpenGroup === groupItem.group;
+                const hasSingleTab = groupItem.tabs.length === 1;
+                const singleTab = hasSingleTab ? groupItem.tabs[0] : null;
+                const activeLabel = activeTabInGroup ? TAB_CONFIG[activeTabInGroup].label : "Elegir sección";
                 return (
-                  <Paper
+                  <Box
                     key={groupItem.group}
-                    variant="outlined"
-                    sx={{
-                      p: 0.8,
-                      borderRadius: 2,
-                      minWidth: { xs: "100%", sm: 250 },
-                      flex: { xs: "1 1 100%", sm: "1 1 250px" }
-                    }}
+                    sx={{ flexShrink: 0, width: { xs: "100%", sm: "auto" } }}
                   >
                     <Button
-                      fullWidth
                       variant={activeTabInGroup ? "contained" : "outlined"}
                       color={activeTabInGroup ? "primary" : "inherit"}
-                      onClick={(event) => openAdminNavGroupMenu(groupItem.group, event.currentTarget)}
-                      endIcon={<KeyboardArrowDownRoundedIcon />}
-                      sx={{
-                        minHeight: 52,
-                        borderRadius: 1.8,
-                        px: 1.2,
-                        justifyContent: "space-between",
-                        textTransform: "none",
-                        "& .MuiButton-startIcon": {
-                          display: "flex",
-                          alignItems: "center",
-                          mr: 1
+                      onClick={(event) => {
+                        if (hasSingleTab && singleTab) {
+                          setTab(singleTab);
+                          return;
                         }
+                        openAdminNavGroupMenu(groupItem.group, event.currentTarget);
+                      }}
+                      endIcon={hasSingleTab ? undefined : <KeyboardArrowDownRoundedIcon />}
+                      startIcon={getNavigationGroupIcon(groupItem.group)}
+                      sx={{
+                        width: { xs: "100%", sm: "auto" },
+                        minHeight: 46,
+                        borderRadius: 999,
+                        px: 1.5,
+                        textTransform: "none",
+                        whiteSpace: { xs: "normal", sm: "nowrap" },
+                        justifyContent: { xs: "space-between", sm: "flex-start" }
                       }}
                     >
-                      <Stack direction="row" spacing={0.9} alignItems="center">
-                        <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
-                          {getNavigationGroupIcon(groupItem.group)}
-                        </Box>
-                        <Stack spacing={0} alignItems="flex-start">
-                          <Typography variant="caption" sx={{ lineHeight: 1, opacity: 0.85 }}>
-                            {groupItem.label}
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                            {activeTabInGroup ? TAB_CONFIG[activeTabInGroup].label : "Elegir sección"}
-                          </Typography>
-                        </Stack>
-                      </Stack>
+                      <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.7 }}>
+                        <Typography component="span" variant="body2" sx={{ fontWeight: 700 }}>
+                          {groupItem.label}
+                        </Typography>
+                        <Typography component="span" variant="body2" sx={{ opacity: 0.85 }}>
+                          · {activeLabel}
+                        </Typography>
+                      </Box>
                     </Button>
                     <Menu
                       open={isGroupMenuOpen}
@@ -2381,15 +2417,7 @@ export function SpaHomeScreen() {
                         </MenuItem>
                       ))}
                     </Menu>
-                    <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mt: 0.6, px: 0.4 }}>
-                      <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
-                        {getNavigationGroupIcon(groupItem.group)}
-                      </Box>
-                      <Typography variant="caption" color="text.secondary">
-                        {groupItem.tabs.length} opcion(es)
-                      </Typography>
-                    </Stack>
-                  </Paper>
+                  </Box>
                 );
               })}
             </Stack>
@@ -2397,9 +2425,16 @@ export function SpaHomeScreen() {
         ) : (
           <Box
             sx={{
-              display: "grid",
+              mt: 0.4,
+              borderTop: "1px solid",
+              borderColor: "divider",
+              pt: 1,
               gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" },
-              gap: 1
+              gap: 1,
+              display: {
+                xs: mobileNavbarExpanded ? "grid" : "none",
+                md: "grid"
+              },
             }}
           >
             {roleQuickActions.map((action) => (

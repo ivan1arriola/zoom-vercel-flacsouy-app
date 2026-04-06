@@ -2,17 +2,24 @@
 
 import { useMemo } from "react";
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
   Chip,
+  Divider,
   MenuItem,
   Paper,
   Stack,
   TextField,
   Typography
 } from "@mui/material";
+import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
+import EventNoteRoundedIcon from "@mui/icons-material/EventNoteRounded";
+import AssignmentLateRoundedIcon from "@mui/icons-material/AssignmentLateRounded";
+import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
+import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import { formatDuration } from "@/src/lib/spa-home/recurrence";
 import { formatModalidad, formatZoomDate, formatZoomTime, formatDurationHuman } from "./spa-tabs-utils";
 import type {
@@ -155,20 +162,29 @@ export function SpaTabAsignacion({
         ? item.interesados.map((interest) => `${interest.nombre} (${interest.email})`).join(", ")
         : "Sin interesados";
     const isPending = section === "pending";
+    const actionDisabled = assigningEventId === item.id || !selectedAssistantId || isNoopSelection;
+    const actionHelper = !selectedAssistantId
+      ? "Selecciona una persona para habilitar la asignacion."
+      : isNoopSelection
+        ? "La persona elegida ya esta asignada a esta reunion."
+        : "Confirma para guardar la asignacion.";
+    const statusLabel = currentAssignment ? "Asignada" : "Pendiente";
+    const statusColor = currentAssignment ? "success" : "warning";
 
     return (
       <Paper
         key={item.id}
         variant="outlined"
         sx={{
-          p: 1.5,
-          borderRadius: 2,
-          borderLeft: `5px solid ${isPending ? "#ed6c02" : "#0288d1"}`
+          p: { xs: 1.2, sm: 1.5 },
+          borderRadius: 2.5,
+          borderColor: isPending ? "warning.main" : "info.main",
+          backgroundColor: isPending ? "rgba(237, 108, 2, 0.04)" : "rgba(2, 136, 209, 0.04)"
         }}
       >
         <Stack
           direction={{ xs: "column", md: "row" }}
-          spacing={1}
+          spacing={1.2}
           justifyContent="space-between"
           alignItems={{ xs: "flex-start", md: "center" }}
         >
@@ -177,36 +193,23 @@ export function SpaTabAsignacion({
               {item.solicitud.titulo}
             </Typography>
             <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
-              <Chip size="small" variant="outlined" label={formatModalidad(item.modalidadReunion)} />
-              <Chip size="small" variant="outlined" label={formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)} />
               <Chip
                 size="small"
-                color={currentAssignment ? "info" : "warning"}
-                label={currentAssignment ? "Con asistencia Zoom" : "Sin asistencia Zoom"}
+                color={statusColor}
+                label={statusLabel}
               />
+              <Chip size="small" variant="outlined" label={formatModalidad(item.modalidadReunion)} />
+              <Chip size="small" variant="outlined" label={formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)} />
               {currentAssignment ? (
                 <Chip
                   size="small"
-                  color="success"
-                  label={`Asignada a ${currentAssignment.nombre}`}
+                  color="info"
+                  variant="outlined"
+                  label={`Actual: ${currentAssignment.nombre}`}
                 />
               ) : null}
             </Stack>
           </Box>
-          <Button
-            size="small"
-            variant="contained"
-            onClick={() => onAssignAssistant(item.id)}
-            disabled={assigningEventId === item.id || !selectedAssistantId || isNoopSelection}
-          >
-            {assigningEventId === item.id
-              ? isReassignment
-                ? "Reasignando..."
-                : "Asignando..."
-              : isReassignment
-                ? "Reasignar"
-                : "Asignar"}
-          </Button>
         </Stack>
 
         <Box
@@ -215,110 +218,169 @@ export function SpaTabAsignacion({
             display: "grid",
             gridTemplateColumns: {
               xs: "1fr",
-              sm: "repeat(2, minmax(0, 1fr))",
-              lg: "repeat(3, minmax(0, 1fr))"
+              lg: "1.35fr 1fr"
             },
-            gap: 1
+            gap: 1.1
           }}
         >
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Dia y hora
+          <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
+            <Typography variant="overline" color="text.secondary">
+              Detalle de la reunion
             </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {formatZoomDate(item.inicioProgramadoAt)}
+            <Stack spacing={0.8} sx={{ mt: 0.2 }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Dia y hora
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {formatZoomDate(item.inicioProgramadoAt)}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {formatZoomTime(item.inicioProgramadoAt)} a {formatZoomTime(item.finProgramadoAt)} (
+                  {formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
+                </Typography>
+              </Box>
+              <Divider />
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Cuenta Zoom
+                </Typography>
+                <Typography variant="body2">
+                  {item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || "-"}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Programa
+                </Typography>
+                <Typography variant="body2">{item.solicitud.programaNombre || "-"}</Typography>
+              </Box>
+            </Stack>
+          </Paper>
+
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.2,
+              borderRadius: 2,
+              borderColor: currentAssignment ? "info.main" : "warning.main",
+              backgroundColor: currentAssignment ? "rgba(2, 136, 209, 0.05)" : "rgba(237, 108, 2, 0.06)"
+            }}
+          >
+            <Typography variant="overline" color="text.secondary">
+              Asignacion
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {formatZoomTime(item.inicioProgramadoAt)} a {formatZoomTime(item.finProgramadoAt)} (
-              {formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Cuenta Zoom
-            </Typography>
-            <Typography variant="body2">{item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || "-"}</Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Programa
-            </Typography>
-            <Typography variant="body2">{item.solicitud.programaNombre || "-"}</Typography>
-          </Box>
-          <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
-            <Typography variant="caption" color="text.secondary">
-              Asistencia actual
-            </Typography>
-            <Typography variant="body2" sx={{ fontWeight: currentAssignment ? 700 : 400 }}>
-              {currentAssignment
-                ? `${currentAssignment.nombre} (${currentAssignment.email})`
-                : "Sin asignar"}
-            </Typography>
-          </Box>
-          <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
-            <Typography variant="caption" color="text.secondary">
-              Interesados
-            </Typography>
-            <Typography variant="body2">{interestedLabel}</Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Asignar persona
-            </Typography>
-            <TextField
-              select
-              size="small"
-              fullWidth
-              value={selectedAssistantByEvent[item.id] ?? ""}
-              onChange={(e) => onSelectedAssistantChange(item.id, e.target.value)}
-            >
-              <MenuItem value="">Seleccionar</MenuItem>
-              {options.map((option) => (
-                <MenuItem key={option.id} value={option.id}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Box>
+            <Stack spacing={0.8} sx={{ mt: 0.2 }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Persona actual
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: currentAssignment ? 700 : 400 }}>
+                  {currentAssignment
+                    ? `${currentAssignment.nombre} (${currentAssignment.email})`
+                    : "Sin asignar"}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Interesados
+                </Typography>
+                <Typography variant="body2">{interestedLabel}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Asignar persona
+                </Typography>
+                <TextField
+                  select
+                  size="small"
+                  fullWidth
+                  value={selectedAssistantByEvent[item.id] ?? ""}
+                  onChange={(e) => onSelectedAssistantChange(item.id, e.target.value)}
+                >
+                  <MenuItem value="">Seleccionar</MenuItem>
+                  {options.map((option) => (
+                    <MenuItem key={option.id} value={option.id}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Box>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => onAssignAssistant(item.id)}
+                disabled={actionDisabled}
+              >
+                {assigningEventId === item.id
+                  ? isReassignment
+                    ? "Reasignando..."
+                    : "Asignando..."
+                  : isReassignment
+                    ? "Confirmar reasignacion"
+                    : "Confirmar asignacion"}
+              </Button>
+              <Typography variant="caption" color={actionDisabled ? "text.secondary" : "success.main"}>
+                {actionHelper}
+              </Typography>
+            </Stack>
+          </Paper>
         </Box>
       </Paper>
     );
   }
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3 }}>
-      <CardContent>
-        <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
+    <Card variant="outlined" sx={{ borderRadius: 3.5 }}>
+      <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+        <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.4 }}>
           Asignacion de personal
         </Typography>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body1" color="text.secondary">
           Vista exclusiva para administracion: instancias futuras con y sin monitoreo asignado.
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           La asignacion/reasignacion valida choques de horario y exige un margen minimo de 30 minutos entre reuniones.
         </Typography>
 
-        <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2, mb: 2 }}>
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          Prioriza primero el bloque <strong>Reuniones sin asistencia Zoom</strong>. Las reasignaciones se usan para balancear carga.
+        </Alert>
+
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 1.2,
+            borderRadius: 2.5,
+            mb: 2,
+            borderColor: "primary.main",
+            backgroundColor: "rgba(31, 75, 143, 0.05)"
+          }}
+        >
           <Stack
             direction={{ xs: "column", sm: "row" }}
             spacing={1}
             alignItems={{ xs: "stretch", sm: "center" }}
             justifyContent="space-between"
           >
-            <Box>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                Sugerencias automáticas
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Se sugiere sobre todo lo pendiente y se optimiza la equidad dentro de cada mes usando duración x tarifa.
+            <Box sx={{ minWidth: 0 }}>
+              <Stack direction="row" spacing={0.8} alignItems="center">
+                <AutoAwesomeRoundedIcon fontSize="small" color="primary" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                  Sugerencias automaticas
+                </Typography>
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
+                Genera una propuesta inicial y luego itera alternativas para comparar equilibrio por mes y tarifa.
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
               <Button
                 size="small"
                 variant="contained"
                 onClick={onSuggestMonthly}
                 disabled={isLoadingSuggestion}
+                startIcon={<AutoAwesomeRoundedIcon fontSize="small" />}
               >
                 {isLoadingSuggestion ? "Calculando..." : "Generar sugerencia"}
               </Button>
@@ -341,8 +403,8 @@ export function SpaTabAsignacion({
                 variant="outlined"
                 label={`Puntaje sugerencia: ${assignmentSuggestion.score.toFixed(2)}`}
               />
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.6 }}>
-                La sugerencia ya fue cargada en los selectores de cada reunión para su confirmación manual.
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.6 }}>
+                La propuesta fue precargada en cada selector para que confirmes manualmente reunion por reunion.
               </Typography>
             </Box>
           ) : null}
@@ -357,7 +419,7 @@ export function SpaTabAsignacion({
             No hay instancias futuras pendientes de asignacion/reasignacion.
           </Typography>
         ) : (
-          <Stack spacing={1.6}>
+          <Stack spacing={1.8}>
             <Box
               sx={{
                 display: "grid",
@@ -368,41 +430,55 @@ export function SpaTabAsignacion({
                 gap: 1
               }}
             >
-              <Paper variant="outlined" sx={{ p: 1.2 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Total reuniones
-                </Typography>
-                <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
-                  {sortedEvents.length}
-                </Typography>
-              </Paper>
-              <Paper variant="outlined" sx={{ p: 1.2 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Sin asistencia Zoom
-                </Typography>
-                <Typography variant="h6" sx={{ lineHeight: 1.1, color: "warning.main" }}>
-                  {pendingEvents.length}
-                </Typography>
-              </Paper>
-              <Paper variant="outlined" sx={{ p: 1.2 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Ya asignadas
-                </Typography>
-                <Typography variant="h6" sx={{ lineHeight: 1.1, color: "info.main" }}>
-                  {assignedEvents.length}
-                </Typography>
-              </Paper>
-              <Paper variant="outlined" sx={{ p: 1.2 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Personas asignadas
-                </Typography>
-                <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
-                  {assignedByAssistant.length}
-                </Typography>
-              </Paper>
+              {[
+                {
+                  key: "total",
+                  label: "Total reuniones",
+                  value: sortedEvents.length,
+                  icon: <EventNoteRoundedIcon fontSize="small" color="primary" />,
+                  tone: "text.primary"
+                },
+                {
+                  key: "pending",
+                  label: "Sin asistencia Zoom",
+                  value: pendingEvents.length,
+                  icon: <AssignmentLateRoundedIcon fontSize="small" color="warning" />,
+                  tone: "warning.main"
+                },
+                {
+                  key: "assigned",
+                  label: "Ya asignadas",
+                  value: assignedEvents.length,
+                  icon: <AssignmentTurnedInRoundedIcon fontSize="small" color="info" />,
+                  tone: "info.main"
+                },
+                {
+                  key: "people",
+                  label: "Personas asignadas",
+                  value: assignedByAssistant.length,
+                  icon: <GroupRoundedIcon fontSize="small" color="action" />,
+                  tone: "text.primary"
+                }
+              ].map((metric) => (
+                <Paper
+                  key={metric.key}
+                  variant="outlined"
+                  sx={{ p: 1.2, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.75)" }}
+                >
+                  <Stack direction="row" spacing={0.8} alignItems="center">
+                    {metric.icon}
+                    <Typography variant="caption" color="text.secondary">
+                      {metric.label}
+                    </Typography>
+                  </Stack>
+                  <Typography variant="h6" sx={{ lineHeight: 1.1, color: metric.tone, mt: 0.4 }}>
+                    {metric.value}
+                  </Typography>
+                </Paper>
+              ))}
             </Box>
 
-            <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
+            <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2.5 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.8 }}>
                 Resumen por persona
               </Typography>
@@ -411,48 +487,115 @@ export function SpaTabAsignacion({
                   Todavia no hay reuniones asignadas.
                 </Typography>
               ) : (
-                <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "1fr",
+                      sm: "repeat(2, minmax(0, 1fr))",
+                      lg: "repeat(3, minmax(0, 1fr))"
+                    },
+                    gap: 1
+                  }}
+                >
                   {assignedByAssistant.map((assistant) => (
-                    <Chip
+                    <Paper
                       key={assistant.asistenteZoomId}
-                      size="small"
                       variant="outlined"
-                      label={`${assistant.nombre}: ${assistant.events.length}`}
-                    />
+                      sx={{ p: 1, borderRadius: 1.8 }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {assistant.nombre}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {assistant.email}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                        sx={{ mt: 0.8 }}
+                        label={`${assistant.events.length} reunion(es)`}
+                      />
+                    </Paper>
                   ))}
+                </Box>
+              )}
+            </Paper>
+
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 1.2,
+                borderRadius: 2.5,
+                borderColor: "warning.main",
+                backgroundColor: "rgba(237, 108, 2, 0.03)"
+              }}
+            >
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={0.8}
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                justifyContent="space-between"
+              >
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                    Reuniones sin asistencia Zoom ({pendingEvents.length})
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Prioridad operativa: estas reuniones requieren asignacion.
+                  </Typography>
+                </Box>
+                <Chip color="warning" label={`Pendientes: ${pendingEvents.length}`} />
+              </Stack>
+
+              {pendingEvents.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  No hay reuniones pendientes de asignacion.
+                </Typography>
+              ) : (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  {pendingEvents.map((item) => renderEventCard(item, "pending"))}
                 </Stack>
               )}
             </Paper>
 
-            <Stack spacing={1}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                Reuniones sin asistencia Zoom ({pendingEvents.length})
-              </Typography>
-              {pendingEvents.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No hay reuniones pendientes de asignacion.
-                </Typography>
-              ) : (
-                <Stack spacing={1}>
-                  {pendingEvents.map((item) => renderEventCard(item, "pending"))}
-                </Stack>
-              )}
-            </Stack>
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 1.2,
+                borderRadius: 2.5,
+                borderColor: "info.main",
+                backgroundColor: "rgba(2, 136, 209, 0.03)"
+              }}
+            >
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={0.8}
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                justifyContent="space-between"
+              >
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                    Reuniones asignadas ({assignedEvents.length})
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Mantenimiento: puedes reasignar si necesitas balancear la carga.
+                  </Typography>
+                </Box>
+                <Chip color="info" label={`Asignadas: ${assignedEvents.length}`} />
+              </Stack>
 
-            <Stack spacing={1}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                Reuniones asignadas ({assignedEvents.length})
-              </Typography>
               {assignedEvents.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                   No hay reuniones asignadas actualmente.
                 </Typography>
               ) : (
-                <Stack spacing={1}>
+                <Stack spacing={1} sx={{ mt: 1 }}>
                   {assignedEvents.map((item) => renderEventCard(item, "assigned"))}
                 </Stack>
               )}
-            </Stack>
+            </Paper>
           </Stack>
         )}
       </CardContent>

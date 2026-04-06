@@ -67,27 +67,47 @@ export default async function RootLayout({
               boxShadow: "0 8px 24px rgba(15, 26, 45, 0.06)"
             }}
           >
-            <Container maxWidth="lg" sx={{ py: 1.2 }}>
+            <Container maxWidth="lg" sx={{ py: { xs: 1.1, md: 1.2 } }}>
               <Stack
                 direction={{ xs: "column", md: "row" }}
-                spacing={{ xs: 1.2, md: 2 }}
+                spacing={{ xs: 1.2, md: 2.2 }}
                 alignItems={{ xs: "stretch", md: "center" }}
                 justifyContent="space-between"
               >
-                <Stack direction="row" spacing={2} alignItems="center" sx={{ minWidth: 0 }}>
+                <Stack direction="row" spacing={{ xs: 1.4, md: 2 }} alignItems="center" sx={{ minWidth: 0 }}>
                   <Link href="/" style={{ display: "inline-flex" }}>
                     <Box
                       component="img"
                       src="/flacso-logo.png"
                       alt="FLACSO Uruguay"
-                      sx={{ width: "188px", maxWidth: "42vw", height: "auto", display: "block" }}
+                      sx={{
+                        width: { xs: 170, sm: 188 },
+                        maxWidth: "44vw",
+                        height: "auto",
+                        display: "block"
+                      }}
                     />
                   </Link>
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: "primary.main" }}>
-                      Plataforma Zoom de FLACSO Uruguay
+                    <Typography
+                      component="p"
+                      sx={{
+                        fontWeight: 700,
+                        color: "primary.main",
+                        lineHeight: 1.15,
+                        fontSize: { xs: "1.1rem", sm: "1.4rem", md: "1.75rem" }
+                      }}
+                    >
+                      Herramienta para coordinar Zoom
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography
+                      color="text.secondary"
+                      sx={{
+                        lineHeight: 1.25,
+                        mt: 0.3,
+                        fontSize: { xs: "0.95rem", md: "1.02rem" }
+                      }}
+                    >
                       Facultad Latinoamericana de Ciencias Sociales - Uruguay
                     </Typography>
                   </Box>
@@ -96,9 +116,9 @@ export default async function RootLayout({
                   sx={{
                     ml: { md: "auto" },
                     flexShrink: 0,
-                    width: { xs: "100%", md: "auto" },
+                    width: { xs: "100%", sm: "auto" },
                     display: "flex",
-                    justifyContent: { xs: "flex-end", md: "flex-end" }
+                    justifyContent: { xs: "center", md: "flex-end" }
                   }}
                 >
                   {session?.user ? (

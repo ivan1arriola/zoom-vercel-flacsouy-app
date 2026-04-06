@@ -71,12 +71,13 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
     const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
     if (fullName) return fullName;
     if (email) return email.split("@")[0]?.trim() || email;
-    return "Usuario";
+    return "Web FLACSO";
   }, [email, firstName, lastName]);
 
   const rawView = normalizeViewRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
   const currentView = viewOptions.some((option) => option.value === rawView) ? rawView : "ADMINISTRADOR";
   const currentViewLabel = viewOptions.find((option) => option.value === currentView)?.label ?? "Administrador";
+  const primaryLabel = isAdmin ? "Web FLACSO" : displayName;
   const secondaryLabel = isAdmin ? `Modo: ${currentViewLabel}` : formatRoleLabel(role);
   const isChangingView = pendingView !== null && pendingView !== currentView;
 
@@ -109,17 +110,19 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
         endIcon={<ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary" }} />}
         sx={{
           textTransform: "none",
-          borderRadius: 3,
+          borderRadius: 999,
           px: 1.2,
           py: 0.7,
-          minWidth: 280,
+          width: { xs: "100%", sm: "auto" },
+          minWidth: { xs: 0, sm: 280 },
+          maxWidth: { xs: "100%", sm: 360 },
           justifyContent: "space-between",
           "& .MuiButton-startIcon": { mr: 1 }
         }}
       >
         <Box sx={{ textAlign: "left", minWidth: 0 }}>
           <Typography noWrap variant="body2" sx={{ fontWeight: 700 }}>
-            {displayName}
+            {primaryLabel}
           </Typography>
           <Typography noWrap variant="caption" color="text.secondary">
             {secondaryLabel}
@@ -133,7 +136,13 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
         onClose={() => setAnchorEl(null)}
         transformOrigin={{ horizontal: "right", vertical: "top" }}
         anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
-        PaperProps={{ sx: { width: 360, borderRadius: 2.5, mt: 1 } }}
+        PaperProps={{
+          sx: {
+            width: { xs: "min(92vw, 360px)", sm: 360 },
+            borderRadius: 2.5,
+            mt: 1
+          }
+        }}
       >
         <Box sx={{ px: 2, py: 1.5 }}>
           <Stack direction="row" spacing={1.5} alignItems="center">
