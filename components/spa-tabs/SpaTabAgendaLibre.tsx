@@ -74,10 +74,10 @@ export function SpaTabAgendaLibre({
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
       <CardContent>
         <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-          Agenda libre
+          Reuniones disponibles
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Vista para asistentes Zoom. Aqui solo se muestran instancias sin persona asignada.
+          Vista para asistentes Zoom. Aqui solo se muestran instancias sin persona asignada y listas para tomar.
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
           Puedes marcar me interesa o no me interesa en cada instancia y cambiar tu respuesta cuando quieras.

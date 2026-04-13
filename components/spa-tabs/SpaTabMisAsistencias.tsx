@@ -9,11 +9,10 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Divider,
   LinearProgress,
-  MenuItem,
   Skeleton,
   Stack,
-  TextField,
   Typography
 } from "@mui/material";
 import { loadPersonHours, type PersonHoursMeeting } from "@/src/services/tarifasApi";
@@ -21,6 +20,11 @@ import { loadPersonHours, type PersonHoursMeeting } from "@/src/services/tarifas
 interface SpaTabMisAsistenciasProps {
   userId: string;
 }
+
+type MonthlyMeetingGroup = {
+  monthKey: string;
+  meetings: PersonHoursMeeting[];
+};
 
 function formatDateOnly(value: string): string {
   const date = new Date(value);
@@ -84,6 +88,23 @@ function getMonthKeyFromIso(value: string): string {
   return `${year}-${month}`;
 }
 
+function buildMonthKeyFromUtcDate(value: Date): string {
+  const year = value.getUTCFullYear();
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function getSettlementMonthKeys(): Set<string> {
+  const now = new Date();
+  const currentMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const previousMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+
+  return new Set<string>([
+    buildMonthKeyFromUtcDate(currentMonthDate),
+    buildMonthKeyFromUtcDate(previousMonthDate)
+  ]);
+}
+
 function formatMinutesAsHHMM(totalMinutes: number): string {
   const normalizedMinutes = Math.max(0, Math.round(totalMinutes));
   const hours = Math.floor(normalizedMinutes / 60);
@@ -91,11 +112,19 @@ function formatMinutesAsHHMM(totalMinutes: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function compareByStartDesc(left: PersonHoursMeeting, right: PersonHoursMeeting): number {
+  return new Date(right.inicioAt).getTime() - new Date(left.inicioAt).getTime();
+}
+
+function getMeetingKey(meeting: PersonHoursMeeting): string {
+  return `${meeting.assignmentId}:${meeting.eventId}:${meeting.inicioAt}`;
+}
+
 export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
   const [meetings, setMeetings] = useState<PersonHoursMeeting[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [selectedMonthKey, setSelectedMonthKey] = useState("");
+  const settlementMonthKeys = useMemo(() => getSettlementMonthKeys(), []);
 
   async function refresh() {
     if (!userId) return;
@@ -118,47 +147,52 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
     void refresh();
   }, [userId]);
 
-  const monthOptions = useMemo(() => {
-    const months = new Set<string>();
+  const monthlyGroups = useMemo<MonthlyMeetingGroup[]>(() => {
+    const grouped = new Map<string, PersonHoursMeeting[]>();
     for (const meeting of meetings) {
       const monthKey = getMonthKeyFromIso(meeting.inicioAt);
-      if (monthKey) months.add(monthKey);
-    }
-    return Array.from(months.values()).sort((a, b) => b.localeCompare(a));
-  }, [meetings]);
+      if (!monthKey) continue;
+      if (!settlementMonthKeys.has(monthKey)) continue;
 
-  useEffect(() => {
-    if (monthOptions.length === 0) {
-      if (selectedMonthKey) setSelectedMonthKey("");
-      return;
+      const monthMeetings = grouped.get(monthKey);
+      if (monthMeetings) {
+        monthMeetings.push(meeting);
+      } else {
+        grouped.set(monthKey, [meeting]);
+      }
     }
-    if (!selectedMonthKey || !monthOptions.includes(selectedMonthKey)) {
-      setSelectedMonthKey(monthOptions[0]);
-    }
-  }, [monthOptions, selectedMonthKey]);
 
-  const filteredMeetings = useMemo(() => {
-    if (!selectedMonthKey) return meetings;
-    return meetings.filter((meeting) => getMonthKeyFromIso(meeting.inicioAt) === selectedMonthKey);
-  }, [meetings, selectedMonthKey]);
+    return Array.from(grouped.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([monthKey, monthMeetings]) => ({
+        monthKey,
+        meetings: [...monthMeetings].sort(compareByStartDesc)
+      }));
+  }, [meetings, settlementMonthKeys]);
+
+  const meetingsOrdered = useMemo(
+    () => monthlyGroups.flatMap((group) => group.meetings),
+    [monthlyGroups]
+  );
 
   const totalMinutesVirtual = useMemo(
     () =>
-      filteredMeetings.reduce(
+      meetingsOrdered.reduce(
         (acc, meeting) => acc + (meeting.modalidadReunion === "VIRTUAL" ? meeting.minutos : 0),
         0
       ),
-    [filteredMeetings]
+    [meetingsOrdered]
   );
   const totalMinutesHibrida = useMemo(
     () =>
-      filteredMeetings.reduce(
+      meetingsOrdered.reduce(
         (acc, meeting) => acc + (meeting.modalidadReunion === "HIBRIDA" ? meeting.minutos : 0),
         0
       ),
-    [filteredMeetings]
+    [meetingsOrdered]
   );
   const isInitialLoading = isLoading && meetings.length === 0;
+  const hasNoSettlementMeetings = !isInitialLoading && !isLoading && meetings.length > 0 && monthlyGroups.length === 0;
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -175,24 +209,10 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
               Mis reuniones asistidas
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Historial de reuniones pasadas agrupadas por mes.
+              Solo se muestran el mes actual y el mes anterior (base para liquidacion).
             </Typography>
           </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ minWidth: { sm: 320 } }}>
-            <TextField
-              select
-              size="small"
-              label="Mes"
-              value={selectedMonthKey}
-              onChange={(event) => setSelectedMonthKey(String(event.target.value))}
-              disabled={isLoading || monthOptions.length === 0}
-            >
-              {monthOptions.map((monthKey) => (
-                <MenuItem key={monthKey} value={monthKey}>
-                  {formatMonthKey(monthKey)}
-                </MenuItem>
-              ))}
-            </TextField>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
             <Stack direction="row" spacing={0.8} alignItems="center">
               <Button variant="outlined" onClick={() => void refresh()} disabled={isLoading}>
                 Actualizar
@@ -226,11 +246,8 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
           </Stack>
         ) : (
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
-            <Chip
-              variant="outlined"
-              label={selectedMonthKey ? formatMonthKey(selectedMonthKey) : "Sin mes seleccionado"}
-            />
-            <Chip variant="outlined" label={`${filteredMeetings.length} reunion(es)`} />
+            <Chip variant="outlined" label={`${monthlyGroups.length} mes(es)`} />
+            <Chip variant="outlined" label={`${meetingsOrdered.length} reunion(es)`} />
           </Stack>
         )}
 
@@ -266,7 +283,7 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
             >
               <CardContent sx={{ p: 1.8 }}>
                 <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
-                  Virtual del mes
+                  Virtual total
                 </Typography>
                 <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>
                   {formatMinutesAsHHMM(totalMinutesVirtual)}
@@ -287,7 +304,7 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
             >
               <CardContent sx={{ p: 1.8 }}>
                 <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
-                  Hibrida del mes
+                  Hibrida total
                 </Typography>
                 <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>
                   {formatMinutesAsHHMM(totalMinutesHibrida)}
@@ -303,9 +320,8 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
         {!isInitialLoading && !isLoading && meetings.length === 0 ? (
           <Alert severity="info">Todavia no tienes reuniones pasadas asistidas.</Alert>
         ) : null}
-
-        {!isInitialLoading && !isLoading && meetings.length > 0 && filteredMeetings.length === 0 ? (
-          <Alert severity="info">No hay reuniones para el mes seleccionado.</Alert>
+        {hasNoSettlementMeetings ? (
+          <Alert severity="info">No tienes reuniones asistidas en el mes actual ni en el mes anterior.</Alert>
         ) : null}
 
         <Stack spacing={1}>
@@ -357,122 +373,129 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
                   </CardContent>
                 </Card>
               ))
-            : filteredMeetings.map((meeting) => (
-                <Card key={meeting.assignmentId} variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: 1.5 }}>
-                    <Stack
-                      direction={{ xs: "column", md: "row" }}
-                      spacing={1}
-                      alignItems={{ xs: "flex-start", md: "center" }}
-                      justifyContent="space-between"
-                    >
-                      <Box>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                          {meeting.titulo}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {meeting.programaNombre || "Sin programa"}
-                        </Typography>
-                      </Box>
-                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                        <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
-                        <Chip size="small" variant="outlined" label={`Liquidable ${meeting.minutos} min`} />
-                        <Chip size="small" variant="outlined" label={`Planificada ${meeting.minutosProgramados} min`} />
-                        {meeting.minutosReales !== null ? (
-                          <Chip size="small" variant="outlined" label={`Real ${meeting.minutosReales} min`} />
+            : monthlyGroups.map((group) => (
+                <Stack key={group.monthKey} spacing={1}>
+                  <Divider textAlign="left">
+                    <Chip size="small" variant="outlined" label={formatMonthKey(group.monthKey)} />
+                  </Divider>
+                  {group.meetings.map((meeting) => (
+                    <Card key={getMeetingKey(meeting)} variant="outlined" sx={{ borderRadius: 2 }}>
+                      <CardContent sx={{ p: 1.5 }}>
+                        <Stack
+                          direction={{ xs: "column", md: "row" }}
+                          spacing={1}
+                          alignItems={{ xs: "flex-start", md: "center" }}
+                          justifyContent="space-between"
+                        >
+                          <Box>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                              {meeting.titulo}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {meeting.programaNombre || "Sin programa"}
+                            </Typography>
+                          </Box>
+                          <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                            <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
+                            <Chip size="small" variant="outlined" label={`Liquidable ${meeting.minutos} min`} />
+                            <Chip size="small" variant="outlined" label={`Planificada ${meeting.minutosProgramados} min`} />
+                            {meeting.minutosReales !== null ? (
+                              <Chip size="small" variant="outlined" label={`Real ${meeting.minutosReales} min`} />
+                            ) : null}
+                            <Chip
+                              size="small"
+                              color={
+                                meeting.huboGrabacion === true
+                                  ? "warning"
+                                  : meeting.huboGrabacion === false
+                                    ? "default"
+                                    : "info"
+                              }
+                              variant="outlined"
+                              label={
+                                meeting.huboGrabacion === true
+                                  ? "Grabacion SI"
+                                  : meeting.huboGrabacion === false
+                                    ? "Grabacion NO"
+                                    : "Grabacion s/confirmar"
+                              }
+                            />
+                            {meeting.zoomJoinUrl ? (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="secondary"
+                                href={meeting.zoomJoinUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Abrir
+                              </Button>
+                            ) : null}
+                          </Stack>
+                        </Stack>
+
+                        <Box
+                          sx={{
+                            mt: 1,
+                            display: "grid",
+                            gridTemplateColumns: {
+                              xs: "1fr",
+                              md: "repeat(3, minmax(0, 1fr))"
+                            },
+                            gap: 1
+                          }}
+                        >
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Dia</Typography>
+                            <Typography variant="body2">{formatDateOnly(meeting.inicioProgramadoAt)}</Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Horario</Typography>
+                            <Typography variant="body2">
+                              {formatTimeRange(meeting.inicioProgramadoAt, meeting.finProgramadoAt)}
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
+                            <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                              {meeting.zoomMeetingId || "-"}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Control interno (inicio/fin real)
+                            </Typography>
+                            <Typography variant="body2">
+                              {meeting.inicioRealAt || meeting.finRealAt
+                                ? `${meeting.inicioRealAt ? formatDateTime(meeting.inicioRealAt) : "-"} a ${meeting.finRealAt ? formatDateTime(meeting.finRealAt) : "-"}`
+                                : "Sin datos reales registrados."}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {meeting.minutosReales !== null && meeting.minutosExtraNoLiquidados > 0 ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                            Duracion real con {meeting.minutosExtraNoLiquidados} min extra. Ese excedente no se liquida automaticamente.
+                            {meeting.requiereRevisionAdminPorExceso
+                              ? " Se marca para revision administrativa (+60 min o mas)."
+                              : ""}
+                          </Typography>
                         ) : null}
-                        <Chip
-                          size="small"
-                          color={
-                            meeting.huboGrabacion === true
-                              ? "warning"
-                              : meeting.huboGrabacion === false
-                                ? "default"
-                                : "info"
-                          }
-                          variant="outlined"
-                          label={
-                            meeting.huboGrabacion === true
-                              ? "Grabacion SI"
-                              : meeting.huboGrabacion === false
-                                ? "Grabacion NO"
-                                : "Grabacion s/confirmar"
-                          }
-                        />
-                        {meeting.zoomJoinUrl ? (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="secondary"
-                            href={meeting.zoomJoinUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Abrir
-                          </Button>
-                        ) : null}
-                      </Stack>
-                    </Stack>
 
-                    <Box
-                      sx={{
-                        mt: 1,
-                        display: "grid",
-                        gridTemplateColumns: {
-                          xs: "1fr",
-                          md: "repeat(3, minmax(0, 1fr))"
-                        },
-                        gap: 1
-                      }}
-                    >
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Dia</Typography>
-                        <Typography variant="body2">{formatDateOnly(meeting.inicioProgramadoAt)}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Horario</Typography>
-                        <Typography variant="body2">
-                          {formatTimeRange(meeting.inicioProgramadoAt, meeting.finProgramadoAt)}
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.8 }}>
+                          {meeting.huboGrabacion === true
+                            ? "Hubo grabacion. Debe descargarse manualmente (fuera de la app)."
+                            : meeting.huboGrabacion === false
+                              ? "No hubo grabacion para esta reunion."
+                              : meeting.requiereGrabacion
+                                ? "Grabacion solicitada, sin confirmacion automatica en sistema."
+                                : "Sin confirmacion de grabacion en sistema."}
                         </Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
-                        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                          {meeting.zoomMeetingId || "-"}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
-                        <Typography variant="caption" color="text.secondary">
-                          Control interno (inicio/fin real)
-                        </Typography>
-                        <Typography variant="body2">
-                          {meeting.inicioRealAt || meeting.finRealAt
-                            ? `${meeting.inicioRealAt ? formatDateTime(meeting.inicioRealAt) : "-"} a ${meeting.finRealAt ? formatDateTime(meeting.finRealAt) : "-"}`
-                            : "Sin datos reales registrados."}
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    {meeting.minutosReales !== null && meeting.minutosExtraNoLiquidados > 0 ? (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                        Duracion real con {meeting.minutosExtraNoLiquidados} min extra. Ese excedente no se liquida automaticamente.
-                        {meeting.requiereRevisionAdminPorExceso
-                          ? " Se marca para revision administrativa (+60 min o mas)."
-                          : ""}
-                      </Typography>
-                    ) : null}
-
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.8 }}>
-                      {meeting.huboGrabacion === true
-                        ? "Hubo grabacion. Debe descargarse manualmente (fuera de la app)."
-                        : meeting.huboGrabacion === false
-                          ? "No hubo grabacion para esta reunion."
-                          : meeting.requiereGrabacion
-                            ? "Grabacion solicitada, sin confirmacion automatica en sistema."
-                            : "Sin confirmacion de grabacion en sistema."}
-                    </Typography>
-                  </CardContent>
-                </Card>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Stack>
               ))}
         </Stack>
       </CardContent>

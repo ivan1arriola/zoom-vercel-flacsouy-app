@@ -1124,7 +1124,7 @@ function buildMonitoringRequiredEmailHtml(input: {
     greeting: "Hola,",
     paragraphs: ["Se registro una nueva solicitud que requiere asistencia Zoom."],
     contentHtml,
-    metaLines: ["Revisa la agenda libre para marcar interes en las instancias disponibles."]
+    metaLines: ["Revisa la seccion Reuniones disponibles para marcar interes en las instancias abiertas."]
   });
 }
 
@@ -8890,6 +8890,19 @@ export class SalasService {
     };
   }
 
+  async getZoomAccountPassword(input: { hostAccount?: string | null }) {
+    const hostAccount = normalizeZoomHostAccountLabel(input.hostAccount);
+    if (!hostAccount) {
+      throw new Error("Cuenta Zoom invalida.");
+    }
+
+    const password = await getAccountPasswordFromWebhook(hostAccount);
+    return {
+      hostAccount,
+      password
+    };
+  }
+
   async listPersonMeetingHours(input: { userId?: string | null }) {
     const peopleRows = await db.user.findMany({
       where: {
@@ -8945,6 +8958,10 @@ export class SalasService {
         zoomMeetingId: string | null;
         zoomJoinUrl: string | null;
         zoomPayloadUltimo: Prisma.JsonValue | null;
+        cuentaZoom: {
+          ownerEmail: string;
+          nombreCuenta: string;
+        } | null;
         solicitud: {
           titulo: string;
           programaNombre: string | null;
@@ -8996,6 +9013,9 @@ export class SalasService {
             event.estadoEjecucion !== EstadoEjecucionEvento.NO_REALIZADO
           )
         );
+      const zoomAccountEmail = event.cuentaZoom?.ownerEmail ?? null;
+      const zoomAccountName = event.cuentaZoom?.nombreCuenta ?? null;
+      const zoomHostAccount = pickZoomHostAccountLabel(zoomAccountEmail, zoomAccountName);
 
       return {
         assignmentId: assignment.id,
@@ -9022,6 +9042,9 @@ export class SalasService {
         estadoAsignacion: assignment.estadoAsignacion,
         zoomMeetingId: event.zoomMeetingId,
         zoomJoinUrl: event.zoomJoinUrl,
+        zoomAccountEmail,
+        zoomAccountName,
+        zoomHostAccount,
         isCompleted,
         timezone: event.timezone || "America/Montevideo"
       };
@@ -9099,6 +9122,9 @@ export class SalasService {
       estadoAsignacion: EstadoAsignacion;
       zoomMeetingId: string | null;
       zoomJoinUrl: string | null;
+      zoomAccountEmail: string | null;
+      zoomAccountName: string | null;
+      zoomHostAccount: string | null;
       isCompleted: boolean;
       timezone: string;
     }> = [];
@@ -9129,6 +9155,12 @@ export class SalasService {
               zoomMeetingId: true,
               zoomJoinUrl: true,
               zoomPayloadUltimo: true,
+              cuentaZoom: {
+                select: {
+                  ownerEmail: true,
+                  nombreCuenta: true
+                }
+              },
               solicitud: {
                 select: {
                   titulo: true,
@@ -9187,6 +9219,12 @@ export class SalasService {
             zoomMeetingId: true,
             zoomJoinUrl: true,
             zoomPayloadUltimo: true,
+            cuentaZoom: {
+              select: {
+                ownerEmail: true,
+                nombreCuenta: true
+              }
+            },
             solicitud: {
               select: {
                 titulo: true,

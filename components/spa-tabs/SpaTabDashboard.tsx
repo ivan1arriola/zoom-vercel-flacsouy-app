@@ -12,7 +12,7 @@ import {
   TextField,
   Typography
 } from "@mui/material";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import BuildCircleIcon from "@mui/icons-material/BuildCircle";
 import Groups2Icon from "@mui/icons-material/Groups2";
@@ -27,15 +27,18 @@ import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import EventNoteIcon from "@mui/icons-material/EventNote";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import GroupIcon from "@mui/icons-material/Group";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import type { DashboardSummary } from "@/src/services/dashboardApi";
 import {
   downloadMonthlyAccountingReport,
   loadPersonHours,
+  loadZoomAccountPassword,
   loadTarifas,
   type PersonHoursMeeting,
   type PersonHoursPerson,
   type Tarifa
 } from "@/src/services/tarifasApi";
+import type { AgendaEvent } from "@/src/services/agendaApi";
 
 type DashboardRole = "ADMINISTRADOR" | "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA";
 type DashboardMetricKey = Exclude<keyof DashboardSummary, "scope">;
@@ -43,8 +46,11 @@ type DashboardMetricKey = Exclude<keyof DashboardSummary, "scope">;
 interface SpaTabDashboardProps {
   summary: DashboardSummary | null;
   role: DashboardRole;
+  agendaLibre?: AgendaEvent[];
   onGoToCreateMeeting?: () => void;
   onGoToAssignAssistants?: () => void;
+  onGoToAgendaAvailable?: () => void;
+  onGoToMyAssignedMeetings?: () => void;
 }
 
 type MetricCardItem = {
@@ -113,6 +119,122 @@ function formatMoney(value: number, currency: string): string {
   const rounded = Math.round(value * 100) / 100;
   const amount = rounded.toFixed(2).replace(".", ",");
   return currency ? `${currency} ${amount}` : amount;
+}
+
+function formatDateTime24(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("es-UY", {
+    dateStyle: "short",
+    timeStyle: "short",
+    hour12: false
+  });
+}
+
+function normalizeZoomMeetingId(value?: string | null): string | null {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  return /^\d{9,13}$/.test(digits) ? digits : null;
+}
+
+function extractZoomMeetingIdFromJoinUrl(joinUrl?: string | null): string | null {
+  if (!joinUrl) return null;
+
+  try {
+    const url = new URL(joinUrl);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const roomTypeIndex = parts.findIndex((part) => part === "j" || part === "w");
+    if (roomTypeIndex < 0 || !parts[roomTypeIndex + 1]) return null;
+    return normalizeZoomMeetingId(parts[roomTypeIndex + 1]);
+  } catch {
+    return null;
+  }
+}
+
+function resolveMeetingId(meeting: PersonHoursMeeting): string | null {
+  return normalizeZoomMeetingId(meeting.zoomMeetingId) ?? extractZoomMeetingIdFromJoinUrl(meeting.zoomJoinUrl);
+}
+
+function resolveMeetingJoinUrl(meeting: PersonHoursMeeting): string | null {
+  const explicit = (meeting.zoomJoinUrl ?? "").trim();
+  if (explicit) return explicit;
+  const meetingId = resolveMeetingId(meeting);
+  return meetingId ? `https://zoom.us/j/${meetingId}` : null;
+}
+
+function resolveMeetingAccount(meeting: PersonHoursMeeting): string | null {
+  const candidates = [meeting.zoomHostAccount, meeting.zoomAccountEmail, meeting.zoomAccountName];
+  for (const candidate of candidates) {
+    const normalized = (candidate ?? "").trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function isFutureAssignedMeeting(meeting: PersonHoursMeeting, nowMs: number): boolean {
+  if (!["ASIGNADO", "ACEPTADO"].includes(meeting.estadoAsignacion)) return false;
+  if (meeting.estadoEvento === "CANCELADO") return false;
+  if (meeting.isCompleted) return false;
+
+  const start = new Date(meeting.inicioAt).getTime();
+  const endRaw = new Date(meeting.finAt).getTime();
+  const end = Number.isFinite(endRaw) ? endRaw : start;
+  return Number.isFinite(end) && end >= nowMs;
+}
+
+function compareMeetingByStartAsc(left: PersonHoursMeeting, right: PersonHoursMeeting): number {
+  return new Date(left.inicioAt).getTime() - new Date(right.inicioAt).getTime();
+}
+
+function formatTimeUntil(targetIso: string, nowMs: number): string {
+  const targetMs = new Date(targetIso).getTime();
+  if (!Number.isFinite(targetMs)) return "Sin horario";
+
+  const diffMs = targetMs - nowMs;
+  if (diffMs <= 0) return "Comienza ahora";
+
+  const totalMinutes = Math.ceil(diffMs / 60000);
+  if (totalMinutes < 60) {
+    return `En ${totalMinutes} min`;
+  }
+
+  const totalHours = Math.floor(totalMinutes / 60);
+  const remainingMinutes = totalMinutes % 60;
+  if (totalHours < 24) {
+    return `En ${totalHours} h ${remainingMinutes} min`;
+  }
+
+  const days = Math.floor(totalHours / 24);
+  const remainingHours = totalHours % 24;
+  return `En ${days} d ${remainingHours} h`;
+}
+
+async function copyTextToClipboard(value: string): Promise<boolean> {
+  if (!value) return false;
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return copied;
+  } catch {
+    return false;
+  }
 }
 
 function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
@@ -312,13 +434,13 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
 
     return {
       title: "Mi panel de asistencia",
-      subtitle: "Solo ves agenda disponible, tus postulaciones y tus reuniones asignadas.",
+      subtitle: "Priorizado para tu proxima reunion y para tomar reuniones disponibles sin asignar.",
       headerIcon: <SupportAgentIcon fontSize="small" />,
       background: "linear-gradient(135deg, rgba(10,93,72,0.10) 0%, rgba(56,161,105,0.14) 100%)",
       metrics: [
         {
           key: "agendaDisponible",
-          title: "Agenda disponible",
+          title: "Reuniones disponibles",
           description: "Eventos abiertos que todavia pueden tomarse.",
           color: "#2F855A",
           icon: <EventAvailableIcon fontSize="small" />
@@ -504,10 +626,14 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
 export function SpaTabDashboard({
   summary,
   role,
+  agendaLibre = [],
   onGoToCreateMeeting,
-  onGoToAssignAssistants
+  onGoToAssignAssistants,
+  onGoToAgendaAvailable,
+  onGoToMyAssignedMeetings
 }: SpaTabDashboardProps) {
   const isAccountingRole = role === "CONTADURIA";
+  const isAssistantRole = role === "ASISTENTE_ZOOM";
   const [assistantCards, setAssistantCards] = useState<Array<{
     person: PersonHoursPerson;
     meetings: PersonHoursMeeting[];
@@ -521,6 +647,14 @@ export function SpaTabDashboard({
     VIRTUAL: null,
     HIBRIDA: null
   });
+  const [assistantUpcomingMeetings, setAssistantUpcomingMeetings] = useState<PersonHoursMeeting[]>([]);
+  const [isLoadingAssistantPanel, setIsLoadingAssistantPanel] = useState(false);
+  const [assistantPanelError, setAssistantPanelError] = useState("");
+  const [nextMeetingPassword, setNextMeetingPassword] = useState<string | null>(null);
+  const [nextMeetingPasswordError, setNextMeetingPasswordError] = useState("");
+  const [isLoadingNextMeetingPassword, setIsLoadingNextMeetingPassword] = useState(false);
+  const [assistantNowMs, setAssistantNowMs] = useState(() => Date.now());
+  const [copyLinkFeedback, setCopyLinkFeedback] = useState("");
 
   async function refreshAccountingData() {
     setIsLoadingPersonHours(true);
@@ -574,6 +708,101 @@ export function SpaTabDashboard({
     void refreshAccountingData();
     void refreshTarifasForEstimate();
   }, [isAccountingRole]);
+
+  async function refreshAssistantPanelData() {
+    if (!isAssistantRole) return;
+
+    setIsLoadingAssistantPanel(true);
+    setAssistantPanelError("");
+    try {
+      const payload = await loadPersonHours();
+      if (!payload) {
+        setAssistantUpcomingMeetings([]);
+        setAssistantPanelError("No se pudo cargar el detalle de tus reuniones asignadas.");
+        return;
+      }
+
+      const nowMs = Date.now();
+      const nextMeetings = payload.meetings
+        .filter((meeting) => isFutureAssignedMeeting(meeting, nowMs))
+        .sort(compareMeetingByStartAsc);
+      setAssistantUpcomingMeetings(nextMeetings);
+    } finally {
+      setIsLoadingAssistantPanel(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isAssistantRole) return;
+    void refreshAssistantPanelData();
+  }, [isAssistantRole]);
+
+  useEffect(() => {
+    if (!isAssistantRole) return;
+    setAssistantNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      setAssistantNowMs(Date.now());
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [isAssistantRole]);
+
+  const assistantAgendaOpen = useMemo(
+    () =>
+      [...agendaLibre]
+        .sort((left, right) => new Date(left.inicioProgramadoAt).getTime() - new Date(right.inicioProgramadoAt).getTime()),
+    [agendaLibre]
+  );
+  const agendaToAssignCount = assistantAgendaOpen.length;
+  const assistantAgendaPreview = assistantAgendaOpen.slice(0, 3);
+  const nextMeeting = assistantUpcomingMeetings[0] ?? null;
+  const nextMeetingId = nextMeeting ? resolveMeetingId(nextMeeting) : null;
+  const nextMeetingJoinUrl = nextMeeting ? resolveMeetingJoinUrl(nextMeeting) : null;
+  const nextMeetingAccount = nextMeeting ? resolveMeetingAccount(nextMeeting) : null;
+  const nextMeetingCountdown = nextMeeting
+    ? formatTimeUntil(nextMeeting.inicioProgramadoAt, assistantNowMs)
+    : "Sin proximas reuniones";
+
+  useEffect(() => {
+    if (!isAssistantRole) return;
+
+    if (!nextMeeting || !nextMeetingAccount) {
+      setNextMeetingPassword(null);
+      setNextMeetingPasswordError("");
+      setIsLoadingNextMeetingPassword(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingNextMeetingPassword(true);
+    setNextMeetingPassword(null);
+    setNextMeetingPasswordError("");
+
+    (async () => {
+      const payload = await loadZoomAccountPassword(nextMeetingAccount);
+      if (cancelled) return;
+
+      if (payload.success && payload.password) {
+        setNextMeetingPassword(payload.password);
+        setNextMeetingPasswordError("");
+      } else {
+        setNextMeetingPassword(null);
+        setNextMeetingPasswordError(payload.error ?? "No se pudo obtener la clave de la cuenta.");
+      }
+      setIsLoadingNextMeetingPassword(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAssistantRole, nextMeeting?.assignmentId, nextMeetingAccount]);
+
+  async function copyNextMeetingLink() {
+    if (!nextMeetingJoinUrl) return;
+
+    const copied = await copyTextToClipboard(nextMeetingJoinUrl);
+    setCopyLinkFeedback(copied ? "Link copiado" : "No se pudo copiar");
+    window.setTimeout(() => setCopyLinkFeedback(""), 2200);
+  }
 
   if (!summary) {
     return (
@@ -1102,6 +1331,241 @@ export function SpaTabDashboard({
           );
         })}
       </Box>
+
+      {role === "ASISTENTE_ZOOM" ? (
+        <Card variant="outlined" sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={1}
+              alignItems={{ xs: "flex-start", md: "center" }}
+              justifyContent="space-between"
+              sx={{ mb: 1.2 }}
+            >
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                  Operacion inmediata
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Lo proximo que tienes y lo disponible para tomar sin cambiar de pantalla.
+                </Typography>
+              </Box>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <Button
+                  variant="outlined"
+                  onClick={() => {
+                    void refreshAssistantPanelData();
+                  }}
+                  disabled={isLoadingAssistantPanel}
+                >
+                  {isLoadingAssistantPanel ? "Actualizando..." : "Actualizar panel"}
+                </Button>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={onGoToAgendaAvailable}
+                  disabled={!onGoToAgendaAvailable}
+                >
+                  Reuniones disponibles
+                </Button>
+              </Stack>
+            </Stack>
+
+            {assistantPanelError ? (
+              <Alert severity="error" sx={{ mb: 1.2 }}>
+                {assistantPanelError}
+              </Alert>
+            ) : null}
+
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+                gap: 1.2,
+                mb: 1.2
+              }}
+            >
+              <Card variant="outlined" sx={{ borderRadius: 2.2 }}>
+                <CardContent sx={{ p: 1.4 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Reuniones para asignar
+                  </Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 900 }}>
+                    {agendaToAssignCount}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Instancias sin asistencia asignada en este momento.
+                  </Typography>
+                </CardContent>
+              </Card>
+              <Card variant="outlined" sx={{ borderRadius: 2.2 }}>
+                <CardContent sx={{ p: 1.4 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Proxima reunion
+                  </Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 900 }}>
+                    {nextMeetingCountdown}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {nextMeeting ? formatDateTime24(nextMeeting.inicioProgramadoAt) : "Sin reuniones futuras asignadas."}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Box>
+
+            {nextMeeting ? (
+              <Box
+                sx={{
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 2.2,
+                  p: 1.2,
+                  mb: 1.2,
+                  bgcolor: "grey.50"
+                }}
+              >
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  spacing={1}
+                  alignItems={{ xs: "flex-start", md: "center" }}
+                  justifyContent="space-between"
+                >
+                  <Box>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                      {nextMeeting.titulo || "Sin titulo"}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {nextMeeting.programaNombre || "Sin programa"}
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                    {nextMeetingJoinUrl ? (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="secondary"
+                        href={nextMeetingJoinUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Abrir Zoom
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<ContentCopyIcon fontSize="small" />}
+                      onClick={() => {
+                        void copyNextMeetingLink();
+                      }}
+                      disabled={!nextMeetingJoinUrl}
+                    >
+                      Copiar link
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={onGoToMyAssignedMeetings}
+                      disabled={!onGoToMyAssignedMeetings}
+                    >
+                      Ver todas mis asignadas
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                <Box
+                  sx={{
+                    mt: 1,
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
+                    gap: 1
+                  }}
+                >
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Inicio
+                    </Typography>
+                    <Typography variant="body2">{formatDateTime24(nextMeeting.inicioProgramadoAt)}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Meeting ID
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                      {nextMeetingId || "-"}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Cuenta Zoom
+                    </Typography>
+                    <Typography variant="body2">{nextMeetingAccount || "-"}</Typography>
+                  </Box>
+                  <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Link de acceso
+                    </Typography>
+                    <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
+                      {nextMeetingJoinUrl || "Sin link de acceso"}
+                    </Typography>
+                    {copyLinkFeedback ? (
+                      <Typography variant="caption" color="text.secondary">
+                        {copyLinkFeedback}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                  <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Clave de la cuenta Zoom
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                      {isLoadingNextMeetingPassword
+                        ? "Cargando..."
+                        : nextMeetingPassword || nextMeetingPasswordError || "No disponible"}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+            ) : (
+              <Alert severity="info" sx={{ mb: 1.2 }}>
+                Aun no tienes reuniones futuras asignadas.
+              </Alert>
+            )}
+
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.8 }}>
+              Reuniones disponibles para tomar
+            </Typography>
+            {assistantAgendaPreview.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No hay reuniones sin asignar en este momento.
+              </Typography>
+            ) : (
+              <Stack spacing={0.8}>
+                {assistantAgendaPreview.map((event) => (
+                  <Box
+                    key={event.id}
+                    sx={{
+                      px: 1.1,
+                      py: 0.9,
+                      borderRadius: 1.6,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      bgcolor: "background.paper"
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                      {event.solicitud.titulo}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatDateTime24(event.inicioProgramadoAt)} | {event.solicitud.programaNombre || "Sin programa"} | {event.solicitud.modalidadReunion}
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card variant="outlined" sx={{ borderRadius: 3 }}>
         <CardContent>

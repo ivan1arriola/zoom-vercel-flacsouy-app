@@ -2082,7 +2082,7 @@ export function SpaHomeScreen() {
       return "Crear salas Zoom rapido y dar seguimiento a tus reuniones.";
     }
     if (effectiveRole === "ASISTENTE_ZOOM") {
-      return "Tomar agenda disponible y gestionar tus asistencias asignadas.";
+      return "Prioriza tu proxima reunion y toma reuniones disponibles sin asignar.";
     }
     if (effectiveRole === "CONTADURIA") {
       return "Solo dos funciones: gestionar tarifas y controlar horas/pagos por asistente.";
@@ -2157,7 +2157,7 @@ export function SpaHomeScreen() {
         },
         {
           id: "asistente-agenda",
-          label: "Agenda libre",
+          label: "Reuniones disponibles",
           description: "Reuniones para tomar",
           icon: getTabIcon("agenda_libre"),
           active: tab === "agenda_libre",
@@ -2166,7 +2166,7 @@ export function SpaHomeScreen() {
         {
           id: "asistente-proximas",
           label: "Asignadas futuras",
-          description: "Confirmadas por mes",
+          description: "Confirmadas y proximas",
           icon: getTabIcon("mis_reuniones_asignadas"),
           active: tab === "mis_reuniones_asignadas",
           onClick: () => setTab("mis_reuniones_asignadas")
@@ -2481,12 +2481,19 @@ export function SpaHomeScreen() {
         <SpaTabDashboard
           summary={summary}
           role={effectiveRole || "ADMINISTRADOR"}
+          agendaLibre={agendaLibre}
           onGoToCreateMeeting={() => {
             setDocenteSolicitudesView("form");
             setTab("solicitudes");
           }}
           onGoToAssignAssistants={() => {
             setTab("asignacion");
+          }}
+          onGoToAgendaAvailable={() => {
+            setTab("agenda_libre");
+          }}
+          onGoToMyAssignedMeetings={() => {
+            setTab("mis_reuniones_asignadas");
           }}
         />
       )}

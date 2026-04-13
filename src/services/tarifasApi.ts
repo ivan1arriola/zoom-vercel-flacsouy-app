@@ -50,6 +50,9 @@ export type PersonHoursMeeting = {
   estadoAsignacion: string;
   zoomMeetingId: string | null;
   zoomJoinUrl: string | null;
+  zoomAccountEmail?: string | null;
+  zoomAccountName?: string | null;
+  zoomHostAccount?: string | null;
   isCompleted: boolean;
 };
 
@@ -121,6 +124,51 @@ export async function loadPersonHours(userId?: string): Promise<PersonHoursRespo
   if (!res.ok) return null;
   const json = (await res.json()) as PersonHoursResponse;
   return json;
+}
+
+export async function loadZoomAccountPassword(hostAccount: string): Promise<{
+  success: boolean;
+  password?: string;
+  error?: string;
+}> {
+  const normalized = hostAccount.trim();
+  if (!normalized) {
+    return {
+      success: false,
+      error: "Cuenta Zoom invalida."
+    };
+  }
+
+  const response = await fetch("/api/v1/zoom/cuentas/password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hostAccount: normalized })
+  });
+
+  const payload = (await response.json()) as {
+    error?: string;
+    success?: boolean;
+    password?: string | null;
+  };
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: payload.error ?? "No se pudo obtener la contrasena de la cuenta Zoom."
+    };
+  }
+
+  if (!payload.password) {
+    return {
+      success: false,
+      error: payload.error ?? "No hay contrasena disponible para esta cuenta."
+    };
+  }
+
+  return {
+    success: true,
+    password: payload.password
+  };
 }
 
 function resolveFilenameFromDisposition(disposition: string | null): string | null {

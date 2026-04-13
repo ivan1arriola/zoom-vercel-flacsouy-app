@@ -77,7 +77,7 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     group: "ADMIN"
   },
   agenda_libre: {
-    label: "Agenda libre",
+    label: "Reuniones disponibles",
     visibleInNavigation: true,
     roles: ["ASISTENTE_ZOOM"],
     group: "OPERACION"

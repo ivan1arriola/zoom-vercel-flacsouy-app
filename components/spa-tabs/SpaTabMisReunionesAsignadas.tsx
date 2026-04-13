@@ -9,14 +9,17 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Divider,
   LinearProgress,
-  MenuItem,
   Skeleton,
   Stack,
-  TextField,
   Typography
 } from "@mui/material";
-import { loadPersonHours, type PersonHoursMeeting } from "@/src/services/tarifasApi";
+import {
+  loadPersonHours,
+  loadZoomAccountPassword,
+  type PersonHoursMeeting
+} from "@/src/services/tarifasApi";
 
 interface SpaTabMisReunionesAsignadasProps {
   userId: string;
@@ -40,6 +43,13 @@ function getMonthKeyFromIso(value: string): string {
   return `${year}-${month}`;
 }
 
+function getCurrentMonthKey(): string {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
 function formatMonthKey(monthKey: string): string {
   const [yearRaw = "0", monthRaw = "1"] = monthKey.split("-");
   const year = Number(yearRaw);
@@ -56,7 +66,8 @@ function formatDateTime(value: string): string {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("es-UY", {
     dateStyle: "short",
-    timeStyle: "short"
+    timeStyle: "short",
+    hour12: false
   });
 }
 
@@ -73,7 +84,8 @@ function formatTimeOnly(value: string): string {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleTimeString("es-UY", {
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    hour12: false
   });
 }
 
@@ -103,6 +115,46 @@ function formatMinutesAsHHMM(totalMinutes: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function normalizeZoomMeetingId(value?: string | null): string | null {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  return /^\d{9,13}$/.test(digits) ? digits : null;
+}
+
+function extractZoomMeetingIdFromJoinUrl(joinUrl?: string | null): string | null {
+  if (!joinUrl) return null;
+
+  try {
+    const url = new URL(joinUrl);
+    const segments = url.pathname.split("/").filter(Boolean);
+    const roomTypeIndex = segments.findIndex((segment) => segment === "j" || segment === "w");
+    if (roomTypeIndex < 0 || !segments[roomTypeIndex + 1]) return null;
+    return normalizeZoomMeetingId(segments[roomTypeIndex + 1]);
+  } catch {
+    return null;
+  }
+}
+
+function resolveMeetingId(meeting: PersonHoursMeeting): string | null {
+  return normalizeZoomMeetingId(meeting.zoomMeetingId) ?? extractZoomMeetingIdFromJoinUrl(meeting.zoomJoinUrl);
+}
+
+function resolveJoinUrl(meeting: PersonHoursMeeting): string | null {
+  const explicitJoinUrl = (meeting.zoomJoinUrl ?? "").trim();
+  if (explicitJoinUrl) return explicitJoinUrl;
+  const meetingId = resolveMeetingId(meeting);
+  return meetingId ? `https://zoom.us/j/${meetingId}` : null;
+}
+
+function resolveHostAccountLabel(meeting: PersonHoursMeeting): string | null {
+  const candidates = [meeting.zoomHostAccount, meeting.zoomAccountEmail, meeting.zoomAccountName];
+  for (const candidate of candidates) {
+    const normalized = (candidate ?? "").trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 function toUtcCalendarStamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -116,11 +168,15 @@ function toUtcCalendarStamp(value: string): string {
 }
 
 function buildMeetingCalendarDetails(meeting: PersonHoursMeeting): string {
+  const meetingId = resolveMeetingId(meeting) ?? "-";
+  const joinUrl = resolveJoinUrl(meeting);
+  const hostAccount = resolveHostAccountLabel(meeting);
   const lines = [
     `Programa: ${meeting.programaNombre || "Sin programa"}`,
     `Modalidad: ${meeting.modalidadReunion === "VIRTUAL" ? "Virtual" : "Hibrida"}`,
-    `Meeting ID: ${meeting.zoomMeetingId || "-"}`,
-    meeting.zoomJoinUrl ? `Zoom: ${meeting.zoomJoinUrl}` : null
+    `Meeting ID: ${meetingId}`,
+    hostAccount ? `Cuenta Zoom: ${hostAccount}` : null,
+    joinUrl ? `Zoom: ${joinUrl}` : null
   ].filter(Boolean) as string[];
   return lines.join("\n");
 }
@@ -130,7 +186,7 @@ function buildGoogleCalendarUrl(meeting: PersonHoursMeeting): string {
   const start = toUtcCalendarStamp(meeting.inicioProgramadoAt || meeting.inicioAt);
   const end = toUtcCalendarStamp(meeting.finProgramadoAt || meeting.finAt);
   const details = buildMeetingCalendarDetails(meeting);
-  const location = meeting.zoomJoinUrl || "Zoom";
+  const location = resolveJoinUrl(meeting) || "Zoom";
   const params = new URLSearchParams({
     action: "TEMPLATE",
     text,
@@ -169,6 +225,7 @@ function buildIcsContent(meeting: PersonHoursMeeting): string {
   const summary = escapeIcsText(meeting.titulo || "Reunion Zoom");
   const description = escapeIcsText(buildMeetingCalendarDetails(meeting));
   const location = escapeIcsText("Zoom");
+  const joinUrl = resolveJoinUrl(meeting);
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -187,8 +244,8 @@ function buildIcsContent(meeting: PersonHoursMeeting): string {
     "END:VCALENDAR"
   ];
 
-  if (meeting.zoomJoinUrl) {
-    lines.splice(lines.length - 2, 0, `URL:${escapeIcsText(meeting.zoomJoinUrl)}`);
+  if (joinUrl) {
+    lines.splice(lines.length - 2, 0, `URL:${escapeIcsText(joinUrl)}`);
   }
 
   return lines.join("\r\n");
@@ -231,11 +288,43 @@ function getMeetingKey(meeting: PersonHoursMeeting): string {
   return `${meeting.assignmentId}:${meeting.eventId}:${meeting.inicioAt}`;
 }
 
+async function copyTextToClipboard(value: string): Promise<boolean> {
+  if (!value) return false;
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
 export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsignadasProps) {
   const [meetings, setMeetings] = useState<PersonHoursMeeting[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [selectedMonthKey, setSelectedMonthKey] = useState("");
+  const [passwordByHostAccount, setPasswordByHostAccount] = useState<Record<string, string>>({});
+  const [passwordLoadingByHostAccount, setPasswordLoadingByHostAccount] = useState<Record<string, boolean>>({});
+  const [passwordErrorByHostAccount, setPasswordErrorByHostAccount] = useState<Record<string, string>>({});
+  const [showPasswordByMeetingKey, setShowPasswordByMeetingKey] = useState<Record<string, boolean>>({});
+  const [copyFeedbackByMeetingKey, setCopyFeedbackByMeetingKey] = useState<Record<string, string>>({});
 
   async function refresh() {
     if (!userId) return;
@@ -288,49 +377,109 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
       }));
   }, [meetings]);
 
-  const totalFutureMeetings = useMemo(
-    () => monthlyGroups.reduce((acc, group) => acc + group.meetings.length, 0),
-    [monthlyGroups]
-  );
-  const monthOptions = useMemo(
-    () => monthlyGroups.map((group) => group.monthKey).sort((a, b) => b.localeCompare(a)),
+  const upcomingMeetings = useMemo(
+    () => monthlyGroups.flatMap((group) => group.meetings),
     [monthlyGroups]
   );
 
-  useEffect(() => {
-    if (monthOptions.length === 0) {
-      if (selectedMonthKey) setSelectedMonthKey("");
-      return;
-    }
-    if (!selectedMonthKey || !monthOptions.includes(selectedMonthKey)) {
-      setSelectedMonthKey(monthOptions[0]);
-    }
-  }, [monthOptions, selectedMonthKey]);
-
-  const filteredMeetings = useMemo(() => {
-    if (!selectedMonthKey) return [];
-    const selectedGroup = monthlyGroups.find((group) => group.monthKey === selectedMonthKey) ?? null;
-    if (!selectedGroup) return [];
-    return [...selectedGroup.meetings].sort(compareByStartAsc);
-  }, [monthlyGroups, selectedMonthKey]);
-
+  const currentMonthKey = getCurrentMonthKey();
+  const pendingCurrentMonthMeetings = useMemo(
+    () => upcomingMeetings.filter((meeting) => getMonthKeyFromIso(meeting.inicioAt) === currentMonthKey),
+    [upcomingMeetings, currentMonthKey]
+  );
+  const totalFutureMeetings = upcomingMeetings.length;
   const totalMinutesVirtual = useMemo(
     () =>
-      filteredMeetings.reduce(
+      pendingCurrentMonthMeetings.reduce(
         (acc, meeting) => acc + (meeting.modalidadReunion === "VIRTUAL" ? meeting.minutos : 0),
         0
       ),
-    [filteredMeetings]
+    [pendingCurrentMonthMeetings]
   );
   const totalMinutesHibrida = useMemo(
     () =>
-      filteredMeetings.reduce(
+      pendingCurrentMonthMeetings.reduce(
         (acc, meeting) => acc + (meeting.modalidadReunion === "HIBRIDA" ? meeting.minutos : 0),
         0
       ),
-    [filteredMeetings]
+    [pendingCurrentMonthMeetings]
   );
   const isInitialLoading = isLoading && meetings.length === 0;
+
+  async function handleTogglePassword(meeting: PersonHoursMeeting) {
+    const meetingKey = getMeetingKey(meeting);
+    const isVisible = Boolean(showPasswordByMeetingKey[meetingKey]);
+    if (isVisible) {
+      setShowPasswordByMeetingKey((prev) => ({
+        ...prev,
+        [meetingKey]: false
+      }));
+      return;
+    }
+
+    setShowPasswordByMeetingKey((prev) => ({
+      ...prev,
+      [meetingKey]: true
+    }));
+
+    const hostAccount = resolveHostAccountLabel(meeting);
+    if (!hostAccount) {
+      return;
+    }
+
+    if (passwordByHostAccount[hostAccount] || passwordLoadingByHostAccount[hostAccount]) {
+      return;
+    }
+
+    setPasswordLoadingByHostAccount((prev) => ({
+      ...prev,
+      [hostAccount]: true
+    }));
+    setPasswordErrorByHostAccount((prev) => ({
+      ...prev,
+      [hostAccount]: ""
+    }));
+
+    try {
+      const payload = await loadZoomAccountPassword(hostAccount);
+      if (payload.success && payload.password) {
+        setPasswordByHostAccount((prev) => ({
+          ...prev,
+          [hostAccount]: payload.password as string
+        }));
+        return;
+      }
+
+      setPasswordErrorByHostAccount((prev) => ({
+        ...prev,
+        [hostAccount]: payload.error ?? "No hay contrasena disponible para esta cuenta."
+      }));
+    } finally {
+      setPasswordLoadingByHostAccount((prev) => ({
+        ...prev,
+        [hostAccount]: false
+      }));
+    }
+  }
+
+  async function handleCopyJoinLink(meeting: PersonHoursMeeting) {
+    const meetingKey = getMeetingKey(meeting);
+    const joinUrl = resolveJoinUrl(meeting);
+    if (!joinUrl) return;
+
+    const copied = await copyTextToClipboard(joinUrl);
+    setCopyFeedbackByMeetingKey((prev) => ({
+      ...prev,
+      [meetingKey]: copied ? "Link copiado" : "No se pudo copiar"
+    }));
+
+    window.setTimeout(() => {
+      setCopyFeedbackByMeetingKey((prev) => ({
+        ...prev,
+        [meetingKey]: ""
+      }));
+    }, 2200);
+  }
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -347,24 +496,10 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
               Mis reuniones asignadas
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Vista mensual de reuniones futuras donde ya estas confirmado/a para asistencia Zoom.
+              Reuniones futuras ordenadas de la mas inminente a la mas lejana, separadas por mes.
             </Typography>
           </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ minWidth: { sm: 320 } }}>
-            <TextField
-              select
-              size="small"
-              label="Mes"
-              value={selectedMonthKey}
-              onChange={(event) => setSelectedMonthKey(String(event.target.value))}
-              disabled={isLoading || monthOptions.length === 0}
-            >
-              {monthOptions.map((monthKey) => (
-                <MenuItem key={monthKey} value={monthKey}>
-                  {formatMonthKey(monthKey)}
-                </MenuItem>
-              ))}
-            </TextField>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
             <Stack direction="row" spacing={0.8} alignItems="center">
               <Button variant="outlined" onClick={() => void refresh()} disabled={isLoading}>
                 Actualizar
@@ -398,11 +533,11 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
           </Stack>
         ) : (
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
+            <Chip variant="outlined" label={`${monthlyGroups.length} mes(es)`} />
             <Chip
               variant="outlined"
-              label={selectedMonthKey ? formatMonthKey(selectedMonthKey) : "Sin mes seleccionado"}
+              label={`${pendingCurrentMonthMeetings.length} reunion(es) pendiente(s) este mes`}
             />
-            <Chip variant="outlined" label={`${filteredMeetings.length} reunion(es)`} />
             <Chip variant="outlined" label={`${totalFutureMeetings} reunion(es) futura(s)`} />
           </Stack>
         )}
@@ -439,7 +574,7 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
             >
               <CardContent sx={{ p: 1.8 }}>
                 <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
-                  Virtual del mes
+                  Virtual pendiente (mes actual)
                 </Typography>
                 <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>
                   {formatMinutesAsHHMM(totalMinutesVirtual)}
@@ -460,7 +595,7 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
             >
               <CardContent sx={{ p: 1.8 }}>
                 <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
-                  Hibrida del mes
+                  Hibrida pendiente (mes actual)
                 </Typography>
                 <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>
                   {formatMinutesAsHHMM(totalMinutesHibrida)}
@@ -479,13 +614,7 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
           </Alert>
         ) : null}
 
-        {!isInitialLoading && !isLoading && monthlyGroups.length > 0 && filteredMeetings.length === 0 ? (
-          <Alert severity="info">
-            No hay reuniones para el mes seleccionado.
-          </Alert>
-        ) : null}
-
-        <Stack spacing={1}>
+        <Stack spacing={1.2}>
           {isInitialLoading
             ? Array.from({ length: 3 }).map((_, index) => (
                 <Card key={`loading-${index}`} variant="outlined" sx={{ borderRadius: 2 }}>
@@ -534,95 +663,178 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                   </CardContent>
                 </Card>
               ))
-            : filteredMeetings.map((meeting) => (
-                <Card key={getMeetingKey(meeting)} variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: 1.5 }}>
-                    <Stack
-                      direction={{ xs: "column", md: "row" }}
-                      spacing={1}
-                      alignItems={{ xs: "flex-start", md: "center" }}
-                      justifyContent="space-between"
-                    >
-                      <Box>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                          {meeting.titulo || "Sin titulo"}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {meeting.programaNombre || "Sin programa"}
-                        </Typography>
-                      </Box>
-                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                        <Chip
-                          size="small"
-                          color={meeting.modalidadReunion === "VIRTUAL" ? "success" : "info"}
-                          variant="outlined"
-                          label={meeting.modalidadReunion === "VIRTUAL" ? "Virtual" : "Hibrida"}
-                        />
-                        <Chip size="small" variant="outlined" label={formatMinutesAsHHMM(meeting.minutosProgramados)} />
-                        {meeting.zoomJoinUrl ? (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="secondary"
-                            href={meeting.zoomJoinUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Abrir
-                          </Button>
-                        ) : null}
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          href={buildGoogleCalendarUrl(meeting)}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Google Calendar
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => downloadMeetingIcs(meeting)}
-                        >
-                          Descargar .ics
-                        </Button>
-                      </Stack>
-                    </Stack>
+            : monthlyGroups.map((group) => (
+                <Stack key={group.monthKey} spacing={1}>
+                  <Divider textAlign="left">
+                    <Chip size="small" variant="outlined" label={formatMonthKey(group.monthKey)} />
+                  </Divider>
 
-                    <Box
-                      sx={{
-                        mt: 1,
-                        display: "grid",
-                        gridTemplateColumns: {
-                          xs: "1fr",
-                          md: "repeat(3, minmax(0, 1fr))"
-                        },
-                        gap: 1
-                      }}
-                    >
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Dia</Typography>
-                        <Typography variant="body2">{formatDateOnly(meeting.inicioProgramadoAt)}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Horario</Typography>
-                        <Typography variant="body2">
-                          {formatTimeRange(meeting.inicioProgramadoAt, meeting.finProgramadoAt)}
-                        </Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
-                        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                          {meeting.zoomMeetingId || "-"}
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                      Inicio exacto: {formatDateTime(meeting.inicioProgramadoAt)}
-                    </Typography>
-                  </CardContent>
-                </Card>
+                  {group.meetings.map((meeting) => {
+                    const meetingKey = getMeetingKey(meeting);
+                    const meetingId = resolveMeetingId(meeting);
+                    const joinUrl = resolveJoinUrl(meeting);
+                    const hostAccount = resolveHostAccountLabel(meeting);
+                    const isPasswordVisible = Boolean(showPasswordByMeetingKey[meetingKey]);
+                    const isPasswordLoading = Boolean(
+                      hostAccount && passwordLoadingByHostAccount[hostAccount]
+                    );
+                    const resolvedPassword =
+                      hostAccount ? (passwordByHostAccount[hostAccount] ?? null) : null;
+                    const passwordError =
+                      hostAccount ? (passwordErrorByHostAccount[hostAccount] ?? "") : "";
+                    const copyFeedback = copyFeedbackByMeetingKey[meetingKey] ?? "";
+
+                    return (
+                      <Card key={meetingKey} variant="outlined" sx={{ borderRadius: 2 }}>
+                        <CardContent sx={{ p: 1.5 }}>
+                          <Stack
+                            direction={{ xs: "column", md: "row" }}
+                            spacing={1}
+                            alignItems={{ xs: "flex-start", md: "center" }}
+                            justifyContent="space-between"
+                          >
+                            <Box>
+                              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                {meeting.titulo || "Sin titulo"}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                {meeting.programaNombre || "Sin programa"}
+                              </Typography>
+                            </Box>
+                            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                              <Chip
+                                size="small"
+                                color={meeting.modalidadReunion === "VIRTUAL" ? "success" : "info"}
+                                variant="outlined"
+                                label={meeting.modalidadReunion === "VIRTUAL" ? "Virtual" : "Hibrida"}
+                              />
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={formatMinutesAsHHMM(meeting.minutosProgramados)}
+                              />
+                              {joinUrl ? (
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  color="secondary"
+                                  href={joinUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Abrir
+                                </Button>
+                              ) : null}
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => void handleCopyJoinLink(meeting)}
+                                disabled={!joinUrl}
+                              >
+                                Copiar link
+                              </Button>
+                              <Button
+                                size="small"
+                                variant={isPasswordVisible ? "contained" : "outlined"}
+                                color="warning"
+                                onClick={() => void handleTogglePassword(meeting)}
+                                disabled={!hostAccount || isPasswordLoading}
+                              >
+                                {isPasswordLoading
+                                  ? "Cargando clave..."
+                                  : isPasswordVisible
+                                    ? "Ocultar clave"
+                                    : "Ver clave"}
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                href={buildGoogleCalendarUrl(meeting)}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Google Calendar
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => downloadMeetingIcs(meeting)}
+                              >
+                                Descargar .ics
+                              </Button>
+                            </Stack>
+                          </Stack>
+
+                          <Box
+                            sx={{
+                              mt: 1,
+                              display: "grid",
+                              gridTemplateColumns: {
+                                xs: "1fr",
+                                md: "repeat(4, minmax(0, 1fr))"
+                              },
+                              gap: 1
+                            }}
+                          >
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">Dia</Typography>
+                              <Typography variant="body2">{formatDateOnly(meeting.inicioProgramadoAt)}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">Horario</Typography>
+                              <Typography variant="body2">
+                                {formatTimeRange(meeting.inicioProgramadoAt, meeting.finProgramadoAt)}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
+                              <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                                {meetingId || "-"}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">Cuenta Zoom</Typography>
+                              <Typography variant="body2">{hostAccount || "Sin cuenta asignada"}</Typography>
+                            </Box>
+
+                            <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
+                              <Typography variant="caption" color="text.secondary">Link de acceso</Typography>
+                              <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
+                                {joinUrl ? (
+                                  <a href={joinUrl} target="_blank" rel="noreferrer">
+                                    {joinUrl}
+                                  </a>
+                                ) : (
+                                  "Sin link de acceso"
+                                )}
+                              </Typography>
+                              {copyFeedback ? (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                                  {copyFeedback}
+                                </Typography>
+                              ) : null}
+                            </Box>
+
+                            {isPasswordVisible ? (
+                              <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
+                                <Typography variant="caption" color="text.secondary">
+                                  Contrasena de la cuenta Zoom
+                                </Typography>
+                                <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                                  {resolvedPassword || passwordError || "No disponible"}
+                                </Typography>
+                              </Box>
+                            ) : null}
+                          </Box>
+
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                            Inicio exacto: {formatDateTime(meeting.inicioProgramadoAt)}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Stack>
               ))}
         </Stack>
       </CardContent>
