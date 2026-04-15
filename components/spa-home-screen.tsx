@@ -411,6 +411,7 @@ export function SpaHomeScreen() {
   const [isRegisteringUpcomingMeeting, setIsRegisteringUpcomingMeeting] = useState(false);
   const [updatingAsistenciaSolicitudId, setUpdatingAsistenciaSolicitudId] = useState<string | null>(null);
   const [updatingAsistenciaInstanciaKey, setUpdatingAsistenciaInstanciaKey] = useState<string | null>(null);
+  const [removingAssistanceAssignmentEventId, setRemovingAssistanceAssignmentEventId] = useState<string | null>(null);
   
   // User Profile & Auth
   const { user, setUser, googleLinked, setGoogleLinked, hasPassword, setHasPassword, isLoadingGoogleStatus, setIsLoadingGoogleStatus, isSyncingGoogleProfile, setIsSyncingGoogleProfile, isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount, isUpdatingProfile, setIsUpdatingProfile, profileForm, setProfileForm, showProfileForm, setShowProfileForm } = useUserProfile();
@@ -1616,6 +1617,51 @@ export function SpaHomeScreen() {
     }
   }
 
+  async function removeAssistanceFromAssignmentEvent(input: {
+    eventoId: string;
+    solicitudId: string;
+    titulo: string;
+    inicioProgramadoAt: string;
+  }) {
+    const instanceDateLabel = formatDateTime(input.inicioProgramadoAt);
+    const confirmMessage =
+      `Se quitara la asistencia Zoom para la reunion ${instanceDateLabel} de "${input.titulo}". Si hay una persona asignada se notificara la cancelacion. ¿Continuar?`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    setRemovingAssistanceAssignmentEventId(input.eventoId);
+    setMessage("");
+    try {
+      const response = await updateSolicitudInstanciaAsistenciaApi({
+        solicitudId: input.solicitudId,
+        eventoId: input.eventoId,
+        requiereAsistencia: false
+      });
+
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo quitar asistencia de la reunion.");
+        return;
+      }
+
+      if (response.alreadyDisabled) {
+        setMessage("La reunion ya no requeria asistencia.");
+      } else {
+        const cancelledAssignments = response.cancelledAssignments ?? 0;
+        const notifiedAssistants = response.notifiedAssistants ?? 0;
+        setMessage(
+          `Asistencia removida para la reunion ${instanceDateLabel} (asignaciones canceladas: ${cancelledAssignments}, correos enviados: ${notifiedAssistants}).`
+        );
+      }
+
+      await refreshAfterSolicitudMutation();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo quitar asistencia de la reunion.");
+    } finally {
+      setRemovingAssistanceAssignmentEventId(null);
+    }
+  }
+
   function applySuggestionSelection(suggestion: AssignmentSuggestion | null) {
     if (!suggestion) return;
     setSelectedAssistantByEvent((current) => {
@@ -1643,10 +1689,8 @@ export function SpaHomeScreen() {
         setMessage(response.message ?? "No se encontró una sugerencia válida para los eventos pendientes.");
         return;
       }
-
-      applySuggestionSelection(response.suggestion);
       setMessage(
-        `Sugerencia aplicada (alcance ${response.scopeKey}). Puntaje: ${response.suggestion.score.toFixed(2)}.`
+        `Sugerencia generada (alcance ${response.scopeKey}). Puntaje: ${response.suggestion.score.toFixed(2)}. Revisa y aplica por reunion.`
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo generar sugerencias de asignación.");
@@ -1676,9 +1720,7 @@ export function SpaHomeScreen() {
         setMessage(response.message ?? "No hay más sugerencias equivalentes disponibles.");
         return;
       }
-
-      applySuggestionSelection(response.suggestion);
-      setMessage(`Alternativa aplicada. Puntaje: ${response.suggestion.score.toFixed(2)}.`);
+      setMessage(`Alternativa lista. Puntaje: ${response.suggestion.score.toFixed(2)}. Revisa y aplica por reunion.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo obtener la siguiente sugerencia.");
     } finally {
@@ -2372,8 +2414,6 @@ export function SpaHomeScreen() {
           >
             <Box sx={{ minWidth: 0 }}>
               <FlacsoBrandLogo
-                variant="primary"
-                backgroundTone="auto"
                 height={30}
                 sx={{ mb: 0.5 }}
               />
@@ -2702,11 +2742,13 @@ export function SpaHomeScreen() {
           isLoadingSuggestion={isLoadingSuggestion}
           hasSuggestionSession={Boolean(suggestionSessionId)}
           assigningEventId={assigningEventId}
+          removingAssistanceEventId={removingAssistanceAssignmentEventId}
           selectedAssistantByEvent={selectedAssistantByEvent}
           onSelectedAssistantChange={(eventId, assistantId) =>
             setSelectedAssistantByEvent((prev) => ({ ...prev, [eventId]: assistantId }))
           }
           onAssignAssistant={assignAssistantToEvent}
+          onRemoveAssistanceForEvent={removeAssistanceFromAssignmentEvent}
           onSuggestMonthly={suggestMonthlyAssignment}
           onSuggestNext={suggestNextMonthlyAssignment}
         />

@@ -20,6 +20,7 @@ import EventNoteRoundedIcon from "@mui/icons-material/EventNoteRounded";
 import AssignmentLateRoundedIcon from "@mui/icons-material/AssignmentLateRounded";
 import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
+import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSendOutlined";
 import { formatDuration } from "@/src/lib/spa-home/recurrence";
 import { formatModalidad, formatZoomDate, formatZoomTime, formatDurationHuman } from "./spa-tabs-utils";
 import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
@@ -38,9 +39,16 @@ interface SpaTabAsignacionProps {
   isLoadingSuggestion: boolean;
   hasSuggestionSession: boolean;
   assigningEventId: string | null;
+  removingAssistanceEventId: string | null;
   selectedAssistantByEvent: Record<string, string>;
   onSelectedAssistantChange: (eventId: string, assistantId: string) => void;
   onAssignAssistant: (eventId: string) => void;
+  onRemoveAssistanceForEvent: (input: {
+    eventoId: string;
+    solicitudId: string;
+    titulo: string;
+    inicioProgramadoAt: string;
+  }) => void;
   onSuggestMonthly: () => void;
   onSuggestNext: () => void;
 }
@@ -59,9 +67,11 @@ export function SpaTabAsignacion({
   isLoadingSuggestion,
   hasSuggestionSession,
   assigningEventId,
+  removingAssistanceEventId,
   selectedAssistantByEvent,
   onSelectedAssistantChange,
   onAssignAssistant,
+  onRemoveAssistanceForEvent,
   onSuggestMonthly,
   onSuggestNext
 }: SpaTabAsignacionProps) {
@@ -187,6 +197,14 @@ export function SpaTabAsignacion({
         : "Confirma para guardar la asignacion.";
     const statusLabel = currentAssignment ? "Asignada" : "Pendiente";
     const statusColor = currentAssignment ? "success" : "warning";
+    const suggestedAssignment =
+      assignmentSuggestion?.events.find((suggested) => suggested.eventoId === item.id) ?? null;
+    const suggestedAssistantLabel = suggestedAssignment
+      ? `${suggestedAssignment.asistenteNombre} (${suggestedAssignment.asistenteEmail})`
+      : "Sin sugerencia para esta reunion";
+    const canApplySuggestionToSelector =
+      Boolean(suggestedAssignment) &&
+      selectedAssistantId !== (suggestedAssignment?.asistenteZoomId ?? "");
     const meetingId = normalizeZoomMeetingId(item.zoomMeetingId) ?? "-";
     const recurringCount = meetingId === "-" ? 1 : recurrenceCountByMeetingId.get(meetingId) ?? 1;
     const hostAccount =
@@ -341,9 +359,10 @@ export function SpaTabAsignacion({
                 </Typography>
                 <Typography variant="body2">{interestedLabel}</Typography>
               </Box>
+              <Divider />
               <Box>
                 <Typography variant="caption" color="text.secondary">
-                  Asignar persona
+                  Seleccion manual
                 </Typography>
                 <TextField
                   select
@@ -351,6 +370,7 @@ export function SpaTabAsignacion({
                   fullWidth
                   value={selectedAssistantByEvent[item.id] ?? ""}
                   onChange={(e) => onSelectedAssistantChange(item.id, e.target.value)}
+                  sx={{ mt: 0.4 }}
                 >
                   <MenuItem value="">Seleccionar</MenuItem>
                   {options.map((option) => (
@@ -359,24 +379,74 @@ export function SpaTabAsignacion({
                     </MenuItem>
                   ))}
                 </TextField>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => onAssignAssistant(item.id)}
+                  disabled={actionDisabled}
+                  sx={{ mt: 0.8 }}
+                >
+                  {assigningEventId === item.id
+                    ? isReassignment
+                      ? "Reasignando..."
+                      : "Asignando..."
+                    : isReassignment
+                      ? "Confirmar reasignacion"
+                      : "Confirmar asignacion"}
+                </Button>
+                <Typography variant="caption" color={actionDisabled ? "text.secondary" : "success.main"} sx={{ display: "block", mt: 0.5 }}>
+                  {actionHelper}
+                </Typography>
               </Box>
-              <Button
-                size="small"
-                variant="contained"
-                onClick={() => onAssignAssistant(item.id)}
-                disabled={actionDisabled}
-              >
-                {assigningEventId === item.id
-                  ? isReassignment
-                    ? "Reasignando..."
-                    : "Asignando..."
-                  : isReassignment
-                    ? "Confirmar reasignacion"
-                    : "Confirmar asignacion"}
-              </Button>
-              <Typography variant="caption" color={actionDisabled ? "text.secondary" : "success.main"}>
-                {actionHelper}
-              </Typography>
+
+              <Divider />
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Sugerencia
+                </Typography>
+                <Typography variant="body2" sx={{ mt: 0.35 }}>
+                  {suggestedAssistantLabel}
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    if (!suggestedAssignment) return;
+                    onSelectedAssistantChange(item.id, suggestedAssignment.asistenteZoomId);
+                  }}
+                  disabled={!canApplySuggestionToSelector}
+                  sx={{ mt: 0.8 }}
+                >
+                  Aplicar sugerencia al selector
+                </Button>
+              </Box>
+
+              <Divider />
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Asistencia de la reunion
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<CancelScheduleSendOutlinedIcon fontSize="small" />}
+                  onClick={() =>
+                    onRemoveAssistanceForEvent({
+                      eventoId: item.id,
+                      solicitudId: item.solicitud.id,
+                      titulo: item.solicitud.titulo,
+                      inicioProgramadoAt: item.inicioProgramadoAt
+                    })
+                  }
+                  disabled={removingAssistanceEventId === item.id}
+                  sx={{ mt: 0.8 }}
+                >
+                  {removingAssistanceEventId === item.id
+                    ? "Quitando asistencia..."
+                    : "Eliminar asistencia de esta reunion"}
+                </Button>
+              </Box>
             </Stack>
           </Paper>
         </Box>
@@ -458,7 +528,7 @@ export function SpaTabAsignacion({
                 label={`Puntaje sugerencia: ${assignmentSuggestion.score.toFixed(2)}`}
               />
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.6 }}>
-                La propuesta fue precargada en cada selector para que confirmes manualmente reunion por reunion.
+                La sugerencia queda disponible para revisarla y aplicarla por reunion, separada de tu seleccion manual.
               </Typography>
             </Box>
           ) : null}

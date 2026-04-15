@@ -374,8 +374,7 @@ export function InlineLogin({
     <Box component="section">
       <Box sx={{ maxWidth: 980, mx: "auto" }}>
         <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mb: 0.8 }}>
-          <FlacsoBrandLogo variant="primary" backgroundTone="light" height={36} />
-          <FlacsoBrandLogo variant="secondary" backgroundTone="light" height={20} />
+          <FlacsoBrandLogo height={38} />
         </Stack>
         <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
           Herramienta para coordinar salas Zoom

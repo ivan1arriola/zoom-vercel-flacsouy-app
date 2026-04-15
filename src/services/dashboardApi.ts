@@ -67,6 +67,7 @@ export type AssignmentBoardEvent = {
     nombre: string;
   } | null;
   solicitud: {
+    id: string;
     titulo: string;
     modalidadReunion: string;
     programaNombre?: string | null;

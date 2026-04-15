@@ -1041,23 +1041,10 @@ async function sendProvisionedSolicitudEmail(input: {
   const to = input.to.trim().toLowerCase();
   if (!to || !EMAIL_LINE_REGEX.test(to)) return;
 
-  // Buscar todos los administradores activos y agregar sus correos a la copia
-  const adminUsers = await db.user.findMany({
-    where: {
-      role: "ADMINISTRADOR",
-      emailVerified: { not: null },
-      email: { not: "" }
-    },
-    select: { email: true }
-  });
-  const adminEmails = adminUsers
-    .map((u) => (u.email ?? "").trim().toLowerCase())
-    .filter((email) => EMAIL_LINE_REGEX.test(email) && email !== to);
-
+  // Solo respetar copias explicitas del flujo llamador.
   const ccUnique = Array.from(
     new Set([
-      ...input.cc.map((email) => email.trim().toLowerCase()),
-      ...adminEmails
+      ...input.cc.map((email) => email.trim().toLowerCase())
     ].filter((email) => EMAIL_LINE_REGEX.test(email) && email !== to))
   );
 
@@ -1086,6 +1073,17 @@ async function sendProvisionedSolicitudEmail(input: {
     subject,
     html
   });
+}
+
+function formatAssistantInterestLabel(estadoInteres: EstadoInteresAsistente): string {
+  if (estadoInteres === EstadoInteresAsistente.ME_INTERESA) return "Me postulo";
+  if (estadoInteres === EstadoInteresAsistente.RETIRADO) return "No voy a postular";
+  return "No voy a postular";
+}
+
+function shouldNotifyAdminsForAssistantPreference(estadoInteres: EstadoInteresAsistente): boolean {
+  // Reducir ruido: a admins solo llega cuando hay postulacion explicita.
+  return estadoInteres === EstadoInteresAsistente.ME_INTERESA;
 }
 
 function buildMonitoringRequiredEmailHtml(input: {
@@ -1157,6 +1155,205 @@ async function listAdminNotificationEmails(): Promise<string[]> {
   }
 
   return Array.from(unique);
+}
+
+type AdminNotificationPriority = "CRITICAL" | "INFO";
+
+type AdminInfoDigestItem = {
+  createdAtIso: string;
+  subject: string;
+  title: string;
+  summary: string;
+  metaLines: string[];
+};
+
+type AdminInfoDigestState = {
+  lastSentAtIso?: string;
+  items: AdminInfoDigestItem[];
+};
+
+const ADMIN_INFO_DIGEST_SETTING_KEY = "admin_email_info_digest_v1";
+const ADMIN_INFO_DIGEST_FLUSH_INTERVAL_MS = 45 * 60 * 1000;
+const ADMIN_INFO_DIGEST_MAX_ITEMS = 12;
+
+function sanitizeDigestMetaLines(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function normalizeAdminInfoDigestState(raw: unknown): AdminInfoDigestState {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { items: [] };
+  }
+
+  const state = raw as {
+    lastSentAtIso?: unknown;
+    items?: unknown;
+  };
+
+  const items = Array.isArray(state.items)
+    ? state.items
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const candidate = item as {
+            createdAtIso?: unknown;
+            subject?: unknown;
+            title?: unknown;
+            summary?: unknown;
+            metaLines?: unknown;
+          };
+          const subject = String(candidate.subject ?? "").trim();
+          const title = String(candidate.title ?? "").trim();
+          const summary = String(candidate.summary ?? "").trim();
+          if (!subject || !title || !summary) return null;
+          return {
+            createdAtIso: String(candidate.createdAtIso ?? new Date().toISOString()),
+            subject,
+            title,
+            summary,
+            metaLines: sanitizeDigestMetaLines(candidate.metaLines)
+          } satisfies AdminInfoDigestItem;
+        })
+        .filter((item): item is AdminInfoDigestItem => Boolean(item))
+        .slice(-ADMIN_INFO_DIGEST_MAX_ITEMS)
+    : [];
+
+  const lastSentAtIso = String(state.lastSentAtIso ?? "").trim();
+
+  return {
+    lastSentAtIso: lastSentAtIso || undefined,
+    items
+  };
+}
+
+async function loadAdminInfoDigestState(): Promise<AdminInfoDigestState> {
+  const row = await db.appSetting.findUnique({
+    where: { key: ADMIN_INFO_DIGEST_SETTING_KEY },
+    select: { value: true }
+  });
+  return normalizeAdminInfoDigestState(row?.value ?? null);
+}
+
+async function saveAdminInfoDigestState(state: AdminInfoDigestState): Promise<void> {
+  await db.appSetting.upsert({
+    where: { key: ADMIN_INFO_DIGEST_SETTING_KEY },
+    update: {
+      value: {
+        lastSentAtIso: state.lastSentAtIso ?? null,
+        items: state.items
+      }
+    },
+    create: {
+      key: ADMIN_INFO_DIGEST_SETTING_KEY,
+      value: {
+        lastSentAtIso: state.lastSentAtIso ?? null,
+        items: state.items
+      }
+    }
+  });
+}
+
+function buildAdminInfoDigestEmailHtml(items: AdminInfoDigestItem[]): string {
+  const rows = items
+    .map((item, index) => {
+      const createdAt = new Date(item.createdAtIso);
+      const createdLabel = Number.isNaN(createdAt.getTime())
+        ? item.createdAtIso
+        : formatDateTimeForEmail(createdAt, "America/Montevideo");
+      const metaHtml = (item.metaLines ?? []).length
+        ? `<ul style="margin:6px 0 0 18px;padding:0;color:#425066;font-size:13px;line-height:1.5;">${(item.metaLines ?? [])
+            .map((line) => `<li>${escapeHtml(line)}</li>`)
+            .join("")}</ul>`
+        : "";
+
+      return `
+        <div style="border:1px solid #dbe5f3;border-radius:10px;padding:12px;background:#f8fbff;margin:0 0 10px;">
+          <p style="margin:0 0 4px;color:#1d3a72;font-size:12px;font-weight:700;">#${index + 1} • ${escapeHtml(createdLabel)}</p>
+          <p style="margin:0 0 6px;color:#0b2c5e;font-size:16px;font-weight:700;">${escapeHtml(item.title)}</p>
+          <p style="margin:0 0 6px;color:#223042;font-size:14px;"><strong>Asunto:</strong> ${escapeHtml(item.subject)}</p>
+          <p style="margin:0;color:#223042;font-size:14px;line-height:1.5;">${escapeHtml(item.summary)}</p>
+          ${metaHtml}
+        </div>
+      `;
+    })
+    .join("");
+
+  const contentHtml = `
+    <p style="margin:0 0 10px;color:#223042;">Este resumen agrupa notificaciones informativas para reducir volumen de correo.</p>
+    ${rows}
+  `;
+
+  return buildBrandedEmailLayout({
+    preheader: "Resumen de notificaciones informativas para admins.",
+    title: "Resumen operativo para admins",
+    greeting: "Hola,",
+    paragraphs: [`Incluye ${items.length} evento(s) informativo(s) recientes.`],
+    contentHtml,
+    metaLines: [
+      "Las alertas criticas se siguen enviando de forma inmediata.",
+      "Este resumen se emite cada 45 minutos o al acumular suficientes eventos."
+    ]
+  });
+}
+
+async function sendAdminEmailByPriority(input: {
+  priority: AdminNotificationPriority;
+  subject: string;
+  html?: string;
+  title?: string;
+  summary?: string;
+  metaLines?: string[];
+}): Promise<void> {
+  const recipients = await listAdminNotificationEmails();
+  if (recipients.length === 0) return;
+
+  if (input.priority === "CRITICAL") {
+    if (!input.html) return;
+    await sendBroadcastEmail({
+      recipients,
+      subject: input.subject,
+      html: input.html
+    });
+    return;
+  }
+
+  const state = await loadAdminInfoDigestState();
+  state.items.push({
+    createdAtIso: new Date().toISOString(),
+    subject: input.subject,
+    title: (input.title ?? input.subject).trim() || input.subject,
+    summary: (input.summary ?? "Notificacion informativa").trim() || "Notificacion informativa",
+    metaLines: (input.metaLines ?? []).filter(Boolean).slice(0, 6)
+  });
+  state.items = state.items.slice(-ADMIN_INFO_DIGEST_MAX_ITEMS);
+
+  const nowMs = Date.now();
+  const lastSentMs = state.lastSentAtIso ? new Date(state.lastSentAtIso).getTime() : 0;
+  const elapsedMs = Number.isFinite(lastSentMs) ? nowMs - lastSentMs : Number.POSITIVE_INFINITY;
+  const shouldFlush =
+    state.items.length >= ADMIN_INFO_DIGEST_MAX_ITEMS ||
+    elapsedMs >= ADMIN_INFO_DIGEST_FLUSH_INTERVAL_MS;
+
+  if (!shouldFlush) {
+    await saveAdminInfoDigestState(state);
+    return;
+  }
+
+  const html = buildAdminInfoDigestEmailHtml(state.items);
+  const subject = `Resumen admins: ${state.items.length} evento(s) informativo(s)`;
+
+  await sendBroadcastEmail({
+    recipients,
+    subject,
+    html
+  });
+
+  state.items = [];
+  state.lastSentAtIso = new Date().toISOString();
+  await saveAdminInfoDigestState(state);
 }
 
 async function sendBroadcastEmail(input: {
@@ -1292,15 +1489,18 @@ async function sendDocenteSolicitudCreatedEmailToAdmins(input: {
   timezone: string;
   instanceStarts: Date[];
 }): Promise<void> {
-  const recipients = await listAdminNotificationEmails();
-  if (recipients.length === 0) return;
-
   const subject = `Solicitud creada por docente: ${input.titulo}`;
-  const html = buildDocenteSolicitudCreatedAdminEmailHtml(input);
-  await sendBroadcastEmail({
-    recipients,
+  await sendAdminEmailByPriority({
+    priority: "INFO",
     subject,
-    html
+    title: "Nueva solicitud creada por docente",
+    summary: `${input.actorNombre} (${input.actorEmail}) registro "${input.titulo}".`,
+    metaLines: [
+      `Programa: ${input.programaNombre?.trim() || "-"}`,
+      `Modalidad: ${input.modalidad}`,
+      `Estado: ${input.estadoSolicitud}`,
+      `Instancias: ${input.instanceStarts.length}`
+    ]
   });
 }
 
@@ -1319,7 +1519,7 @@ function buildAssistantPreferenceAdminEmailHtml(input: {
 }): string {
   const asistenteNombreLabel = escapeHtml(input.asistenteNombre);
   const asistenteEmailLabel = escapeHtml(input.asistenteEmail);
-  const estadoLabel = escapeHtml(input.estadoInteres);
+  const estadoLabel = escapeHtml(formatAssistantInterestLabel(input.estadoInteres));
   const tituloLabel = escapeHtml(input.titulo);
   const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
   const inicioLabel = escapeHtml(formatDateTimeForEmail(input.inicio, input.timezone));
@@ -1360,13 +1560,14 @@ async function sendAssistantPreferenceEmailToAdmins(input: {
   fin: Date;
   timezone: string;
 }): Promise<void> {
-  const recipients = await listAdminNotificationEmails();
-  if (recipients.length === 0) return;
+  if (!shouldNotifyAdminsForAssistantPreference(input.estadoInteres)) {
+    return;
+  }
 
-  const subject = `Preferencia de asistencia: ${input.titulo}`;
+  const subject = `Postulacion de asistencia: ${input.titulo}`;
   const html = buildAssistantPreferenceAdminEmailHtml(input);
-  await sendBroadcastEmail({
-    recipients,
+  await sendAdminEmailByPriority({
+    priority: "CRITICAL",
     subject,
     html
   });
@@ -7521,6 +7722,7 @@ export class SalasService {
           },
           solicitud: {
             select: {
+              id: true,
               titulo: true,
               modalidadReunion: true,
               programaNombre: true,
