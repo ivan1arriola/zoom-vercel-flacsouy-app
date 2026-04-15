@@ -22,6 +22,8 @@ import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedI
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import { formatDuration } from "@/src/lib/spa-home/recurrence";
 import { formatModalidad, formatZoomDate, formatZoomTime, formatDurationHuman } from "./spa-tabs-utils";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
+import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 import type {
   AssignmentBoardEvent,
   AssignableAssistant,
@@ -41,6 +43,12 @@ interface SpaTabAsignacionProps {
   onAssignAssistant: (eventId: string) => void;
   onSuggestMonthly: () => void;
   onSuggestNext: () => void;
+}
+
+function normalizeZoomMeetingId(value?: string | null): string | null {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  return /^\d{9,13}$/.test(digits) ? digits : null;
 }
 
 export function SpaTabAsignacion({
@@ -75,6 +83,15 @@ export function SpaTabAsignacion({
     () => sortedEvents.filter((event) => Boolean(event.currentAssignment)),
     [sortedEvents]
   );
+  const recurrenceCountByMeetingId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const event of sortedEvents) {
+      const meetingId = normalizeZoomMeetingId(event.zoomMeetingId);
+      if (!meetingId) continue;
+      map.set(meetingId, (map.get(meetingId) ?? 0) + 1);
+    }
+    return map;
+  }, [sortedEvents]);
 
   const assignedByAssistant = useMemo(() => {
     const byAssistant = new Map<
@@ -170,6 +187,12 @@ export function SpaTabAsignacion({
         : "Confirma para guardar la asignacion.";
     const statusLabel = currentAssignment ? "Asignada" : "Pendiente";
     const statusColor = currentAssignment ? "success" : "warning";
+    const meetingId = normalizeZoomMeetingId(item.zoomMeetingId) ?? "-";
+    const recurringCount = meetingId === "-" ? 1 : recurrenceCountByMeetingId.get(meetingId) ?? 1;
+    const hostAccount =
+      item.cuentaZoom?.ownerEmail?.trim() ||
+      item.cuentaZoom?.nombreCuenta?.trim() ||
+      null;
 
     return (
       <Paper
@@ -243,7 +266,7 @@ export function SpaTabAsignacion({
               <Divider />
               <Box>
                 <Typography variant="caption" color="text.secondary">
-                  Cuenta Zoom
+                  Cuenta streaming asociada
                 </Typography>
                 <Typography variant="body2">
                   {item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || "-"}
@@ -251,10 +274,41 @@ export function SpaTabAsignacion({
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary">
+                  ID de reunion
+                </Typography>
+                <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                  {meetingId}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Cantidad de reuniones
+                </Typography>
+                <Typography variant="body2">
+                  {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Asistente por reunion
+                </Typography>
+                <MeetingAssistantStatusChip
+                  requiresAssistance
+                  assistantName={currentAssignment?.nombre ?? null}
+                  assistantEmail={currentAssignment?.email ?? null}
+                  pendingLabel="Pendiente"
+                />
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
                   Programa
                 </Typography>
                 <Typography variant="body2">{item.solicitud.programaNombre || "-"}</Typography>
               </Box>
+              <ZoomAccountPasswordField
+                hostAccount={hostAccount}
+                label="Contrasena cuenta streaming"
+              />
             </Stack>
           </Paper>
 

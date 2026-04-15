@@ -12,7 +12,6 @@ import CancelScheduleSendOutlinedIcon from "@mui/icons-material/CancelScheduleSe
 import RestoreFromTrashOutlinedIcon from "@mui/icons-material/RestoreFromTrashOutlined";
 import MailOutlineOutlinedIcon from "@mui/icons-material/MailOutlineOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import SupportAgentOutlinedIcon from "@mui/icons-material/SupportAgentOutlined";
 import {
   Box,
   Button,
@@ -46,6 +45,8 @@ import {
 import type { SolicitudFormState } from "@/src/lib/spa-home/solicitud-form";
 import type { Solicitud } from "@/src/services/solicitudesApi";
 import { parseSpecificDatesInput } from "@/components/spa-tabs/solicitud-payload-builder";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
+import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 
 interface SpaTabSolicitudesProps {
   solicitudes: Solicitud[];
@@ -87,9 +88,17 @@ interface SpaTabSolicitudesProps {
   }) => Promise<boolean>;
   canEditAssistance: boolean;
   updatingAssistanceSolicitudId: string | null;
+  updatingAssistanceInstanceKey: string | null;
   onEnableAssistance: (input: {
     solicitudId: string;
     titulo: string;
+    requiereAsistencia: boolean;
+  }) => void;
+  onToggleAssistanceForInstance: (input: {
+    solicitudId: string;
+    titulo: string;
+    eventoId?: string | null;
+    startTime: string;
     requiereAsistencia: boolean;
   }) => void;
   canDeleteSolicitud: boolean;
@@ -425,7 +434,9 @@ export function SpaTabSolicitudes({
   onSendReminder,
   canEditAssistance,
   updatingAssistanceSolicitudId,
+  updatingAssistanceInstanceKey,
   onEnableAssistance,
+  onToggleAssistanceForInstance,
   canDeleteSolicitud,
   canRestoreInstances,
   isSubmittingSolicitud,
@@ -1067,35 +1078,6 @@ export function SpaTabSolicitudes({
     return { label: "Activa", color: "info", cancellable: true };
   }
 
-  function mapInstanciaAsistencia(instance: NonNullable<Solicitud["zoomInstances"]>[number]): {
-    label: string;
-    color: "default" | "success" | "warning" | "error" | "info";
-    variant: "filled" | "outlined";
-  } {
-    const monitorLabel = instance.monitorNombre?.trim() || instance.monitorEmail?.trim() || "";
-    const requiresAssistance =
-      Boolean(instance.requiereAsistencia) &&
-      instance.estadoCobertura !== "NO_REQUIERE";
-
-    if (!requiresAssistance) {
-      return { label: "Sin asistencia Zoom", color: "default", variant: "outlined" };
-    }
-
-    if (monitorLabel) {
-      return { label: `Asistencia Zoom: ${monitorLabel}`, color: "info", variant: "outlined" };
-    }
-
-    if (instance.estadoCobertura === "CANCELADO") {
-      return { label: "Asistencia cancelada", color: "default", variant: "outlined" };
-    }
-
-    if (instance.estadoCobertura === "ASIGNADO" || instance.estadoCobertura === "CONFIRMADO") {
-      return { label: "Asistencia asignada", color: "info", variant: "outlined" };
-    }
-
-    return { label: "Pendiente de asistencia", color: "warning", variant: "filled" };
-  }
-
   function renderInstanceList(
     item: Solicitud,
     instances: NonNullable<Solicitud["zoomInstances"]>,
@@ -1114,8 +1096,7 @@ export function SpaTabSolicitudes({
       return {
         instance,
         index,
-        status,
-        asistencia: mapInstanciaAsistencia(instance)
+        status
       };
     });
 
@@ -1130,13 +1111,17 @@ export function SpaTabSolicitudes({
       const withNumbering = options?.withNumbering ?? true;
       return (
         <Stack spacing={1.2}>
-          {rows.map(({ instance, status, asistencia }, rowIndex) => {
+          {rows.map(({ instance, status }, rowIndex) => {
             const isInstanceCancelled = isSolicitudCancelled || !status.cancellable;
             const instanceKey = `${item.id}:${instance.eventId ?? instance.occurrenceId ?? instance.startTime}`;
             const isRestoreInProgress = restoringInstanciaKey === instanceKey;
             const canRestoreThisInstance = canRestoreInstances && status.label === "Cancelada";
             const canCancelThisInstance = canDeleteSolicitud && status.cancellable;
             const canScheduleThisInstance = status.label !== "Cancelada";
+            const requiresAssistance =
+              Boolean(instance.requiereAsistencia) &&
+              instance.estadoCobertura !== "NO_REQUIERE";
+            const canManageAssistanceThisInstance = canEditAssistance && status.cancellable;
 
             return (
               <Paper
@@ -1159,21 +1144,11 @@ export function SpaTabSolicitudes({
                   </Typography>
                   <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                     <Chip size="small" color={status.color} label={status.label} />
-                    <Chip
-                      size="small"
-                      color={asistencia.color}
-                      label={asistencia.label}
-                      variant={asistencia.variant}
-                      icon={<SupportAgentOutlinedIcon fontSize="small" />}
-                      sx={
-                        asistencia.color === "info"
-                          ? {
-                              borderColor: "rgba(2, 136, 209, 0.35)",
-                              backgroundColor:
-                                asistencia.variant === "outlined" ? "rgba(2, 136, 209, 0.08)" : undefined
-                            }
-                          : undefined
-                      }
+                    <MeetingAssistantStatusChip
+                      requiresAssistance={requiresAssistance}
+                      assistantName={instance.monitorNombre ?? null}
+                      assistantEmail={instance.monitorEmail ?? null}
+                      pendingLabel="Pendiente"
                     />
                     {instance.occurrenceId ? (
                       <Chip size="small" variant="outlined" label={`occurrence_id ${instance.occurrenceId}`} />
@@ -1196,6 +1171,37 @@ export function SpaTabSolicitudes({
                       }
                     >
                       Agendar
+                    </Button>
+                  )}
+                  {canManageAssistanceThisInstance && (
+                    <Button
+                      type="button"
+                      size="small"
+                      variant="outlined"
+                      color={requiresAssistance ? "warning" : "primary"}
+                      startIcon={
+                        requiresAssistance ? (
+                          <CancelScheduleSendOutlinedIcon fontSize="small" />
+                        ) : (
+                          <EditOutlinedIcon fontSize="small" />
+                        )
+                      }
+                      disabled={Boolean(updatingAssistanceInstanceKey) || isRestoreInProgress || cancellingInstanciaKey === instanceKey}
+                      onClick={() =>
+                        onToggleAssistanceForInstance({
+                          solicitudId: item.id,
+                          titulo: item.titulo,
+                          eventoId: instance.eventId ?? undefined,
+                          startTime: instance.startTime,
+                          requiereAsistencia: !requiresAssistance
+                        })
+                      }
+                    >
+                      {updatingAssistanceInstanceKey === instanceKey
+                        ? "Guardando..."
+                        : requiresAssistance
+                          ? "Cancelar asistencia"
+                          : "Pedir asistencia"}
                     </Button>
                   )}
                   {canCancelThisInstance && (
@@ -2120,6 +2126,7 @@ export function SpaTabSolicitudes({
                   const accountColor = getZoomAccountColor(accountLabel);
                   const requesterLabel = item.requestedBy?.name || item.requestedBy?.email || "-";
                   const responsableLabel = item.responsableNombre?.trim() || requesterLabel;
+                  const hostAccountForPassword = accountLabel === "-" ? null : accountLabel;
                   const meetingIdDisplay =
                     item.estadoSolicitud === "PENDIENTE_RESOLUCION_MANUAL_ID"
                       ? "Pendiente"
@@ -2192,25 +2199,16 @@ export function SpaTabSolicitudes({
                     assignedAssistantNamesUpcoming.length > 0
                       ? assignedAssistantNamesUpcoming
                       : assignedAssistantNamesAny;
+                  const hasMultipleAssistants =
+                    assignedAssistantEmails.length > 1 || assignedAssistantNames.length > 1;
                   const highlightedAssistantName = (highlightedInstance?.monitorNombre ?? "").trim();
                   const highlightedAssistantEmail = (highlightedInstance?.monitorEmail ?? "").trim().toLowerCase();
-                  const assistantZoomLabel = !solicitudRequiresAssistance
-                    ? "No corresponde"
-                    : highlightedAssistantName
-                      ? highlightedAssistantEmail
-                        ? `${highlightedAssistantName} (${highlightedAssistantEmail})`
-                        : highlightedAssistantName
-                      : highlightedAssistantEmail
-                        ? highlightedAssistantEmail
-                        : assignedAssistantNames.length === 1 && assignedAssistantEmails.length === 1
-                          ? `${assignedAssistantNames[0]} (${assignedAssistantEmails[0]})`
-                          : assignedAssistantNames.length === 1
-                            ? assignedAssistantNames[0]
-                            : assignedAssistantEmails.length === 1
-                              ? assignedAssistantEmails[0]
-                              : assignedAssistantEmails.length > 1 || assignedAssistantNames.length > 1
-                                ? "Varios asistentes"
-                                : "Sin asistente asignado";
+                  const assistantNameForStatus =
+                    highlightedAssistantName ||
+                    (assignedAssistantNames.length === 1 ? assignedAssistantNames[0] : "");
+                  const assistantEmailForStatus =
+                    highlightedAssistantEmail ||
+                    (assignedAssistantEmails.length === 1 ? assignedAssistantEmails[0] : "");
                   const canSendAssistantAccess =
                     canSendReminder &&
                     solicitudRequiresAssistance &&
@@ -2407,7 +2405,7 @@ export function SpaTabSolicitudes({
                           </Box>
                           <Box>
                             <Typography variant="caption" color="text.secondary">
-                              Cuenta anfitriona (Zoom)
+                              Cuenta streaming asociada
                             </Typography>
                             <Stack direction="row" spacing={0.8} alignItems="center">
                               <Box
@@ -2424,6 +2422,14 @@ export function SpaTabSolicitudes({
                               />
                               <Typography variant="body2">{accountLabel}</Typography>
                             </Stack>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Cantidad de reuniones
+                            </Typography>
+                            <Typography variant="body2">
+                              {instanceCount} {instanceCount === 1 ? "instancia" : "instancias"}
+                            </Typography>
                           </Box>
                           <Box>
                             <Typography variant="caption" color="text.secondary">
@@ -2445,7 +2451,19 @@ export function SpaTabSolicitudes({
                             <Typography variant="caption" color="text.secondary">
                               Asistente Zoom
                             </Typography>
-                            <Typography variant="body2">{assistantZoomLabel}</Typography>
+                            <MeetingAssistantStatusChip
+                              requiresAssistance={solicitudRequiresAssistance}
+                              assistantName={assistantNameForStatus}
+                              assistantEmail={assistantEmailForStatus}
+                              multipleAssistants={hasMultipleAssistants}
+                              pendingLabel="Pendiente"
+                            />
+                          </Box>
+                          <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
+                            <ZoomAccountPasswordField
+                              hostAccount={hostAccountForPassword}
+                              label="Contrasena cuenta streaming"
+                            />
                           </Box>
                         </Box>
 

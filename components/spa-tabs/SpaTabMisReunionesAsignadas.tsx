@@ -20,6 +20,7 @@ import {
   loadZoomAccountPassword,
   type PersonHoursMeeting
 } from "@/src/services/tarifasApi";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
 
 interface SpaTabMisReunionesAsignadasProps {
   userId: string;
@@ -381,6 +382,15 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
     () => monthlyGroups.flatMap((group) => group.meetings),
     [monthlyGroups]
   );
+  const recurrenceCountByMeetingId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const meeting of upcomingMeetings) {
+      const meetingId = resolveMeetingId(meeting);
+      if (!meetingId) continue;
+      map.set(meetingId, (map.get(meetingId) ?? 0) + 1);
+    }
+    return map;
+  }, [upcomingMeetings]);
 
   const currentMonthKey = getCurrentMonthKey();
   const pendingCurrentMonthMeetings = useMemo(
@@ -672,6 +682,7 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                   {group.meetings.map((meeting) => {
                     const meetingKey = getMeetingKey(meeting);
                     const meetingId = resolveMeetingId(meeting);
+                    const recurringCount = meetingId ? recurrenceCountByMeetingId.get(meetingId) ?? 1 : 1;
                     const joinUrl = resolveJoinUrl(meeting);
                     const hostAccount = resolveHostAccountLabel(meeting);
                     const isPasswordVisible = Boolean(showPasswordByMeetingKey[meetingKey]);
@@ -712,6 +723,16 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                                 size="small"
                                 variant="outlined"
                                 label={formatMinutesAsHHMM(meeting.minutosProgramados)}
+                              />
+                              <Chip
+                                size="small"
+                                color={recurringCount > 1 ? "primary" : "default"}
+                                variant="outlined"
+                                label={
+                                  recurringCount > 1
+                                    ? `${recurringCount} reuniones`
+                                    : "Reunion unica"
+                                }
                               />
                               {joinUrl ? (
                                 <Button
@@ -795,6 +816,24 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                             <Box>
                               <Typography variant="caption" color="text.secondary">Cuenta Zoom</Typography>
                               <Typography variant="body2">{hostAccount || "Sin cuenta asignada"}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">
+                                Cantidad de reuniones
+                              </Typography>
+                              <Typography variant="body2">
+                                {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">
+                                Asistente por reunion
+                              </Typography>
+                              <MeetingAssistantStatusChip
+                                requiresAssistance
+                                assistantName="Tu asistencia"
+                                pendingLabel="Pendiente"
+                              />
                             </Box>
 
                             <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>

@@ -49,6 +49,9 @@ export type PastMeeting = {
   modalidadReunion: string;
   zoomMeetingId: string;
   zoomJoinUrl: string | null;
+  zoomHostAccount?: string | null;
+  zoomAccountEmail?: string | null;
+  zoomAccountName?: string | null;
   inicioAt: string;
   finAt: string;
   minutosReales: number;
@@ -479,6 +482,66 @@ export async function enableSolicitudAsistencia(input: {
     cancelledAssignments: result.data.result?.cancelledAssignments,
     notifiedAssistants: result.data.result?.notifiedAssistants,
     alreadyEnabled: result.data.result?.alreadyEnabled,
+    alreadyDisabled: result.data.result?.alreadyDisabled
+  };
+}
+
+export async function updateSolicitudInstanciaAsistencia(input: {
+  solicitudId: string;
+  eventoId?: string;
+  inicioProgramadoAt?: string;
+  motivo?: string;
+  requiereAsistencia: boolean;
+}): Promise<{
+  success: boolean;
+  solicitudId?: string;
+  eventoId?: string;
+  updatedEvents?: number;
+  alreadyEnabled?: boolean;
+  cancelledAssignments?: number;
+  notifiedAssistants?: number;
+  alreadyDisabled?: boolean;
+  error?: string;
+}> {
+  const result = await requestJson<{
+    error?: string;
+    result?: {
+      solicitudId?: string;
+      eventoId?: string;
+      updatedEvents?: number;
+      alreadyEnabled?: boolean;
+      cancelledAssignments?: number;
+      notifiedAssistants?: number;
+      alreadyDisabled?: boolean;
+    };
+  }>(
+    `/api/v1/solicitudes-sala/${encodeURIComponent(input.solicitudId)}/instancias/asistencia`,
+    {
+      method: "POST",
+      ...withJsonBody({
+        eventoId: input.eventoId,
+        inicioProgramadoAt: input.inicioProgramadoAt,
+        motivo: input.motivo,
+        requiereAsistencia: input.requiereAsistencia
+      })
+    }
+  );
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: result.data.error ?? "No se pudo actualizar asistencia Zoom para la instancia."
+    };
+  }
+
+  return {
+    success: true,
+    solicitudId: result.data.result?.solicitudId,
+    eventoId: result.data.result?.eventoId,
+    updatedEvents: result.data.result?.updatedEvents,
+    alreadyEnabled: result.data.result?.alreadyEnabled,
+    cancelledAssignments: result.data.result?.cancelledAssignments,
+    notifiedAssistants: result.data.result?.notifiedAssistants,
     alreadyDisabled: result.data.result?.alreadyDisabled
   };
 }

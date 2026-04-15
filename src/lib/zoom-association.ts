@@ -10,7 +10,22 @@ export type ZoomMeetingAssociation = {
   solicitudProgramaNombre: string | null;
   solicitudEstado: string | null;
   eventoId: string | null;
+  requiresAssistance: boolean | null;
+  assistantName: string | null;
+  assistantEmail: string | null;
+  assistantStatus: "NO_APLICA" | "PENDIENTE" | "ASIGNADO";
 };
+
+function resolveAssistantStatus(input: {
+  requiresAssistance?: boolean | null;
+  assistantName?: string | null;
+  assistantEmail?: string | null;
+}): "NO_APLICA" | "PENDIENTE" | "ASIGNADO" {
+  if (input.requiresAssistance === false) return "NO_APLICA";
+  const hasAssistant = Boolean((input.assistantName ?? "").trim() || (input.assistantEmail ?? "").trim());
+  if (hasAssistant) return "ASIGNADO";
+  return "PENDIENTE";
+}
 
 export function normalizeZoomMeetingId(value: unknown): string | null {
   if (value === undefined || value === null) return null;
@@ -43,7 +58,11 @@ export function buildUnlinkedZoomMeetingAssociation(): ZoomMeetingAssociation {
     solicitudTitulo: null,
     solicitudProgramaNombre: null,
     solicitudEstado: null,
-    eventoId: null
+    eventoId: null,
+    requiresAssistance: null,
+    assistantName: null,
+    assistantEmail: null,
+    assistantStatus: "PENDIENTE"
   };
 }
 
@@ -71,7 +90,8 @@ export async function resolveZoomMeetingAssociations(
         titulo: true,
         programaNombre: true,
         estadoSolicitud: true,
-        meetingPrincipalId: true
+        meetingPrincipalId: true,
+        requiereAsistencia: true
       },
       orderBy: { createdAt: "desc" }
     }),
@@ -79,7 +99,30 @@ export async function resolveZoomMeetingAssociations(
       where: { zoomMeetingId: { in: normalizedMeetingIds } },
       select: {
         id: true,
+        requiereAsistencia: true,
         zoomMeetingId: true,
+        asignaciones: {
+          where: {
+            tipoAsignacion: "PRINCIPAL",
+            estadoAsignacion: { in: ["ASIGNADO", "ACEPTADO"] }
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            asistente: {
+              select: {
+                usuario: {
+                  select: {
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            }
+          }
+        },
         solicitud: {
           select: {
             id: true,
@@ -97,6 +140,12 @@ export async function resolveZoomMeetingAssociations(
     const meetingId = normalizeZoomMeetingId(solicitud.meetingPrincipalId);
     if (!meetingId || associations.has(meetingId)) continue;
 
+    const assistantStatus = resolveAssistantStatus({
+      requiresAssistance: solicitud.requiereAsistencia,
+      assistantName: null,
+      assistantEmail: null
+    });
+
     associations.set(meetingId, {
       linked: true,
       source: "SOLICITUD_PRINCIPAL",
@@ -104,7 +153,11 @@ export async function resolveZoomMeetingAssociations(
       solicitudTitulo: solicitud.titulo,
       solicitudProgramaNombre: solicitud.programaNombre ?? null,
       solicitudEstado: solicitud.estadoSolicitud,
-      eventoId: null
+      eventoId: null,
+      requiresAssistance: solicitud.requiereAsistencia,
+      assistantName: null,
+      assistantEmail: null,
+      assistantStatus
     });
   }
 
@@ -112,11 +165,28 @@ export async function resolveZoomMeetingAssociations(
     const meetingId = normalizeZoomMeetingId(evento.zoomMeetingId);
     if (!meetingId) continue;
 
+    const assignmentUser = evento.asignaciones[0]?.asistente.usuario ?? null;
+    const assistantName =
+      assignmentUser?.name ||
+      [assignmentUser?.firstName, assignmentUser?.lastName].filter(Boolean).join(" ").trim() ||
+      null;
+    const assistantEmail = assignmentUser?.email ?? null;
+    const assistantStatus = resolveAssistantStatus({
+      requiresAssistance: evento.requiereAsistencia,
+      assistantName,
+      assistantEmail
+    });
+
     const existing = associations.get(meetingId);
     if (existing?.linked) {
-      if (!existing.eventoId) {
-        associations.set(meetingId, { ...existing, eventoId: evento.id });
-      }
+      associations.set(meetingId, {
+        ...existing,
+        eventoId: existing.eventoId ?? evento.id,
+        requiresAssistance: evento.requiereAsistencia,
+        assistantName,
+        assistantEmail,
+        assistantStatus
+      });
       continue;
     }
 
@@ -127,7 +197,11 @@ export async function resolveZoomMeetingAssociations(
       solicitudTitulo: evento.solicitud.titulo,
       solicitudProgramaNombre: evento.solicitud.programaNombre ?? null,
       solicitudEstado: evento.solicitud.estadoSolicitud,
-      eventoId: evento.id
+      eventoId: evento.id,
+      requiresAssistance: evento.requiereAsistencia,
+      assistantName,
+      assistantEmail,
+      assistantStatus
     });
   }
 

@@ -59,6 +59,10 @@ export type ZoomUpcomingMeeting = {
     solicitudProgramaNombre: string | null;
     solicitudEstado: string | null;
     eventoId: string | null;
+    requiresAssistance: boolean | null;
+    assistantName: string | null;
+    assistantEmail: string | null;
+    assistantStatus: "NO_APLICA" | "PENDIENTE" | "ASIGNADO";
   };
 };
 
@@ -195,7 +199,18 @@ export async function loadZoomUpcomingMeetings(): Promise<{
             solicitudTitulo: meeting.association.solicitudTitulo ?? null,
             solicitudProgramaNombre: meeting.association.solicitudProgramaNombre ?? null,
             solicitudEstado: meeting.association.solicitudEstado ?? null,
-            eventoId: meeting.association.eventoId ?? null
+            eventoId: meeting.association.eventoId ?? null,
+            requiresAssistance:
+              typeof meeting.association.requiresAssistance === "boolean"
+                ? meeting.association.requiresAssistance
+                : null,
+            assistantName: meeting.association.assistantName ?? null,
+            assistantEmail: meeting.association.assistantEmail ?? null,
+            assistantStatus:
+              meeting.association.assistantStatus === "NO_APLICA" ||
+              meeting.association.assistantStatus === "ASIGNADO"
+                ? meeting.association.assistantStatus
+                : "PENDIENTE"
           }
         : {
             linked: false,
@@ -204,7 +219,11 @@ export async function loadZoomUpcomingMeetings(): Promise<{
             solicitudTitulo: null,
             solicitudProgramaNombre: null,
             solicitudEstado: null,
-            eventoId: null
+            eventoId: null,
+            requiresAssistance: null,
+            assistantName: null,
+            assistantEmail: null,
+            assistantStatus: "PENDIENTE"
           }
     }))
     .sort(
@@ -276,7 +295,18 @@ export async function loadZoomPastMeetings(input?: {
             solicitudTitulo: meeting.association.solicitudTitulo ?? null,
             solicitudProgramaNombre: meeting.association.solicitudProgramaNombre ?? null,
             solicitudEstado: meeting.association.solicitudEstado ?? null,
-            eventoId: meeting.association.eventoId ?? null
+            eventoId: meeting.association.eventoId ?? null,
+            requiresAssistance:
+              typeof meeting.association.requiresAssistance === "boolean"
+                ? meeting.association.requiresAssistance
+                : null,
+            assistantName: meeting.association.assistantName ?? null,
+            assistantEmail: meeting.association.assistantEmail ?? null,
+            assistantStatus:
+              meeting.association.assistantStatus === "NO_APLICA" ||
+              meeting.association.assistantStatus === "ASIGNADO"
+                ? meeting.association.assistantStatus
+                : "PENDIENTE"
           }
         : {
             linked: false,
@@ -285,7 +315,11 @@ export async function loadZoomPastMeetings(input?: {
             solicitudTitulo: null,
             solicitudProgramaNombre: null,
             solicitudEstado: null,
-            eventoId: null
+            eventoId: null,
+            requiresAssistance: null,
+            assistantName: null,
+            assistantEmail: null,
+            assistantStatus: "PENDIENTE"
           }
     }))
     .sort(

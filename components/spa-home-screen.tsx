@@ -57,7 +57,8 @@ import {
   submitPastMeeting as submitPastMeetingApi,
   sendSolicitudReminder as sendSolicitudReminderApi,
   updatePastMeeting as updatePastMeetingApi,
-  enableSolicitudAsistencia as enableSolicitudAsistenciaApi
+  enableSolicitudAsistencia as enableSolicitudAsistenciaApi,
+  updateSolicitudInstanciaAsistencia as updateSolicitudInstanciaAsistenciaApi
 } from "@/src/services/solicitudesApi";
 import {
   createPrograma as createProgramaApi,
@@ -408,6 +409,7 @@ export function SpaHomeScreen() {
   const [updatingPastMeetingId, setUpdatingPastMeetingId] = useState<string | null>(null);
   const [isRegisteringUpcomingMeeting, setIsRegisteringUpcomingMeeting] = useState(false);
   const [updatingAsistenciaSolicitudId, setUpdatingAsistenciaSolicitudId] = useState<string | null>(null);
+  const [updatingAsistenciaInstanciaKey, setUpdatingAsistenciaInstanciaKey] = useState<string | null>(null);
   
   // User Profile & Auth
   const { user, setUser, googleLinked, setGoogleLinked, hasPassword, setHasPassword, isLoadingGoogleStatus, setIsLoadingGoogleStatus, isSyncingGoogleProfile, setIsSyncingGoogleProfile, isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount, isUpdatingProfile, setIsUpdatingProfile, profileForm, setProfileForm, showProfileForm, setShowProfileForm } = useUserProfile();
@@ -681,7 +683,8 @@ export function SpaHomeScreen() {
       Boolean(cancellingSerieSolicitudId) ||
       Boolean(cancellingInstanciaKey) ||
       Boolean(restoringInstanciaKey) ||
-      Boolean(updatingAsistenciaSolicitudId),
+      Boolean(updatingAsistenciaSolicitudId) ||
+      Boolean(updatingAsistenciaInstanciaKey),
     [
       loading,
       isSubmittingSolicitud,
@@ -689,7 +692,8 @@ export function SpaHomeScreen() {
       cancellingSerieSolicitudId,
       cancellingInstanciaKey,
       restoringInstanciaKey,
-      updatingAsistenciaSolicitudId
+      updatingAsistenciaSolicitudId,
+      updatingAsistenciaInstanciaKey
     ]
   );
 
@@ -700,7 +704,7 @@ export function SpaHomeScreen() {
     if (cancellingSerieSolicitudId) return "CANCEL_SERIE";
     if (cancellingInstanciaKey) return "CANCEL_INSTANCIA";
     if (restoringInstanciaKey) return "RESTORE_INSTANCIA";
-    if (updatingAsistenciaSolicitudId) return "UPDATE_ASISTENCIA";
+    if (updatingAsistenciaSolicitudId || updatingAsistenciaInstanciaKey) return "UPDATE_ASISTENCIA";
     return "GENERIC";
   }, [
     loading,
@@ -709,7 +713,8 @@ export function SpaHomeScreen() {
     cancellingSerieSolicitudId,
     cancellingInstanciaKey,
     restoringInstanciaKey,
-    updatingAsistenciaSolicitudId
+    updatingAsistenciaSolicitudId,
+    updatingAsistenciaInstanciaKey
   ]);
   const [busyMessageIndex, setBusyMessageIndex] = useState(0);
   const busyMessageSequence = useMemo(
@@ -1422,6 +1427,119 @@ export function SpaHomeScreen() {
       );
     } finally {
       setUpdatingAsistenciaSolicitudId(null);
+    }
+  }
+
+  async function updateSolicitudAssistanceForInstance(input: {
+    solicitudId: string;
+    titulo: string;
+    eventoId?: string | null;
+    startTime: string;
+    requiereAsistencia: boolean;
+  }) {
+    const instanceDateLabel = formatDateTime(input.startTime);
+    const confirmMessage = input.requiereAsistencia
+      ? `Se habilitara asistencia Zoom solo para la instancia ${instanceDateLabel} de "${input.titulo}". ¿Continuar?`
+      : `Se quitara la asistencia Zoom solo para la instancia ${instanceDateLabel} de "${input.titulo}". Si habia una persona asignada recibira correo de cancelacion. ¿Continuar?`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    const instanceKey = `${input.solicitudId}:${input.eventoId ?? input.startTime}`;
+    setMessage("");
+    setUpdatingAsistenciaInstanciaKey(instanceKey);
+
+    try {
+      const response = await updateSolicitudInstanciaAsistenciaApi({
+        solicitudId: input.solicitudId,
+        eventoId: input.eventoId ?? undefined,
+        inicioProgramadoAt: input.startTime,
+        requiereAsistencia: input.requiereAsistencia
+      });
+
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo actualizar asistencia Zoom para la instancia.");
+        return;
+      }
+
+      if (input.requiereAsistencia) {
+        if (response.alreadyEnabled) {
+          setMessage("La instancia ya tenia asistencia Zoom habilitada.");
+        } else {
+          setMessage(`Asistencia Zoom habilitada para la instancia ${instanceDateLabel}.`);
+        }
+      } else {
+        if (response.alreadyDisabled) {
+          setMessage("La instancia ya tenia asistencia Zoom deshabilitada.");
+        } else {
+          const cancelledAssignments = response.cancelledAssignments ?? 0;
+          const notifiedAssistants = response.notifiedAssistants ?? 0;
+          setMessage(
+            `Asistencia Zoom deshabilitada para la instancia ${instanceDateLabel} (asignaciones canceladas: ${cancelledAssignments}, correos enviados: ${notifiedAssistants}).`
+          );
+        }
+      }
+
+      await refreshAfterSolicitudMutation();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo habilitar asistencia Zoom para la instancia."
+      );
+    } finally {
+      setUpdatingAsistenciaInstanciaKey(null);
+    }
+  }
+
+  async function disableSolicitudAssistanceForInstance(input: {
+    solicitudId: string;
+    titulo: string;
+    eventoId?: string | null;
+    startTime: string;
+  }) {
+    const instanceDateLabel = formatDateTime(input.startTime);
+    const confirmMessage =
+      `Se quitara la asistencia Zoom solo para la instancia ${instanceDateLabel} de "${input.titulo}". Si habia una persona asignada recibira correo de cancelacion. ¿Continuar?`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    const instanceKey = `${input.solicitudId}:${input.eventoId ?? input.startTime}`;
+    setMessage("");
+    setUpdatingAsistenciaInstanciaKey(instanceKey);
+
+    try {
+      const response = await disableSolicitudInstanciaAsistenciaApi({
+        solicitudId: input.solicitudId,
+        eventoId: input.eventoId ?? undefined,
+        inicioProgramadoAt: input.startTime
+      });
+
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo deshabilitar asistencia Zoom para la instancia.");
+        return;
+      }
+
+      if (response.alreadyDisabled) {
+        setMessage("La instancia ya tenia asistencia Zoom deshabilitada.");
+      } else {
+        const cancelledAssignments = response.cancelledAssignments ?? 0;
+        const notifiedAssistants = response.notifiedAssistants ?? 0;
+        setMessage(
+          `Asistencia Zoom deshabilitada para la instancia ${instanceDateLabel} (asignaciones canceladas: ${cancelledAssignments}, correos enviados: ${notifiedAssistants}).`
+        );
+      }
+
+      await refreshAfterSolicitudMutation();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo deshabilitar asistencia Zoom para la instancia."
+      );
+    } finally {
+      setUpdatingAsistenciaInstanciaKey(null);
     }
   }
 
@@ -2519,7 +2637,9 @@ export function SpaHomeScreen() {
           onSendReminder={sendSolicitudReminder}
           canEditAssistance={canEditSolicitudAssistance}
           updatingAssistanceSolicitudId={updatingAsistenciaSolicitudId}
+          updatingAssistanceInstanceKey={updatingAsistenciaInstanciaKey}
           onEnableAssistance={enableSolicitudAssistance}
+          onToggleAssistanceForInstance={updateSolicitudAssistanceForInstance}
           canDeleteSolicitud={canCreateSolicitudShortcut}
           canRestoreInstances={canEditSolicitudAssistance}
           isSubmittingSolicitud={isSubmittingSolicitud}

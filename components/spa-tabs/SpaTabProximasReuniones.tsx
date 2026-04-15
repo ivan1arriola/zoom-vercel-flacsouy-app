@@ -30,8 +30,11 @@ import {
   formatDurationHoursMinutes,
   formatZoomDateTime,
   getZoomAccountColor,
-  buildZoomAccountColorMap
+  buildZoomAccountColorMap,
+  normalizeZoomMeetingId
 } from "@/components/spa-tabs/spa-tabs-utils";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
+import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 
 type ZoomGroupingMode = "WEEK" | "MONTH";
 type ZoomViewMode = "CALENDAR" | "RECURRENTES";
@@ -304,6 +307,15 @@ export function SpaTabProximasReuniones({
     () => buildRecurringSeries(meetings, enablePastMeetingDetails),
     [meetings, enablePastMeetingDetails]
   );
+  const recurrenceCountByMeetingId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const meeting of meetings) {
+      const meetingId = normalizeZoomMeetingId(meeting.meetingId);
+      if (!meetingId) continue;
+      map.set(meetingId, (map.get(meetingId) ?? 0) + 1);
+    }
+    return map;
+  }, [meetings]);
   const visibleMeetings = useMemo(
     () =>
       viewMode === "CALENDAR"
@@ -458,6 +470,13 @@ export function SpaTabProximasReuniones({
       ? Boolean(expandedDetailsByMeeting[meetingKey])
       : defaultDetailsExpanded;
     const accountColor = accountColorMap.get(accountKey) ?? getZoomAccountColor(accountKey);
+    const meetingId = normalizeZoomMeetingId(meeting.meetingId) ?? "-";
+    const recurringCount = meetingId === "-" ? 1 : recurrenceCountByMeetingId.get(meetingId) ?? 1;
+    const hostAccount = meeting.accountEmail?.trim() || meeting.accountName?.trim() || null;
+    const assistantStatus = meeting.association.assistantStatus;
+    const requiresAssistance = assistantStatus !== "NO_APLICA";
+    const assistantName = assistantStatus === "ASIGNADO" ? meeting.association.assistantName : null;
+    const assistantEmail = assistantStatus === "ASIGNADO" ? meeting.association.assistantEmail : null;
 
     return (
       <Paper
@@ -494,6 +513,17 @@ export function SpaTabProximasReuniones({
                 size="small"
                 color={meeting.meetingKind === "RECURRENTE" ? "primary" : "default"}
                 label={meeting.meetingKind === "RECURRENTE" ? "Recurrente" : "Unica"}
+              />
+              <Chip size="small" variant="outlined" label={`ID ${meetingId}`} />
+              <Chip
+                size="small"
+                color={recurringCount > 1 ? "primary" : "default"}
+                variant="outlined"
+                label={
+                  recurringCount > 1
+                    ? `${recurringCount} reuniones`
+                    : "1 reunion"
+                }
               />
               {meeting.hasAccountOverlap ? (
                 <Chip size="small" color="error" label={`Se pisa (${meeting.accountOverlapCount})`} />
@@ -583,11 +613,44 @@ export function SpaTabProximasReuniones({
             </Typography>
             <Typography variant="body2">{meeting.status || "-"}</Typography>
           </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              ID de reunion
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+              {meetingId}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Cantidad de reuniones
+            </Typography>
+            <Typography variant="body2">
+              {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Asistente por reunion
+            </Typography>
+            <MeetingAssistantStatusChip
+              requiresAssistance={requiresAssistance}
+              assistantName={assistantName}
+              assistantEmail={assistantEmail}
+              pendingLabel={meeting.association.linked ? "Pendiente" : "Pendiente de asociacion"}
+            />
+          </Box>
           <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
             <Typography variant="caption" color="text.secondary">
               Asociacion en sistema
             </Typography>
             <Box sx={{ mt: 0.4 }}>{renderAssociation(meeting)}</Box>
+          </Box>
+          <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
+            <ZoomAccountPasswordField
+              hostAccount={hostAccount}
+              label="Contrasena cuenta streaming"
+            />
           </Box>
         </Box>
 

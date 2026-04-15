@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -17,6 +17,8 @@ import {
 } from "@mui/material";
 import { formatDateTime } from "@/src/lib/spa-home/recurrence";
 import type { PastMeeting } from "@/src/services/solicitudesApi";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
+import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 
 interface PastMeetingForm {
   titulo: string;
@@ -83,6 +85,15 @@ export function SpaTabHistorico({
     monitorEmail: ""
   });
   const isZoomSeedMode = Boolean(zoomSeed);
+  const recurrenceCountByMeetingId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const meeting of pastMeetings) {
+      const meetingId = (meeting.zoomMeetingId ?? "").trim();
+      if (!meetingId) continue;
+      map.set(meetingId, (map.get(meetingId) ?? 0) + 1);
+    }
+    return map;
+  }, [pastMeetings]);
 
   useEffect(() => {
     if (zoomSeed) {
@@ -148,6 +159,12 @@ export function SpaTabHistorico({
                 {pastMeetings.map((meeting) => {
                   const isEditing = editingMeetingId === meeting.id;
                   const isUpdating = updatingPastMeetingId === meeting.id;
+                  const recurringCount = recurrenceCountByMeetingId.get(meeting.zoomMeetingId) ?? 1;
+                  const hostAccount =
+                    meeting.zoomHostAccount?.trim() ||
+                    meeting.zoomAccountEmail?.trim() ||
+                    meeting.zoomAccountName?.trim() ||
+                    null;
 
                   return (
                     <Paper key={meeting.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
@@ -164,6 +181,16 @@ export function SpaTabHistorico({
                           <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                             <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
                             <Chip size="small" variant="outlined" label={`${meeting.minutosReales} min`} />
+                            <Chip
+                              size="small"
+                              color={recurringCount > 1 ? "primary" : "default"}
+                              variant="outlined"
+                              label={
+                                recurringCount > 1
+                                  ? `${recurringCount} reuniones`
+                                  : "Reunion unica"
+                              }
+                            />
                           </Stack>
                         </Box>
                         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
@@ -234,9 +261,29 @@ export function SpaTabHistorico({
                         </Box>
                         <Box>
                           <Typography variant="caption" color="text.secondary">
-                            Monitoreo
+                            Asistente por reunion
                           </Typography>
-                          <Typography variant="body2">{meeting.monitorNombre || meeting.monitorEmail || "-"}</Typography>
+                          <MeetingAssistantStatusChip
+                            requiresAssistance
+                            assistantName={meeting.monitorNombre}
+                            assistantEmail={meeting.monitorEmail}
+                            pendingLabel="Pendiente"
+                            noAssistanceLabel="No aplica"
+                          />
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Cuenta streaming asociada
+                          </Typography>
+                          <Typography variant="body2">{hostAccount || "-"}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Cantidad de reuniones
+                          </Typography>
+                          <Typography variant="body2">
+                            {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
+                          </Typography>
                         </Box>
                         <Box>
                           <Typography variant="caption" color="text.secondary">
@@ -249,6 +296,12 @@ export function SpaTabHistorico({
                             Fin
                           </Typography>
                           <Typography variant="body2">{formatDateTime(meeting.finAt)}</Typography>
+                        </Box>
+                        <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
+                          <ZoomAccountPasswordField
+                            hostAccount={hostAccount}
+                            label="Contrasena cuenta streaming"
+                          />
                         </Box>
                       </Box>
 

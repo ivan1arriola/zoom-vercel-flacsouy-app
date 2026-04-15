@@ -22,6 +22,8 @@ import {
   buildZoomAccountColorMap
 } from "./spa-tabs-utils";
 import type { ZoomAccount } from "@/src/services/zoomApi";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
+import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 
 interface SpaTabCuentasProps {
   zoomAccounts: ZoomAccount[];
@@ -150,6 +152,12 @@ export function SpaTabCuentas({
                         ) : null}
                       </Stack>
                     </Stack>
+                    <Box sx={{ mt: 1 }}>
+                      <ZoomAccountPasswordField
+                        hostAccount={account.email}
+                        label="Contrasena cuenta streaming"
+                      />
+                    </Box>
 
                     <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                       <Box sx={{ mt: 1.2 }}>
@@ -203,6 +211,11 @@ export function SpaTabCuentas({
                                       <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                                         <Chip size="small" variant="outlined" label={formatZoomDateTime(event.startTime)} />
                                         <Chip size="small" variant="outlined" label={formatDurationHoursMinutes(event.durationMinutes)} />
+                                        <Chip
+                                          size="small"
+                                          variant="outlined"
+                                          label={`ID ${event.meetingId || "-"}`}
+                                        />
                                         {recurringSeriesId ? (
                                           <Chip
                                             size="small"
@@ -234,6 +247,46 @@ export function SpaTabCuentas({
                                       </Button>
                                     ) : null}
                                   </Stack>
+                                  <Box
+                                    sx={{
+                                      mt: 1,
+                                      display: "grid",
+                                      gridTemplateColumns: {
+                                        xs: "1fr",
+                                        md: "repeat(3, minmax(0, 1fr))"
+                                      },
+                                      gap: 1
+                                    }}
+                                  >
+                                    <Box>
+                                      <Typography variant="caption" color="text.secondary">
+                                        ID de reunion
+                                      </Typography>
+                                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                                        {event.meetingId || "-"}
+                                      </Typography>
+                                    </Box>
+                                    <Box>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Cantidad de reuniones
+                                      </Typography>
+                                      <Typography variant="body2">
+                                        {recurringSeriesInstances > 0 ? recurringSeriesInstances : 1}{" "}
+                                        {(recurringSeriesInstances > 0 ? recurringSeriesInstances : 1) === 1
+                                          ? "instancia"
+                                          : "instancias"}
+                                      </Typography>
+                                    </Box>
+                                    <Box>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Asistente por reunion
+                                      </Typography>
+                                      <MeetingAssistantStatusChip
+                                        requiresAssistance
+                                        pendingLabel="Pendiente de asociacion"
+                                      />
+                                    </Box>
+                                  </Box>
                                 </Paper>
                               );
                             })}

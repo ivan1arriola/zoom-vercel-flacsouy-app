@@ -32,13 +32,14 @@ import type { DashboardSummary } from "@/src/services/dashboardApi";
 import {
   downloadMonthlyAccountingReport,
   loadPersonHours,
-  loadZoomAccountPassword,
   loadTarifas,
   type PersonHoursMeeting,
   type PersonHoursPerson,
   type Tarifa
 } from "@/src/services/tarifasApi";
 import type { AgendaEvent } from "@/src/services/agendaApi";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
+import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 
 type DashboardRole = "ADMINISTRADOR" | "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA";
 type DashboardMetricKey = Exclude<keyof DashboardSummary, "scope">;
@@ -650,9 +651,6 @@ export function SpaTabDashboard({
   const [assistantUpcomingMeetings, setAssistantUpcomingMeetings] = useState<PersonHoursMeeting[]>([]);
   const [isLoadingAssistantPanel, setIsLoadingAssistantPanel] = useState(false);
   const [assistantPanelError, setAssistantPanelError] = useState("");
-  const [nextMeetingPassword, setNextMeetingPassword] = useState<string | null>(null);
-  const [nextMeetingPasswordError, setNextMeetingPasswordError] = useState("");
-  const [isLoadingNextMeetingPassword, setIsLoadingNextMeetingPassword] = useState(false);
   const [assistantNowMs, setAssistantNowMs] = useState(() => Date.now());
   const [copyLinkFeedback, setCopyLinkFeedback] = useState("");
 
@@ -758,43 +756,21 @@ export function SpaTabDashboard({
   const nextMeetingId = nextMeeting ? resolveMeetingId(nextMeeting) : null;
   const nextMeetingJoinUrl = nextMeeting ? resolveMeetingJoinUrl(nextMeeting) : null;
   const nextMeetingAccount = nextMeeting ? resolveMeetingAccount(nextMeeting) : null;
+  const recurrenceCountByMeetingId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const meeting of assistantUpcomingMeetings) {
+      const meetingId = resolveMeetingId(meeting);
+      if (!meetingId) continue;
+      map.set(meetingId, (map.get(meetingId) ?? 0) + 1);
+    }
+    return map;
+  }, [assistantUpcomingMeetings]);
+  const nextMeetingRecurrenceCount = nextMeetingId
+    ? recurrenceCountByMeetingId.get(nextMeetingId) ?? 1
+    : 1;
   const nextMeetingCountdown = nextMeeting
     ? formatTimeUntil(nextMeeting.inicioProgramadoAt, assistantNowMs)
     : "Sin proximas reuniones";
-
-  useEffect(() => {
-    if (!isAssistantRole) return;
-
-    if (!nextMeeting || !nextMeetingAccount) {
-      setNextMeetingPassword(null);
-      setNextMeetingPasswordError("");
-      setIsLoadingNextMeetingPassword(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsLoadingNextMeetingPassword(true);
-    setNextMeetingPassword(null);
-    setNextMeetingPasswordError("");
-
-    (async () => {
-      const payload = await loadZoomAccountPassword(nextMeetingAccount);
-      if (cancelled) return;
-
-      if (payload.success && payload.password) {
-        setNextMeetingPassword(payload.password);
-        setNextMeetingPasswordError("");
-      } else {
-        setNextMeetingPassword(null);
-        setNextMeetingPasswordError(payload.error ?? "No se pudo obtener la clave de la cuenta.");
-      }
-      setIsLoadingNextMeetingPassword(false);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAssistantRole, nextMeeting?.assignmentId, nextMeetingAccount]);
 
   async function copyNextMeetingLink() {
     if (!nextMeetingJoinUrl) return;
@@ -1501,6 +1477,24 @@ export function SpaTabDashboard({
                     </Typography>
                     <Typography variant="body2">{nextMeetingAccount || "-"}</Typography>
                   </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Cantidad de reuniones
+                    </Typography>
+                    <Typography variant="body2">
+                      {nextMeetingRecurrenceCount} {nextMeetingRecurrenceCount === 1 ? "instancia" : "instancias"}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Asistente por reunion
+                    </Typography>
+                    <MeetingAssistantStatusChip
+                      requiresAssistance
+                      assistantName="Tu asistencia"
+                      pendingLabel="Pendiente"
+                    />
+                  </Box>
                   <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
                     <Typography variant="caption" color="text.secondary">
                       Link de acceso
@@ -1515,14 +1509,10 @@ export function SpaTabDashboard({
                     ) : null}
                   </Box>
                   <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Clave de la cuenta Zoom
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                      {isLoadingNextMeetingPassword
-                        ? "Cargando..."
-                        : nextMeetingPassword || nextMeetingPasswordError || "No disponible"}
-                    </Typography>
+                    <ZoomAccountPasswordField
+                      hostAccount={nextMeetingAccount}
+                      label="Contrasena cuenta streaming"
+                    />
                   </Box>
                 </Box>
               </Box>

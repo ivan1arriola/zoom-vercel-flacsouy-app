@@ -4528,6 +4528,431 @@ export class SalasService {
     };
   }
 
+  async updateSolicitudInstanceAssistance(
+    user: SessionUser,
+    solicitudId: string,
+    input: {
+      eventoId?: string;
+      inicioProgramadoAt?: string;
+      motivo?: string | null;
+      requiereAsistencia: boolean;
+    }
+  ) {
+    const canManageAsAdmin = user.role === UserRole.ADMINISTRADOR;
+    const canManageAsDocente = user.role === UserRole.DOCENTE;
+    if (!canManageAsAdmin && !canManageAsDocente) {
+      throw new Error("Solo docentes y administracion pueden editar asistencia Zoom en solicitudes.");
+    }
+
+    const solicitud = await db.solicitudSala.findUnique({
+      where: { id: solicitudId },
+      select: {
+        id: true,
+        titulo: true,
+        modalidadReunion: true,
+        programaNombre: true,
+        responsableNombre: true,
+        timezone: true,
+        createdByUserId: true,
+        estadoSolicitud: true,
+        requiereAsistencia: true,
+        motivoAsistencia: true,
+        docente: {
+          select: {
+            usuarioId: true
+          }
+        },
+        eventos: {
+          orderBy: { inicioProgramadoAt: "asc" },
+          select: {
+            id: true,
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            estadoEvento: true,
+            requiereAsistencia: true,
+            estadoCobertura: true,
+            agendaAbiertaAt: true,
+            agendaCierraAt: true,
+            asignaciones: {
+              where: {
+                tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+                estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+              },
+              select: {
+                id: true,
+                asistente: {
+                  select: {
+                    usuario: {
+                      select: {
+                        email: true,
+                        name: true,
+                        firstName: true,
+                        lastName: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!solicitud) {
+      throw new Error("Solicitud no encontrada.");
+    }
+
+    const ownsSolicitud =
+      solicitud.createdByUserId === user.id || solicitud.docente.usuarioId === user.id;
+    if (!canManageAsAdmin && !ownsSolicitud) {
+      throw new Error("No tienes permisos para editar asistencia en esta solicitud.");
+    }
+
+    if (
+      solicitud.estadoSolicitud === EstadoSolicitudSala.CANCELADA_ADMIN ||
+      solicitud.estadoSolicitud === EstadoSolicitudSala.CANCELADA_DOCENTE
+    ) {
+      throw new Error("No se puede editar asistencia en una solicitud cancelada.");
+    }
+
+    const targetById = input.eventoId
+      ? solicitud.eventos.find((event) => event.id === input.eventoId)
+      : null;
+    const targetStartMs = input.inicioProgramadoAt ? new Date(input.inicioProgramadoAt).getTime() : NaN;
+    const targetByStart = !targetById && Number.isFinite(targetStartMs)
+      ? solicitud.eventos.find(
+          (event) => Math.abs(event.inicioProgramadoAt.getTime() - targetStartMs) <= 60_000
+        )
+      : null;
+    const targetEvent = targetById ?? targetByStart ?? null;
+
+    if (!targetEvent) {
+      throw new Error(
+        input.requiereAsistencia
+          ? "No se encontro la instancia para habilitar asistencia."
+          : "No se encontro la instancia para deshabilitar asistencia."
+      );
+    }
+
+    if (targetEvent.estadoEvento === EstadoEventoZoom.CANCELADO) {
+      throw new Error(
+        input.requiereAsistencia
+          ? "No se puede habilitar asistencia en una instancia cancelada."
+          : "No se puede deshabilitar asistencia en una instancia cancelada."
+      );
+    }
+    if (targetEvent.estadoEvento === EstadoEventoZoom.FINALIZADO) {
+      throw new Error(
+        input.requiereAsistencia
+          ? "No se puede habilitar asistencia en una instancia finalizada."
+          : "No se puede deshabilitar asistencia en una instancia finalizada."
+      );
+    }
+
+    const now = new Date();
+    if (targetEvent.finProgramadoAt <= now) {
+      throw new Error(
+        input.requiereAsistencia
+          ? "No se puede habilitar asistencia en una instancia que ya finalizo."
+          : "No se puede deshabilitar asistencia en una instancia que ya finalizo."
+      );
+    }
+
+    if (input.requiereAsistencia) {
+      const alreadyEnabled =
+        targetEvent.requiereAsistencia &&
+        targetEvent.estadoCobertura !== EstadoCoberturaSoporte.NO_REQUIERE;
+      if (alreadyEnabled) {
+        return {
+          solicitudId: solicitud.id,
+          eventoId: targetEvent.id,
+          requiereAsistencia: true,
+          updatedEvents: 0,
+          alreadyEnabled: true
+        };
+      }
+
+      const closeAtBase = new Date(targetEvent.inicioProgramadoAt.getTime() - 24 * 60 * 60000);
+      const minCloseAt = new Date(now.getTime() + 30 * 60 * 1000);
+      const defaultAgendaCierraAt = closeAtBase > minCloseAt ? closeAtBase : minCloseAt;
+      const resolvedAgendaCierraAt =
+        targetEvent.agendaCierraAt && targetEvent.agendaCierraAt > now
+          ? targetEvent.agendaCierraAt
+          : defaultAgendaCierraAt;
+
+      const motivo = (input.motivo ?? "").trim() ||
+        "Asistencia Zoom habilitada para una instancia puntual desde la pestana Solicitudes.";
+
+      await db.$transaction(async (tx) => {
+        await tx.eventoZoom.update({
+          where: { id: targetEvent.id },
+          data: {
+            requiereAsistencia: true,
+            estadoCobertura:
+              targetEvent.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE
+                ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+                : targetEvent.estadoCobertura,
+            agendaAbiertaAt: targetEvent.agendaAbiertaAt ?? now,
+            agendaCierraAt: resolvedAgendaCierraAt
+          }
+        });
+
+        if (!solicitud.requiereAsistencia) {
+          await tx.solicitudSala.update({
+            where: { id: solicitud.id },
+            data: {
+              requiereAsistencia: true,
+              motivoAsistencia: solicitud.motivoAsistencia?.trim() ? solicitud.motivoAsistencia : motivo
+            }
+          });
+        }
+
+        await tx.auditoria.create({
+          data: {
+            actorUsuarioId: user.id,
+            accion: "SOLICITUD_HABILITA_ASISTENCIA_INSTANCIA",
+            entidadTipo: "EventoZoom",
+            entidadId: targetEvent.id,
+            valorAnterior: {
+              solicitudRequiereAsistencia: solicitud.requiereAsistencia,
+              eventoRequiereAsistencia: targetEvent.requiereAsistencia,
+              eventoEstadoCobertura: targetEvent.estadoCobertura
+            },
+            valorNuevo: {
+              solicitudRequiereAsistencia: true,
+              eventoRequiereAsistencia: true,
+              eventoEstadoCobertura:
+                targetEvent.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE
+                  ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+                  : targetEvent.estadoCobertura,
+              eventoId: targetEvent.id,
+              motivo
+            }
+          }
+        });
+      });
+
+      await notifyAdminTelegramMovement({
+        action: "SOLICITUD_HABILITA_ASISTENCIA_INSTANCIA",
+        actorEmail: user.email,
+        actorRole: user.role,
+        entityType: "EventoZoom",
+        entityId: targetEvent.id,
+        summary: solicitud.titulo,
+        details: {
+          solicitudId: solicitud.id,
+          eventoId: targetEvent.id,
+          inicioProgramadoAt: targetEvent.inicioProgramadoAt.toISOString()
+        }
+      });
+
+      await sendMonitoringRequiredEmailToAssistantPool({
+        solicitudId: solicitud.id,
+        titulo: solicitud.titulo,
+        modalidad: solicitud.modalidadReunion,
+        programaNombre: solicitud.programaNombre ?? null,
+        responsableNombre: solicitud.responsableNombre ?? null,
+        timezone: solicitud.timezone || "America/Montevideo",
+        instanceStarts: [targetEvent.inicioProgramadoAt],
+        estadoSolicitud: solicitud.estadoSolicitud
+      }).catch((error) => {
+        logger.warn("No se pudo enviar correo al pool de asistentes Zoom (instancia puntual).", {
+          solicitudId: solicitud.id,
+          eventoId: targetEvent.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+
+      return {
+        solicitudId: solicitud.id,
+        eventoId: targetEvent.id,
+        requiereAsistencia: true,
+        updatedEvents: 1,
+        alreadyEnabled: false
+      };
+    }
+    const alreadyDisabled =
+      !targetEvent.requiereAsistencia &&
+      targetEvent.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE &&
+      targetEvent.asignaciones.length === 0 &&
+      !targetEvent.agendaAbiertaAt &&
+      !targetEvent.agendaCierraAt;
+    if (alreadyDisabled) {
+      return {
+        solicitudId: solicitud.id,
+        eventoId: targetEvent.id,
+        requiereAsistencia: false,
+        updatedEvents: 0,
+        cancelledAssignments: 0,
+        notifiedAssistants: 0,
+        alreadyDisabled: true
+      };
+    }
+
+    const motivo = (input.motivo ?? "").trim() ||
+      "Asistencia Zoom deshabilitada para una instancia puntual desde la pestana Solicitudes.";
+
+    const recipientsByEmail = new Map<string, AssistanceCancellationRecipient>();
+    for (const assignment of targetEvent.asignaciones) {
+      const monitor = assignment.asistente.usuario;
+      const monitorEmail = (monitor.email ?? "").trim().toLowerCase();
+      if (!EMAIL_LINE_REGEX.test(monitorEmail)) continue;
+
+      if (!recipientsByEmail.has(monitorEmail)) {
+        recipientsByEmail.set(monitorEmail, {
+          email: monitorEmail,
+          nombre: getUserDisplayName(monitor),
+          instancias: []
+        });
+      }
+
+      recipientsByEmail.get(monitorEmail)?.instancias.push({
+        inicio: targetEvent.inicioProgramadoAt,
+        fin: targetEvent.finProgramadoAt
+      });
+    }
+
+    const result = await db.$transaction(async (tx) => {
+      await tx.eventoZoom.update({
+        where: { id: targetEvent.id },
+        data: {
+          requiereAsistencia: false,
+          estadoCobertura: EstadoCoberturaSoporte.NO_REQUIERE,
+          agendaAbiertaAt: null,
+          agendaCierraAt: null
+        }
+      });
+
+      const assignmentsResult = await tx.asignacionAsistente.updateMany({
+        where: {
+          eventoZoomId: targetEvent.id,
+          estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+        },
+        data: {
+          estadoAsignacion: EstadoAsignacion.CANCELADO
+        }
+      });
+
+      const remainingAssistanceInstances = await tx.eventoZoom.count({
+        where: {
+          solicitudSalaId: solicitud.id,
+          id: { not: targetEvent.id },
+          finProgramadoAt: { gt: now },
+          estadoEvento: { notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO] },
+          requiereAsistencia: true,
+          estadoCobertura: { not: EstadoCoberturaSoporte.NO_REQUIERE }
+        }
+      });
+
+      let solicitudRequiereAsistencia = true;
+      if (remainingAssistanceInstances === 0) {
+        await tx.solicitudSala.update({
+          where: { id: solicitud.id },
+          data: {
+            requiereAsistencia: false,
+            motivoAsistencia: null
+          }
+        });
+        solicitudRequiereAsistencia = false;
+      }
+
+      await tx.auditoria.create({
+        data: {
+          actorUsuarioId: user.id,
+          accion: "SOLICITUD_DESHABILITA_ASISTENCIA_INSTANCIA",
+          entidadTipo: "EventoZoom",
+          entidadId: targetEvent.id,
+          valorAnterior: {
+            solicitudRequiereAsistencia: solicitud.requiereAsistencia,
+            eventoRequiereAsistencia: targetEvent.requiereAsistencia,
+            eventoEstadoCobertura: targetEvent.estadoCobertura
+          },
+          valorNuevo: {
+            solicitudRequiereAsistencia,
+            eventoRequiereAsistencia: false,
+            eventoEstadoCobertura: EstadoCoberturaSoporte.NO_REQUIERE,
+            eventoId: targetEvent.id,
+            cancelledAssignments: assignmentsResult.count,
+            motivo
+          }
+        }
+      });
+
+      return {
+        cancelledAssignments: assignmentsResult.count,
+        solicitudRequiereAsistencia
+      };
+    });
+
+    await notifyAdminTelegramMovement({
+      action: "SOLICITUD_DESHABILITA_ASISTENCIA_INSTANCIA",
+      actorEmail: user.email,
+      actorRole: user.role,
+      entityType: "EventoZoom",
+      entityId: targetEvent.id,
+      summary: solicitud.titulo,
+      details: {
+        solicitudId: solicitud.id,
+        eventoId: targetEvent.id,
+        cancelledAssignments: result.cancelledAssignments,
+        solicitudRequiereAsistencia: result.solicitudRequiereAsistencia
+      }
+    });
+
+    const notifiedAssistants = await sendAssistanceCancelledEmails({
+      solicitudId: solicitud.id,
+      titulo: solicitud.titulo,
+      programaNombre: solicitud.programaNombre ?? null,
+      responsableNombre: solicitud.responsableNombre ?? null,
+      timezone: solicitud.timezone || "America/Montevideo",
+      actorNombre: getUserDisplayName(user),
+      actorEmail: user.email,
+      motivo,
+      recipients: Array.from(recipientsByEmail.values())
+    });
+
+    return {
+      solicitudId: solicitud.id,
+      eventoId: targetEvent.id,
+      requiereAsistencia: result.solicitudRequiereAsistencia,
+      updatedEvents: 1,
+      cancelledAssignments: result.cancelledAssignments,
+      notifiedAssistants,
+      alreadyDisabled: false
+    };
+  }
+
+  async enableSolicitudInstanceAssistance(
+    user: SessionUser,
+    solicitudId: string,
+    input: {
+      eventoId?: string;
+      inicioProgramadoAt?: string;
+      motivo?: string | null;
+    }
+  ) {
+    return this.updateSolicitudInstanceAssistance(user, solicitudId, {
+      ...input,
+      requiereAsistencia: true
+    });
+  }
+
+  async disableSolicitudInstanceAssistance(
+    user: SessionUser,
+    solicitudId: string,
+    input: {
+      eventoId?: string;
+      inicioProgramadoAt?: string;
+      motivo?: string | null;
+    }
+  ) {
+    return this.updateSolicitudInstanceAssistance(user, solicitudId, {
+      ...input,
+      requiereAsistencia: false
+    });
+  }
+
   async enableSolicitudAssistance(
     user: SessionUser,
     solicitudId: string,
@@ -4751,6 +5176,12 @@ export class SalasService {
       },
       orderBy: [{ finRealAt: "desc" }, { finProgramadoAt: "desc" }],
       include: {
+        cuentaZoom: {
+          select: {
+            ownerEmail: true,
+            nombreCuenta: true
+          }
+        },
         solicitud: {
           select: {
             id: true,
@@ -4825,6 +5256,12 @@ export class SalasService {
           modalidadReunion: event.modalidadReunion,
           zoomMeetingId: meetingId,
           zoomJoinUrl: event.zoomJoinUrl ?? buildZoomJoinUrlFromMeetingId(meetingId),
+          zoomHostAccount: pickZoomHostAccountLabel(
+            event.cuentaZoom?.ownerEmail,
+            event.cuentaZoom?.nombreCuenta
+          ),
+          zoomAccountEmail: event.cuentaZoom?.ownerEmail ?? null,
+          zoomAccountName: event.cuentaZoom?.nombreCuenta ?? null,
           inicioAt: start.toISOString(),
           finAt: end.toISOString(),
           minutosReales: minutes,

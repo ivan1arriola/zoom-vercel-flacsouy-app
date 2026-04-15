@@ -19,12 +19,15 @@ import {
   isMeetingStartingSoon,
   getPreparacionDisplay,
   getEncargado,
+  normalizeZoomMeetingId,
   resolveZoomJoinUrl,
   formatZoomDate,
   formatZoomTime,
   formatDurationHuman
 } from "./spa-tabs-utils";
 import type { AgendaEvent } from "@/src/services/agendaApi";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
+import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 
 interface SpaTabAgendaLibreProps {
   agendaLibre: AgendaEvent[];
@@ -65,6 +68,26 @@ function formatInterestAnsweredAt(value?: string | null): string | null {
   }).format(date);
 }
 
+function resolveRecurringCount(item: AgendaEvent): number | null {
+  const recurrence = item.solicitud.patronRecurrencia;
+  if (!recurrence || typeof recurrence !== "object") return null;
+  const totalInstancias = recurrence["totalInstancias"];
+  if (typeof totalInstancias !== "number" || !Number.isFinite(totalInstancias)) return null;
+  const normalized = Math.max(0, Math.floor(totalInstancias));
+  return normalized > 1 ? normalized : null;
+}
+
+function resolveAssignedAssistantLabel(item: AgendaEvent): string {
+  const assigned = item.asignaciones?.[0]?.asistente?.usuario;
+  if (!assigned) return "";
+  return (
+    assigned.name ||
+    [assigned.firstName, assigned.lastName].filter(Boolean).join(" ").trim() ||
+    assigned.email ||
+    ""
+  );
+}
+
 export function SpaTabAgendaLibre({
   agendaLibre,
   updatingInterestId,
@@ -91,10 +114,17 @@ export function SpaTabAgendaLibre({
           <Stack spacing={1.2}>
             {agendaLibre.map((item) => {
               const joinUrl = resolveZoomJoinUrl(item.zoomJoinUrl, item.zoomMeetingId);
+              const meetingId = normalizeZoomMeetingId(item.zoomMeetingId) ?? "-";
               const currentInterest = resolveInterestState(item.intereses[0]?.estadoInteres);
               const interestChip = mapInterestChip(currentInterest);
               const startsSoon = isMeetingStartingSoon(item.inicioProgramadoAt);
               const answeredAt = formatInterestAnsweredAt(item.intereses[0]?.fechaRespuestaAt);
+              const recurringCount = resolveRecurringCount(item);
+              const hostAccount =
+                item.cuentaZoom?.ownerEmail?.trim() ||
+                item.cuentaZoom?.nombreCuenta?.trim() ||
+                null;
+              const assignedPersonLabel = resolveAssignedAssistantLabel(item);
 
               return (
                 <Paper
@@ -121,6 +151,11 @@ export function SpaTabAgendaLibre({
                       <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                         <Chip size="small" variant="outlined" label={formatModalidad(item.solicitud.modalidadReunion)} />
                         <Chip size="small" color={interestChip.color} icon={interestChip.icon} label={interestChip.label} />
+                        {recurringCount ? (
+                          <Chip size="small" color="primary" variant="outlined" label={`${recurringCount} reuniones`} />
+                        ) : (
+                          <Chip size="small" variant="outlined" label="Reunion unica" />
+                        )}
                         {startsSoon ? <Chip size="small" color="warning" label="Comienza en menos de 24h" /> : null}
                       </Stack>
                       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.6, display: "block" }}>
@@ -188,9 +223,27 @@ export function SpaTabAgendaLibre({
                     </Box>
                     <Box>
                       <Typography variant="caption" color="text.secondary">
-                        Cuenta Zoom
+                        Cuenta streaming asociada
                       </Typography>
                       <Typography variant="body2">{item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || "-"}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        ID de reunion
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                        {meetingId}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Asistente por reunion
+                      </Typography>
+                      <MeetingAssistantStatusChip
+                        requiresAssistance
+                        assistantName={assignedPersonLabel}
+                        pendingLabel="Pendiente"
+                      />
                     </Box>
                     <Box>
                       <Typography variant="caption" color="text.secondary">
@@ -203,6 +256,12 @@ export function SpaTabAgendaLibre({
                         Encargado
                       </Typography>
                       <Typography variant="body2">{getEncargado(item) || item.solicitud.responsableNombre || "-"}</Typography>
+                    </Box>
+                    <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
+                      <ZoomAccountPasswordField
+                        hostAccount={hostAccount}
+                        label="Contrasena cuenta streaming"
+                      />
                     </Box>
                   </Box>
                 </Paper>

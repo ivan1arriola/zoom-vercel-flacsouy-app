@@ -16,6 +16,8 @@ import {
   Typography
 } from "@mui/material";
 import { loadPersonHours, type PersonHoursMeeting } from "@/src/services/tarifasApi";
+import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
+import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 
 interface SpaTabMisAsistenciasProps {
   userId: string;
@@ -120,6 +122,21 @@ function getMeetingKey(meeting: PersonHoursMeeting): string {
   return `${meeting.assignmentId}:${meeting.eventId}:${meeting.inicioAt}`;
 }
 
+function normalizeZoomMeetingId(value?: string | null): string | null {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  return /^\d{9,13}$/.test(digits) ? digits : null;
+}
+
+function resolveHostAccountLabel(meeting: PersonHoursMeeting): string | null {
+  const candidates = [meeting.zoomHostAccount, meeting.zoomAccountEmail, meeting.zoomAccountName];
+  for (const candidate of candidates) {
+    const normalized = (candidate ?? "").trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
   const [meetings, setMeetings] = useState<PersonHoursMeeting[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -174,6 +191,15 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
     () => monthlyGroups.flatMap((group) => group.meetings),
     [monthlyGroups]
   );
+  const recurrenceCountByMeetingId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const meeting of meetingsOrdered) {
+      const meetingId = normalizeZoomMeetingId(meeting.zoomMeetingId);
+      if (!meetingId) continue;
+      map.set(meetingId, (map.get(meetingId) ?? 0) + 1);
+    }
+    return map;
+  }, [meetingsOrdered]);
 
   const totalMinutesVirtual = useMemo(
     () =>
@@ -378,9 +404,17 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
                   <Divider textAlign="left">
                     <Chip size="small" variant="outlined" label={formatMonthKey(group.monthKey)} />
                   </Divider>
-                  {group.meetings.map((meeting) => (
-                    <Card key={getMeetingKey(meeting)} variant="outlined" sx={{ borderRadius: 2 }}>
-                      <CardContent sx={{ p: 1.5 }}>
+                  {group.meetings.map((meeting) => {
+                    const meetingId = normalizeZoomMeetingId(meeting.zoomMeetingId) ?? "-";
+                    const recurringCount = meetingId === "-"
+                      ? 1
+                      : recurrenceCountByMeetingId.get(meetingId) ?? 1;
+                    const hostAccount = resolveHostAccountLabel(meeting);
+                    const hasAssignedAssistant = ["ASIGNADO", "ACEPTADO"].includes(meeting.estadoAsignacion);
+
+                    return (
+                      <Card key={getMeetingKey(meeting)} variant="outlined" sx={{ borderRadius: 2 }}>
+                        <CardContent sx={{ p: 1.5 }}>
                         <Stack
                           direction={{ xs: "column", md: "row" }}
                           spacing={1}
@@ -399,6 +433,16 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
                             <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
                             <Chip size="small" variant="outlined" label={`Liquidable ${meeting.minutos} min`} />
                             <Chip size="small" variant="outlined" label={`Planificada ${meeting.minutosProgramados} min`} />
+                            <Chip
+                              size="small"
+                              color={recurringCount > 1 ? "primary" : "default"}
+                              variant="outlined"
+                              label={
+                                recurringCount > 1
+                                  ? `${recurringCount} reuniones`
+                                  : "Reunion unica"
+                              }
+                            />
                             {meeting.minutosReales !== null ? (
                               <Chip size="small" variant="outlined" label={`Real ${meeting.minutosReales} min`} />
                             ) : null}
@@ -459,7 +503,31 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
                           <Box>
                             <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
                             <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                              {meeting.zoomMeetingId || "-"}
+                              {meetingId}
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Cuenta streaming asociada
+                            </Typography>
+                            <Typography variant="body2">{hostAccount || "-"}</Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Asistente por reunion
+                            </Typography>
+                            <MeetingAssistantStatusChip
+                              requiresAssistance
+                              assistantName={hasAssignedAssistant ? "Tu asistencia" : null}
+                              pendingLabel="Pendiente"
+                            />
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Cantidad de reuniones
+                            </Typography>
+                            <Typography variant="body2">
+                              {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
                             </Typography>
                           </Box>
                           <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
@@ -471,6 +539,12 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
                                 ? `${meeting.inicioRealAt ? formatDateTime(meeting.inicioRealAt) : "-"} a ${meeting.finRealAt ? formatDateTime(meeting.finRealAt) : "-"}`
                                 : "Sin datos reales registrados."}
                             </Typography>
+                          </Box>
+                          <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
+                            <ZoomAccountPasswordField
+                              hostAccount={hostAccount}
+                              label="Contrasena cuenta streaming"
+                            />
                           </Box>
                         </Box>
 
@@ -492,9 +566,10 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
                                 ? "Grabacion solicitada, sin confirmacion automatica en sistema."
                                 : "Sin confirmacion de grabacion en sistema."}
                         </Typography>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </Stack>
               ))}
         </Stack>
