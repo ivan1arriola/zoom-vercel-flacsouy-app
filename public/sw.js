@@ -1,10 +1,11 @@
-const CACHE_NAME = "flacso-zoom-v4";
+const CACHE_NAME = "flacso-zoom-v5";
 const OFFLINE_URLS = [
   "/",
   "/manifest.webmanifest",
   "/pwa-192x192.png",
   "/pwa-512x512.png",
-  "/apple-touch-icon.png"
+  "/apple-touch-icon.png",
+  "/favicon.ico"
 ];
 
 self.addEventListener("install", (event) => {

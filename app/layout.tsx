@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import Link from "next/link";
-import { Box, Container, Stack, Typography } from "@mui/material";
+import { Box, Container } from "@mui/material";
 import { auth } from "@/auth";
+import { LayoutNavbar } from "@/components/layout-navbar";
 import { MuiProvider } from "@/components/mui-provider";
-import { UserMenu } from "@/components/user-menu";
 import { PwaRegister } from "@/components/pwa-register";
 import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
@@ -58,84 +57,16 @@ export default async function RootLayout({
           <PwaRegister />
           <Box sx={{ height: 6, background: "linear-gradient(90deg, #1f4b8f, #f9b503)" }} />
 
-          <Box
-            component="header"
+          {session?.user ? <LayoutNavbar user={session.user} /> : null}
+
+          <Container
+            maxWidth="lg"
+            component="main"
             sx={{
-              backgroundColor: "background.paper",
-              borderBottom: 1,
-              borderColor: "divider",
-              boxShadow: "0 8px 24px rgba(15, 26, 45, 0.06)"
+              pt: 0,
+              pb: 2.5
             }}
           >
-            <Container maxWidth="lg" sx={{ py: { xs: 1.1, md: 1.2 } }}>
-              <Stack
-                direction={{ xs: "column", md: "row" }}
-                spacing={{ xs: 1.2, md: 2.2 }}
-                alignItems={{ xs: "stretch", md: "center" }}
-                justifyContent="space-between"
-              >
-                <Stack direction="row" spacing={{ xs: 1.4, md: 2 }} alignItems="center" sx={{ minWidth: 0 }}>
-                  <Link href="/" style={{ display: "inline-flex" }}>
-                    <Box
-                      component="img"
-                      src="/flacso-logo.png"
-                      alt="FLACSO Uruguay"
-                      sx={{
-                        width: { xs: 170, sm: 188 },
-                        maxWidth: "44vw",
-                        height: "auto",
-                        display: "block"
-                      }}
-                    />
-                  </Link>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography
-                      component="p"
-                      sx={{
-                        fontWeight: 700,
-                        color: "primary.main",
-                        lineHeight: 1.15,
-                        fontSize: { xs: "1.1rem", sm: "1.4rem", md: "1.75rem" }
-                      }}
-                    >
-                      Herramienta para coordinar Zoom
-                    </Typography>
-                    <Typography
-                      color="text.secondary"
-                      sx={{
-                        lineHeight: 1.25,
-                        mt: 0.3,
-                        fontSize: { xs: "0.95rem", md: "1.02rem" }
-                      }}
-                    >
-                      Facultad Latinoamericana de Ciencias Sociales - Uruguay
-                    </Typography>
-                  </Box>
-                </Stack>
-                <Box
-                  sx={{
-                    ml: { md: "auto" },
-                    flexShrink: 0,
-                    width: { xs: "100%", sm: "auto" },
-                    display: "flex",
-                    justifyContent: { xs: "center", md: "flex-end" }
-                  }}
-                >
-                  {session?.user ? (
-                    <UserMenu
-                      firstName={session.user.firstName}
-                      lastName={session.user.lastName}
-                      email={session.user.email}
-                      image={session.user.image}
-                      role={session.user.role}
-                    />
-                  ) : null}
-                </Box>
-              </Stack>
-            </Container>
-          </Box>
-
-          <Container maxWidth="lg" component="main" sx={{ py: 2.5 }}>
             {children}
           </Container>
         </MuiProvider>

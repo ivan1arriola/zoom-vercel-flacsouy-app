@@ -114,7 +114,7 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
           px: 1.2,
           py: 0.7,
           width: { xs: "100%", sm: "auto" },
-          minWidth: { xs: 0, sm: 280 },
+          minWidth: { xs: 0, sm: 220, md: 280 },
           maxWidth: { xs: "100%", sm: 360 },
           justifyContent: "space-between",
           "& .MuiButton-startIcon": { mr: 1 }
