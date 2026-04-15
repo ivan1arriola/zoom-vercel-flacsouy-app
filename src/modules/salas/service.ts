@@ -24,6 +24,15 @@ import { EmailClient } from "@/src/lib/email.client";
 import { logger } from "@/src/lib/logger";
 import { notifyAdminTelegramMovement } from "@/src/lib/telegram.client";
 import { ZoomApiError, ZoomMeetingsClient } from "@/src/lib/zoom-meetings.client";
+import {
+  buildAdminInfoDigestEmailHtml,
+  buildAssignmentNotificationHtml,
+  buildAssistanceCancelledEmailHtml,
+  buildAssistantPreferenceAdminEmailHtml,
+  buildMonitoringRequiredEmailHtml,
+  buildProvisionedSolicitudEmailHtml,
+  buildSolicitudReminderEmailHtml
+} from "@/src/modules/salas/email-templates";
 import type { SessionUser } from "@/src/lib/api-auth";
 
 type InstanceDetailInput = {
@@ -640,39 +649,6 @@ function normalizeRecurrenceForTimezone(
   };
 }
 
-function formatDateTimeForEmail(date: Date, timezone: string): string {
-  try {
-    return new Intl.DateTimeFormat("es-UY", {
-      weekday: "long",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZone: timezone
-    }).format(date);
-  } catch {
-    return date.toISOString();
-  }
-}
-
-function getSolicitudStatusLabel(status: EstadoSolicitudSala | "PENDIENTE_ASISTENCIA_ZOOM"): string {
-  switch (status) {
-    case "PENDIENTE_ASISTENCIA_ZOOM":
-      return "PENDIENTE_ASISTENCIA_ZOOM";
-    case EstadoSolicitudSala.PROVISIONADA:
-      return "LISTO";
-    case EstadoSolicitudSala.PENDIENTE_RESOLUCION_MANUAL_ID:
-      return "Pendiente manual";
-    case EstadoSolicitudSala.CANCELADA_DOCENTE:
-    case EstadoSolicitudSala.CANCELADA_ADMIN:
-      return "Cancelada";
-    default:
-      return status;
-  }
-}
-
 function resolveOccurrenceEndMs(occurrence: ZoomOccurrenceSnapshot): number | null {
   const parsedEnd = occurrence.endTime ? new Date(occurrence.endTime).getTime() : Number.NaN;
   if (Number.isFinite(parsedEnd)) return parsedEnd;
@@ -738,125 +714,6 @@ function resolveSolicitudDisplayStatus(
   );
 
   return hasPendingAsistencia ? "PENDIENTE_ASISTENCIA_ZOOM" : EstadoSolicitudSala.PROVISIONADA;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-type BrandedEmailLayoutInput = {
-  preheader: string;
-  title: string;
-  greeting?: string;
-  paragraphs?: string[];
-  contentHtml?: string;
-  actionLabel?: string;
-  actionUrl?: string;
-  metaLines?: string[];
-  footerLine?: string;
-  kicker?: string;
-};
-
-function getEmailBaseUrl(): string {
-  if (env.APP_BASE_URL) return env.APP_BASE_URL;
-  return "http://localhost:3000";
-}
-
-function buildBrandedEmailLayout(input: BrandedEmailLayoutInput): string {
-  const baseUrl = getEmailBaseUrl();
-  const brandingBaseUrl = `${baseUrl.replace(/\/$/, "")}/branding`;
-  const primaryLogoUrl = `${brandingBaseUrl}/flacso-uruguay-primary-white.png`;
-  const secondaryLogoUrl = `${brandingBaseUrl}/flacso-uruguay-secondary-blue.png`;
-  const preheader = escapeHtml(input.preheader);
-  const title = escapeHtml(input.title);
-  const kicker = escapeHtml(input.kicker ?? "Plataforma Zoom de FLACSO Uruguay");
-  const greeting = (input.greeting ?? "").trim();
-  const greetingHtml = greeting
-    ? `<p style="margin:0 0 14px 0;color:#223042;font-size:16px;line-height:1.6;font-weight:700;">${escapeHtml(greeting)}</p>`
-    : "";
-  const paragraphsHtml = (input.paragraphs ?? [])
-    .map((line) => `<p style="margin:0 0 14px 0;color:#223042;font-size:16px;line-height:1.6;">${escapeHtml(line)}</p>`)
-    .join("");
-  const actionUrl = (input.actionUrl ?? "").trim();
-  const actionBlock =
-    input.actionLabel && actionUrl
-      ? `
-      <table role="presentation" cellspacing="0" cellpadding="0" style="margin:20px 0 16px 0;">
-        <tr>
-          <td align="center" style="border-radius:10px;background:#1d3a72;">
-            <a href="${escapeHtml(actionUrl)}" style="display:inline-block;padding:13px 20px;font-weight:700;font-size:15px;line-height:1.2;color:#ffffff;text-decoration:none;">${escapeHtml(input.actionLabel)}</a>
-          </td>
-        </tr>
-      </table>
-      <p style="margin:0 0 14px 0;color:#536074;font-size:13px;line-height:1.5;">Si el boton no funciona, copia y pega este enlace:<br/><a href="${escapeHtml(actionUrl)}" style="color:#1d3a72;word-break:break-all;">${escapeHtml(actionUrl)}</a></p>
-    `
-      : "";
-  const metaBlock =
-    input.metaLines && input.metaLines.length > 0
-      ? `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:8px 0 0 0;">${input.metaLines
-          .map(
-            (line) =>
-              `<tr><td style="padding:0 8px 8px 0;color:#1d3a72;font-size:14px;">•</td><td style="padding:0 0 8px 0;color:#425066;font-size:14px;line-height:1.5;">${escapeHtml(line)}</td></tr>`
-          )
-          .join("")}</table>`
-      : "";
-  const footerLine = escapeHtml(
-    input.footerLine ??
-      "Este es un mensaje automatico de FLACSO Uruguay. Si no reconoces esta accion, ignora este correo."
-  );
-  const contentHtml = input.contentHtml ?? "";
-
-  return `
-<!doctype html>
-<html lang="es">
-  <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;">
-    <div style="display:none;overflow:hidden;line-height:1px;opacity:0;max-height:0;max-width:0;">${preheader}</div>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:20px 10px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;border-collapse:collapse;">
-            <tr>
-              <td style="border-radius:14px 14px 0 0;padding:20px 24px;background:linear-gradient(135deg,#1d3a72,#254c95);">
-                <img src="${escapeHtml(primaryLogoUrl)}" alt="FLACSO Uruguay" style="height:42px;display:block;" />
-                <p style="margin:18px 0 6px 0;color:#cfd8ea;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;">${kicker}</p>
-                <h1 style="margin:0;color:#ffffff;font-size:28px;line-height:1.2;font-weight:800;">${title}</h1>
-              </td>
-            </tr>
-            <tr>
-              <td style="background:#ffffff;padding:26px 24px;border-left:1px solid #dbe3f0;border-right:1px solid #dbe3f0;">
-                ${greetingHtml}
-                ${paragraphsHtml}
-                ${contentHtml}
-                ${actionBlock}
-                ${metaBlock}
-              </td>
-            </tr>
-            <tr>
-              <td style="background:#eef3fb;padding:16px 24px;border:1px solid #dbe3f0;border-top:0;border-radius:0 0 14px 14px;">
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-                  <tr>
-                    <td style="vertical-align:middle;">
-                      <p style="margin:0;color:#5c697e;font-size:12px;line-height:1.5;">${footerLine}</p>
-                    </td>
-                    <td align="right" style="padding-left:12px;vertical-align:middle;">
-                      <img src="${escapeHtml(secondaryLogoUrl)}" alt="FLACSO Uruguay" style="height:24px;display:block;" />
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-  `.trim();
 }
 
 function extractMeetingPasswordFromJoinUrl(joinUrl?: string | null): string | null {
@@ -953,78 +810,6 @@ async function resolveMeetingPassword(input: {
   return extractMeetingPasswordFromJoinUrl(input.joinUrl);
 }
 
-function buildProvisionedSolicitudEmailHtml(input: {
-  solicitudId: string;
-  titulo: string;
-  modalidad: ModalidadReunion;
-  meetingId: string | null;
-  joinUrl: string | null;
-  meetingPassword: string | null;
-  hostAccount: string | null;
-  timezone: string;
-  instanceStarts: Date[];
-}): string {
-  const {
-    titulo,
-    modalidad,
-    meetingId,
-    joinUrl,
-    meetingPassword,
-    hostAccount,
-    timezone,
-    instanceStarts
-  } = input;
-
-  const previewCount = Math.min(instanceStarts.length, 30);
-  const previewRows = instanceStarts
-    .slice(0, previewCount)
-    .map((date, index) => `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(date, timezone))}</li>`)
-    .join("");
-  const extraCount = instanceStarts.length - previewCount;
-  const meetingLabel = escapeHtml(meetingId ?? "-");
-  const passwordLabel = escapeHtml(meetingPassword ?? "No disponible");
-  const hostLabel = escapeHtml(hostAccount ?? "-");
-  const modalidadLabel = escapeHtml(modalidad);
-  const titleLabel = escapeHtml(titulo);
-  const hasManyInstances = instanceStarts.length > 1;
-  const contentHtml = `
-    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
-      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>ID de reunion:</strong> ${meetingLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Contrasena de la reunion:</strong> ${passwordLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
-      <p style="margin:0;color:#223042;"><strong>Instancias:</strong> ${instanceStarts.length}</p>
-    </div>
-    <p style="margin:0 0 8px;color:#223042;"><strong>Fechas programadas</strong></p>
-    <ol style="margin:0 0 12px;padding-left:20px;color:#223042;">
-      ${previewRows}
-    </ol>
-    ${
-      extraCount > 0
-        ? `<p style="margin:0 0 12px;color:#475569;">... y ${extraCount} instancia(s) mas.</p>`
-        : ""
-    }
-  `;
-
-  return buildBrandedEmailLayout({
-    preheader: hasManyInstances
-      ? "Tu serie fue confirmada y ya esta disponible en Zoom."
-      : "Tu reunion fue confirmada y ya esta disponible en Zoom.",
-    title: "Tu reunion esta lista",
-    greeting: "Hola,",
-    paragraphs: [
-      hasManyInstances
-        ? "Tu serie fue confirmada y ya esta disponible en Zoom."
-        : "Tu reunion fue confirmada y ya esta disponible en Zoom."
-    ],
-    contentHtml,
-    actionLabel: joinUrl ? "Abrir reunion en Zoom" : undefined,
-    actionUrl: joinUrl ?? undefined,
-    metaLines: ["Si necesitas cambios, responde a este correo o contacta al equipo de coordinacion."]
-  });
-}
-
 async function sendProvisionedSolicitudEmail(input: {
   to: string;
   cc: string[];
@@ -1035,6 +820,8 @@ async function sendProvisionedSolicitudEmail(input: {
   joinUrl: string | null;
   hostAccount: string | null;
   rawPayload?: Prisma.InputJsonValue;
+  requiresAssistance?: boolean | null;
+  assignedAssistantName?: string | null;
   timezone: string;
   instanceStarts: Date[];
 }): Promise<void> {
@@ -1063,6 +850,8 @@ async function sendProvisionedSolicitudEmail(input: {
     joinUrl: input.joinUrl,
     meetingPassword,
     hostAccount: input.hostAccount,
+    requiresAssistance: input.requiresAssistance,
+    assignedAssistantName: input.assignedAssistantName,
     timezone: input.timezone,
     instanceStarts: input.instanceStarts
   });
@@ -1075,66 +864,9 @@ async function sendProvisionedSolicitudEmail(input: {
   });
 }
 
-function formatAssistantInterestLabel(estadoInteres: EstadoInteresAsistente): string {
-  if (estadoInteres === EstadoInteresAsistente.ME_INTERESA) return "Me postulo";
-  if (estadoInteres === EstadoInteresAsistente.RETIRADO) return "No voy a postular";
-  return "No voy a postular";
-}
-
 function shouldNotifyAdminsForAssistantPreference(estadoInteres: EstadoInteresAsistente): boolean {
   // Reducir ruido: a admins solo llega cuando hay postulacion explicita.
   return estadoInteres === EstadoInteresAsistente.ME_INTERESA;
-}
-
-function buildMonitoringRequiredEmailHtml(input: {
-  solicitudId: string;
-  titulo: string;
-  modalidad: ModalidadReunion;
-  programaNombre?: string | null;
-  responsableNombre?: string | null;
-  timezone: string;
-  instanceStarts: Date[];
-  estadoSolicitud: EstadoSolicitudSala;
-}): string {
-  const titleLabel = escapeHtml(input.titulo);
-  const modalidadLabel = escapeHtml(input.modalidad);
-  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
-  const responsableLabel = escapeHtml(input.responsableNombre?.trim() || "-");
-  const statusLabel = escapeHtml(input.estadoSolicitud);
-  const previewCount = Math.min(input.instanceStarts.length, 20);
-  const previewRows = input.instanceStarts
-    .slice(0, previewCount)
-    .map((date, index) => `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(date, input.timezone))}</li>`)
-    .join("");
-  const extraCount = input.instanceStarts.length - previewCount;
-  const contentHtml = `
-    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
-      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Responsable:</strong> ${responsableLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Estado:</strong> ${statusLabel}</p>
-      <p style="margin:0;color:#223042;"><strong>Instancias:</strong> ${input.instanceStarts.length}</p>
-    </div>
-    <p style="margin:0 0 8px;color:#223042;"><strong>Fechas previstas</strong></p>
-    <ol style="margin:0 0 12px;padding-left:20px;color:#223042;">
-      ${previewRows}
-    </ol>
-    ${
-      extraCount > 0
-        ? `<p style="margin:0 0 12px;color:#475569;">... y ${extraCount} instancia(s) mas.</p>`
-        : ""
-    }
-  `;
-
-  return buildBrandedEmailLayout({
-    preheader: "Se registro una nueva solicitud que requiere asistencia Zoom.",
-    title: "Nueva solicitud con monitoreo requerido",
-    greeting: "Hola,",
-    paragraphs: ["Se registro una nueva solicitud que requiere asistencia Zoom."],
-    contentHtml,
-    metaLines: ["Revisa la seccion Reuniones disponibles para marcar interes en las instancias abiertas."]
-  });
 }
 
 async function listAdminNotificationEmails(): Promise<string[]> {
@@ -1256,49 +988,6 @@ async function saveAdminInfoDigestState(state: AdminInfoDigestState): Promise<vo
   });
 }
 
-function buildAdminInfoDigestEmailHtml(items: AdminInfoDigestItem[]): string {
-  const rows = items
-    .map((item, index) => {
-      const createdAt = new Date(item.createdAtIso);
-      const createdLabel = Number.isNaN(createdAt.getTime())
-        ? item.createdAtIso
-        : formatDateTimeForEmail(createdAt, "America/Montevideo");
-      const metaHtml = (item.metaLines ?? []).length
-        ? `<ul style="margin:6px 0 0 18px;padding:0;color:#425066;font-size:13px;line-height:1.5;">${(item.metaLines ?? [])
-            .map((line) => `<li>${escapeHtml(line)}</li>`)
-            .join("")}</ul>`
-        : "";
-
-      return `
-        <div style="border:1px solid #dbe5f3;border-radius:10px;padding:12px;background:#f8fbff;margin:0 0 10px;">
-          <p style="margin:0 0 4px;color:#1d3a72;font-size:12px;font-weight:700;">#${index + 1} • ${escapeHtml(createdLabel)}</p>
-          <p style="margin:0 0 6px;color:#0b2c5e;font-size:16px;font-weight:700;">${escapeHtml(item.title)}</p>
-          <p style="margin:0 0 6px;color:#223042;font-size:14px;"><strong>Asunto:</strong> ${escapeHtml(item.subject)}</p>
-          <p style="margin:0;color:#223042;font-size:14px;line-height:1.5;">${escapeHtml(item.summary)}</p>
-          ${metaHtml}
-        </div>
-      `;
-    })
-    .join("");
-
-  const contentHtml = `
-    <p style="margin:0 0 10px;color:#223042;">Este resumen agrupa notificaciones informativas para reducir volumen de correo.</p>
-    ${rows}
-  `;
-
-  return buildBrandedEmailLayout({
-    preheader: "Resumen de notificaciones informativas para admins.",
-    title: "Resumen operativo para admins",
-    greeting: "Hola,",
-    paragraphs: [`Incluye ${items.length} evento(s) informativo(s) recientes.`],
-    contentHtml,
-    metaLines: [
-      "Las alertas criticas se siguen enviando de forma inmediata.",
-      "Este resumen se emite cada 45 minutos o al acumular suficientes eventos."
-    ]
-  });
-}
-
 async function sendAdminEmailByPriority(input: {
   priority: AdminNotificationPriority;
   subject: string;
@@ -1409,6 +1098,12 @@ async function sendMonitoringRequiredEmailToAssistantPool(input: {
   modalidad: ModalidadReunion;
   programaNombre?: string | null;
   responsableNombre?: string | null;
+  meetingId?: string | null;
+  joinUrl?: string | null;
+  hostAccount?: string | null;
+  rawPayload?: Prisma.InputJsonValue;
+  requiresAssistance?: boolean | null;
+  assignedAssistantName?: string | null;
   timezone: string;
   instanceStarts: Date[];
   estadoSolicitud: EstadoSolicitudSala;
@@ -1417,64 +1112,19 @@ async function sendMonitoringRequiredEmailToAssistantPool(input: {
   if (recipients.length === 0) return;
 
   const subject = `Nueva solicitud con monitoreo: ${input.titulo}`;
-  const html = buildMonitoringRequiredEmailHtml(input);
+  const meetingPassword = await resolveMeetingPassword({
+    hostAccount: input.hostAccount,
+    joinUrl: input.joinUrl,
+    rawPayload: input.rawPayload
+  });
+  const html = buildMonitoringRequiredEmailHtml({
+    ...input,
+    meetingPassword
+  });
   await sendBroadcastEmail({
     recipients,
     subject,
     html
-  });
-}
-
-function buildDocenteSolicitudCreatedAdminEmailHtml(input: {
-  actorNombre: string;
-  actorEmail: string;
-  solicitudId: string;
-  titulo: string;
-  programaNombre?: string | null;
-  modalidad: ModalidadReunion;
-  estadoSolicitud: EstadoSolicitudSala;
-  timezone: string;
-  instanceStarts: Date[];
-}): string {
-  const actorNombreLabel = escapeHtml(input.actorNombre);
-  const actorEmailLabel = escapeHtml(input.actorEmail);
-  const tituloLabel = escapeHtml(input.titulo);
-  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
-  const modalidadLabel = escapeHtml(input.modalidad);
-  const estadoLabel = escapeHtml(input.estadoSolicitud);
-  const previewCount = Math.min(input.instanceStarts.length, 20);
-  const previewRows = input.instanceStarts
-    .slice(0, previewCount)
-    .map((date, index) => `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(date, input.timezone))}</li>`)
-    .join("");
-  const extraCount = input.instanceStarts.length - previewCount;
-  const contentHtml = `
-    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
-      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${tituloLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Creada por:</strong> ${actorNombreLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Email creador:</strong> ${actorEmailLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Estado:</strong> ${estadoLabel}</p>
-      <p style="margin:0;color:#223042;"><strong>Instancias:</strong> ${input.instanceStarts.length}</p>
-    </div>
-    <p style="margin:0 0 8px;color:#223042;"><strong>Fechas previstas</strong></p>
-    <ol style="margin:0 0 12px;padding-left:20px;color:#223042;">
-      ${previewRows}
-    </ol>
-    ${
-      extraCount > 0
-        ? `<p style="margin:0 0 12px;color:#475569;">... y ${extraCount} instancia(s) mas.</p>`
-        : ""
-    }
-  `;
-
-  return buildBrandedEmailLayout({
-    preheader: "Se registro una nueva solicitud en el sistema.",
-    title: "Nueva solicitud creada por docente",
-    greeting: "Hola,",
-    paragraphs: ["Se registro una nueva solicitud en el sistema."],
-    contentHtml
   });
 }
 
@@ -1504,49 +1154,6 @@ async function sendDocenteSolicitudCreatedEmailToAdmins(input: {
   });
 }
 
-function buildAssistantPreferenceAdminEmailHtml(input: {
-  asistenteNombre: string;
-  asistenteEmail: string;
-  estadoInteres: EstadoInteresAsistente;
-  comentario?: string;
-  solicitudId: string;
-  eventoId: string;
-  titulo: string;
-  programaNombre?: string | null;
-  inicio: Date;
-  fin: Date;
-  timezone: string;
-}): string {
-  const asistenteNombreLabel = escapeHtml(input.asistenteNombre);
-  const asistenteEmailLabel = escapeHtml(input.asistenteEmail);
-  const estadoLabel = escapeHtml(formatAssistantInterestLabel(input.estadoInteres));
-  const tituloLabel = escapeHtml(input.titulo);
-  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
-  const inicioLabel = escapeHtml(formatDateTimeForEmail(input.inicio, input.timezone));
-  const finLabel = escapeHtml(formatDateTimeForEmail(input.fin, input.timezone));
-  const comentarioLabel = escapeHtml((input.comentario ?? "").trim() || "Sin comentario");
-  const contentHtml = `
-    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
-      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${tituloLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Asistente:</strong> ${asistenteNombreLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Email asistente:</strong> ${asistenteEmailLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Preferencia:</strong> ${estadoLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Inicio:</strong> ${inicioLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Fin:</strong> ${finLabel}</p>
-      <p style="margin:0;color:#223042;"><strong>Comentario:</strong> ${comentarioLabel}</p>
-    </div>
-  `;
-
-  return buildBrandedEmailLayout({
-    preheader: "Un asistente Zoom registro su preferencia para una instancia.",
-    title: "Preferencia de asistencia actualizada",
-    greeting: "Hola,",
-    paragraphs: ["Un asistente Zoom registro su preferencia para una instancia."],
-    contentHtml
-  });
-}
-
 async function sendAssistantPreferenceEmailToAdmins(input: {
   asistenteNombre: string;
   asistenteEmail: string;
@@ -1554,6 +1161,12 @@ async function sendAssistantPreferenceEmailToAdmins(input: {
   comentario?: string;
   solicitudId: string;
   eventoId: string;
+  meetingId?: string | null;
+  joinUrl?: string | null;
+  hostAccount?: string | null;
+  rawPayload?: Prisma.InputJsonValue;
+  requiresAssistance?: boolean | null;
+  assignedAssistantName?: string | null;
   titulo: string;
   programaNombre?: string | null;
   inicio: Date;
@@ -1565,54 +1178,19 @@ async function sendAssistantPreferenceEmailToAdmins(input: {
   }
 
   const subject = `Postulacion de asistencia: ${input.titulo}`;
-  const html = buildAssistantPreferenceAdminEmailHtml(input);
+  const meetingPassword = await resolveMeetingPassword({
+    hostAccount: input.hostAccount,
+    joinUrl: input.joinUrl,
+    rawPayload: input.rawPayload
+  });
+  const html = buildAssistantPreferenceAdminEmailHtml({
+    ...input,
+    meetingPassword
+  });
   await sendAdminEmailByPriority({
     priority: "CRITICAL",
     subject,
     html
-  });
-}
-
-function buildAssignmentNotificationHtml(input: {
-  solicitudId: string;
-  eventoId: string;
-  titulo: string;
-  programaNombre?: string | null;
-  modalidad: ModalidadReunion;
-  inicio: Date;
-  fin: Date;
-  timezone: string;
-  joinUrl?: string | null;
-  asistenteNombre: string;
-  asistenteEmail: string;
-}): string {
-  const titleLabel = escapeHtml(input.titulo);
-  const modalidadLabel = escapeHtml(input.modalidad);
-  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
-  const asistenteNombreLabel = escapeHtml(input.asistenteNombre);
-  const asistenteEmailLabel = escapeHtml(input.asistenteEmail);
-  const inicioLabel = escapeHtml(formatDateTimeForEmail(input.inicio, input.timezone));
-  const finLabel = escapeHtml(formatDateTimeForEmail(input.fin, input.timezone));
-  const contentHtml = `
-    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
-      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Inicio:</strong> ${inicioLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Fin:</strong> ${finLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Asistente asignado:</strong> ${asistenteNombreLabel}</p>
-      <p style="margin:0;color:#223042;"><strong>Email asistente:</strong> ${asistenteEmailLabel}</p>
-    </div>
-  `;
-
-  return buildBrandedEmailLayout({
-    preheader: "Se confirmo la persona de asistencia para esta instancia.",
-    title: "Asignacion de monitoreo confirmada",
-    greeting: "Hola,",
-    paragraphs: ["Se confirmo la persona de asistencia para esta instancia."],
-    contentHtml,
-    actionLabel: input.joinUrl ? "Abrir reunion en Zoom" : undefined,
-    actionUrl: input.joinUrl ?? undefined
   });
 }
 
@@ -1625,7 +1203,11 @@ async function sendDefinitiveAssignmentEmails(input: {
   inicio: Date;
   fin: Date;
   timezone: string;
+  meetingId?: string | null;
   joinUrl?: string | null;
+  hostAccount?: string | null;
+  rawPayload?: Prisma.InputJsonValue;
+  requiresAssistance?: boolean | null;
   asistenteNombre: string;
   asistenteEmail: string;
   responsableEmail: string | null;
@@ -1645,7 +1227,15 @@ async function sendDefinitiveAssignmentEmails(input: {
 
   const client = new EmailClient();
   const subject = `Asignacion confirmada: ${input.titulo}`;
-  const html = buildAssignmentNotificationHtml(input);
+  const meetingPassword = await resolveMeetingPassword({
+    hostAccount: input.hostAccount,
+    joinUrl: input.joinUrl,
+    rawPayload: input.rawPayload
+  });
+  const html = buildAssignmentNotificationHtml({
+    ...input,
+    meetingPassword
+  });
 
   await Promise.all(
     Array.from(recipients).map((to) =>
@@ -1667,66 +1257,17 @@ type AssistanceCancellationRecipient = {
   }>;
 };
 
-function buildAssistanceCancelledEmailHtml(input: {
-  solicitudId: string;
-  titulo: string;
-  programaNombre?: string | null;
-  responsableNombre?: string | null;
-  timezone: string;
-  recipientName: string;
-  actorNombre: string;
-  actorEmail: string;
-  motivo?: string | null;
-  instancias: Array<{
-    inicio: Date;
-    fin: Date;
-  }>;
-}): string {
-  const titleLabel = escapeHtml(input.titulo);
-  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
-  const responsableLabel = escapeHtml(input.responsableNombre?.trim() || "-");
-  const actorLabel = escapeHtml(input.actorNombre);
-  const actorEmailLabel = escapeHtml(input.actorEmail);
-  const motivoLabel = escapeHtml((input.motivo ?? "").trim() || "Sin detalle adicional.");
-  const previewCount = Math.min(input.instancias.length, 30);
-  const previewRows = input.instancias
-    .slice(0, previewCount)
-    .map((item, index) => (
-      `<li>${index + 1}. ${escapeHtml(formatDateTimeForEmail(item.inicio, input.timezone))} - ${escapeHtml(formatDateTimeForEmail(item.fin, input.timezone))}</li>`
-    ))
-    .join("");
-  const extraCount = input.instancias.length - previewCount;
-  const contentHtml = `
-    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f8fbff;margin:0 0 16px;">
-      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Responsable:</strong> ${responsableLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Actualizado por:</strong> ${actorLabel} (${actorEmailLabel})</p>
-      <p style="margin:0;color:#223042;"><strong>Motivo:</strong> ${motivoLabel}</p>
-    </div>
-    <p style="margin:0 0 8px;color:#223042;font-weight:700;">Instancias afectadas:</p>
-    <ol style="margin:0 0 14px 18px;padding:0;color:#223042;line-height:1.5;">${previewRows}</ol>
-    ${
-      extraCount > 0
-        ? `<p style="margin:0;color:#5b6576;font-size:13px;">Se omitieron ${extraCount} instancia(s) adicionales en este resumen.</p>`
-        : ""
-    }
-  `;
-
-  return buildBrandedEmailLayout({
-    preheader: "Se cancelo la asistencia Zoom asignada para una solicitud.",
-    title: "Asistencia Zoom cancelada",
-    greeting: `Hola ${input.recipientName},`,
-    paragraphs: ["Se actualizo una solicitud y ya no requiere asistencia Zoom."],
-    contentHtml
-  });
-}
-
 async function sendAssistanceCancelledEmails(input: {
   solicitudId: string;
   titulo: string;
   programaNombre?: string | null;
   responsableNombre?: string | null;
+  meetingId?: string | null;
+  joinUrl?: string | null;
+  hostAccount?: string | null;
+  rawPayload?: Prisma.InputJsonValue;
+  requiresAssistance?: boolean | null;
+  assignedAssistantName?: string | null;
   timezone: string;
   actorNombre: string;
   actorEmail: string;
@@ -1737,6 +1278,11 @@ async function sendAssistanceCancelledEmails(input: {
 
   const client = new EmailClient();
   const subject = `Asistencia cancelada: ${input.titulo}`;
+  const meetingPassword = await resolveMeetingPassword({
+    hostAccount: input.hostAccount,
+    joinUrl: input.joinUrl,
+    rawPayload: input.rawPayload
+  });
   let sentCount = 0;
 
   for (const recipient of input.recipients) {
@@ -1748,6 +1294,12 @@ async function sendAssistanceCancelledEmails(input: {
       titulo: input.titulo,
       programaNombre: input.programaNombre,
       responsableNombre: input.responsableNombre,
+      meetingId: input.meetingId,
+      joinUrl: input.joinUrl,
+      hostAccount: input.hostAccount,
+      meetingPassword,
+      requiresAssistance: input.requiresAssistance,
+      assignedAssistantName: input.assignedAssistantName,
       timezone: input.timezone,
       recipientName: recipient.nombre || to,
       actorNombre: input.actorNombre,
@@ -1773,122 +1325,6 @@ async function sendAssistanceCancelledEmails(input: {
   }
 
   return sentCount;
-}
-
-function buildSolicitudReminderEmailHtml(input: {
-  solicitudId: string;
-  titulo: string;
-  programaNombre?: string | null;
-  responsableNombre?: string | null;
-  modalidad: ModalidadReunion;
-  estadoSolicitud: EstadoSolicitudSala;
-  meetingId: string | null;
-  joinUrl: string | null;
-  meetingPassword: string | null;
-  hostAccount: string | null;
-  timezone: string;
-  recordatorioMensaje?: string | null;
-  actorNombre: string;
-  actorEmail: string;
-  instancias: Array<{
-    inicio: Date;
-    fin: Date;
-    estadoEvento: EstadoEventoZoom;
-    requiereAsistencia: boolean;
-    monitorLabel: string | null;
-    joinUrl: string | null;
-  }>;
-}): string {
-  const titleLabel = escapeHtml(input.titulo);
-  const programaLabel = escapeHtml(input.programaNombre?.trim() || "-");
-  const responsableLabel = escapeHtml(input.responsableNombre?.trim() || "-");
-  const modalidadLabel = escapeHtml(input.modalidad);
-  const estadoLabel = escapeHtml(getSolicitudStatusLabel(input.estadoSolicitud));
-  const meetingLabel = escapeHtml(input.meetingId ?? "-");
-  const meetingPasswordLabel = escapeHtml(input.meetingPassword ?? "No disponible");
-  const hostLabel = escapeHtml(input.hostAccount ?? "-");
-  const joinUrlLabel = escapeHtml(input.joinUrl ?? "No disponible");
-  const actorNombreLabel = escapeHtml(input.actorNombre);
-  const actorEmailLabel = escapeHtml(input.actorEmail);
-  const previewCount = Math.min(input.instancias.length, 40);
-  const previewRows = input.instancias
-    .slice(0, previewCount)
-    .map((item, index) => {
-      const rango = `${formatDateTimeForEmail(item.inicio, input.timezone)} - ${formatDateTimeForEmail(item.fin, input.timezone)}`;
-      const statusLabel = item.estadoEvento === EstadoEventoZoom.CANCELADO ? "Cancelada" : "Programada";
-      const monitorLine = item.requiereAsistencia
-        ? `<p style="margin: 0 0 6px; color: #334155;"><strong>Asistencia Zoom:</strong> ${escapeHtml(item.monitorLabel?.trim() || "Pendiente")}</p>`
-        : "";
-      const linkLine = item.joinUrl
-        ? `<p style="margin: 0;"><a href="${escapeHtml(item.joinUrl)}" target="_blank" rel="noreferrer" style="color: #1d4ed8; text-decoration: underline;">Abrir instancia</a></p>`
-        : "";
-      return `
-        <li style="margin: 0 0 12px;">
-          <div style="border: 1px solid #dbe5f3; border-radius: 10px; padding: 10px 12px; background: #ffffff;">
-            <p style="margin: 0 0 6px; font-weight: 700; color: #0f172a;">Instancia ${index + 1}</p>
-            <p style="margin: 0 0 6px; color: #334155;">${escapeHtml(rango)}</p>
-            <p style="margin: 0 0 6px; color: #334155;"><strong>Estado:</strong> ${escapeHtml(statusLabel)}</p>
-            ${monitorLine}
-            ${linkLine}
-          </div>
-        </li>
-      `;
-    })
-    .join("");
-  const extraCount = input.instancias.length - previewCount;
-  const reminderMessage = (input.recordatorioMensaje ?? "").trim();
-  const contentHtml = `
-    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#f1f7ff;margin:0 0 14px;">
-      <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#0b2c5e;">${titleLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Cuenta anfitriona:</strong> ${hostLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>ID de acceso:</strong> ${meetingLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Enlace de acceso:</strong></p>
-      ${
-        input.joinUrl
-          ? `<p style="margin:0 0 6px;word-break:break-all;"><a href="${escapeHtml(input.joinUrl)}" target="_blank" rel="noreferrer" style="color:#1d4ed8;text-decoration:underline;">${joinUrlLabel}</a></p>`
-          : `<p style="margin:0 0 6px;color:#223042;">${joinUrlLabel}</p>`
-      }
-      <p style="margin:0 0 6px;color:#223042;"><strong>Contrasena de acceso:</strong> ${meetingPasswordLabel}</p>
-      <p style="margin:0;color:#223042;"><strong>Instancias:</strong> ${input.instancias.length}</p>
-    </div>
-
-    <div style="border:1px solid #dbe5f3;border-radius:12px;padding:14px;background:#ffffff;margin:0 0 14px;">
-      <p style="margin:0 0 6px;color:#223042;"><strong>Programa:</strong> ${programaLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Responsable:</strong> ${responsableLabel}</p>
-      <p style="margin:0 0 6px;color:#223042;"><strong>Modalidad:</strong> ${modalidadLabel}</p>
-      <p style="margin:0;color:#223042;"><strong>Estado:</strong> ${estadoLabel}</p>
-    </div>
-
-    ${
-      reminderMessage
-        ? `<div style="border-left:4px solid #1f4b8f;padding:10px 12px;background:#eff6ff;margin:0 0 14px;">
-            <p style="margin:0 0 6px;font-weight:700;color:#223042;">Mensaje adicional</p>
-            <p style="margin:0;color:#223042;">${escapeHtml(reminderMessage)}</p>
-          </div>`
-        : ""
-    }
-
-    <p style="margin:0 0 8px;color:#223042;"><strong>Detalle de instancias</strong></p>
-    <ul style="margin:0;padding:0;list-style:none;">
-      ${previewRows}
-    </ul>
-    ${
-      extraCount > 0
-        ? `<p style="margin:0 0 12px;color:#475569;">... y ${extraCount} instancia(s) mas.</p>`
-        : ""
-    }
-  `;
-
-  return buildBrandedEmailLayout({
-    preheader: "Te compartimos nuevamente la informacion operativa de esta reunion.",
-    title: "Recordatorio de reunion",
-    greeting: "Hola,",
-    paragraphs: ["Te compartimos nuevamente la informacion operativa de esta reunion."],
-    contentHtml,
-    actionLabel: input.joinUrl ? "Abrir reunion en Zoom" : undefined,
-    actionUrl: input.joinUrl ?? undefined,
-    metaLines: [`Recordatorio enviado por ${actorNombreLabel} (${actorEmailLabel}).`]
-  });
 }
 
 function parseZoomMeetingSnapshot(data: Record<string, unknown>): ZoomMeetingSnapshot {
@@ -8309,10 +7745,40 @@ export class SalasService {
       where: { id: eventoId },
       select: {
         id: true,
+        zoomMeetingId: true,
+        zoomJoinUrl: true,
+        zoomPayloadUltimo: true,
+        requiereAsistencia: true,
         inicioProgramadoAt: true,
         finProgramadoAt: true,
         timezone: true,
         agendaCierraAt: true,
+        cuentaZoom: {
+          select: {
+            ownerEmail: true,
+            nombreCuenta: true
+          }
+        },
+        asignaciones: {
+          where: {
+            tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+            estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+          },
+          select: {
+            asistente: {
+              select: {
+                usuario: {
+                  select: {
+                    name: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            }
+          }
+        },
         solicitud: {
           select: {
             id: true,
@@ -8370,6 +7836,15 @@ export class SalasService {
       programaNombre: event.solicitud.programaNombre ?? null,
       inicio: event.inicioProgramadoAt,
       fin: event.finProgramadoAt,
+      meetingId: event.zoomMeetingId ?? null,
+      joinUrl: event.zoomJoinUrl ?? null,
+      hostAccount: pickZoomHostAccountLabel(event.cuentaZoom?.ownerEmail, event.cuentaZoom?.nombreCuenta),
+      rawPayload: event.zoomPayloadUltimo ?? undefined,
+      requiresAssistance: event.requiereAsistencia,
+      assignedAssistantName:
+        event.asignaciones.length > 0
+          ? getUserDisplayName(event.asignaciones[0].asistente.usuario)
+          : null,
       timezone: event.timezone || "America/Montevideo"
     }).catch((error) => {
       logger.warn("No se pudo enviar correo a admins por preferencia de asistente.", {
@@ -8394,10 +7869,19 @@ export class SalasService {
       select: {
         id: true,
         modalidadReunion: true,
+        requiereAsistencia: true,
         inicioProgramadoAt: true,
         finProgramadoAt: true,
         timezone: true,
+        zoomMeetingId: true,
         zoomJoinUrl: true,
+        zoomPayloadUltimo: true,
+        cuentaZoom: {
+          select: {
+            ownerEmail: true,
+            nombreCuenta: true
+          }
+        },
         solicitud: {
           select: {
             id: true,
@@ -8576,7 +8060,11 @@ export class SalasService {
       inicio: event.inicioProgramadoAt,
       fin: event.finProgramadoAt,
       timezone: event.timezone || "America/Montevideo",
+      meetingId: event.zoomMeetingId,
       joinUrl: event.zoomJoinUrl,
+      hostAccount: pickZoomHostAccountLabel(event.cuentaZoom?.ownerEmail, event.cuentaZoom?.nombreCuenta),
+      rawPayload: event.zoomPayloadUltimo ?? undefined,
+      requiresAssistance: event.requiereAsistencia,
       asistenteNombre: assistantName,
       asistenteEmail: selectedAssistant.usuario.email,
       responsableEmail
