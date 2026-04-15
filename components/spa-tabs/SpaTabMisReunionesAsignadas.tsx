@@ -9,7 +9,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Divider,
   LinearProgress,
   Skeleton,
   Stack,
@@ -29,6 +28,18 @@ interface SpaTabMisReunionesAsignadasProps {
 type MonthlyUpcomingGroup = {
   monthKey: string;
   meetings: PersonHoursMeeting[];
+};
+
+type DayGroup = {
+  dayKey: string;
+  dayLabel: string;
+  meetings: PersonHoursMeeting[];
+};
+
+type MonthWithDaysGroup = {
+  monthKey: string;
+  monthLabel: string;
+  dayGroups: DayGroup[];
 };
 
 function capitalizeFirst(value: string): string {
@@ -60,6 +71,63 @@ function formatMonthKey(monthKey: string): string {
   return capitalizeFirst(
     date.toLocaleDateString("es-UY", { month: "long", year: "numeric", timeZone: "UTC" })
   );
+}
+
+function groupMeetingsByMonthAndDay(meetings: PersonHoursMeeting[]): MonthWithDaysGroup[] {
+  const monthGrouped = new Map<string, Map<string, DayGroup>>();
+
+  for (const meeting of meetings) {
+    const startDate = new Date(meeting.inicioAt);
+    if (Number.isNaN(startDate.getTime())) continue;
+
+    const monthKey = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}`;
+    const dayKey = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}-${String(startDate.getDate()).padStart(2, "0")}`;
+    
+    const dayLabel = new Intl.DateTimeFormat("es-UY", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    }).format(startDate);
+
+    let dayGroups = monthGrouped.get(monthKey);
+    if (!dayGroups) {
+      dayGroups = new Map();
+      monthGrouped.set(monthKey, dayGroups);
+    }
+
+    const existingDay = dayGroups.get(dayKey);
+    if (existingDay) {
+      existingDay.meetings.push(meeting);
+    } else {
+      dayGroups.set(dayKey, {
+        dayKey,
+        dayLabel,
+        meetings: [meeting]
+      });
+    }
+  }
+
+  const result: MonthWithDaysGroup[] = [];
+  for (const [monthKey, dayGroups] of monthGrouped.entries()) {
+    const firstDay = dayGroups.values().next().value;
+    const firstDate = new Date(firstDay.meetings[0].inicioAt);
+    const monthLabel = capitalizeFirst(
+      firstDate.toLocaleDateString("es-UY", { month: "long", year: "numeric" })
+    );
+
+    const dayGroupsArray = Array.from(dayGroups.values());
+    dayGroupsArray.sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+
+    result.push({
+      monthKey,
+      monthLabel,
+      dayGroups: dayGroupsArray
+    });
+  }
+
+  result.sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+  return result;
 }
 
 function formatDateTime(value: string): string {
@@ -378,6 +446,11 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
       }));
   }, [meetings]);
 
+  const monthWithDaysGroups = useMemo<MonthWithDaysGroup[]>(() => {
+    const flatMeetings = monthlyGroups.flatMap((group) => group.meetings);
+    return groupMeetingsByMonthAndDay(flatMeetings);
+  }, [monthlyGroups]);
+
   const upcomingMeetings = useMemo(
     () => monthlyGroups.flatMap((group) => group.meetings),
     [monthlyGroups]
@@ -397,22 +470,36 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
     () => upcomingMeetings.filter((meeting) => getMonthKeyFromIso(meeting.inicioAt) === currentMonthKey),
     [upcomingMeetings, currentMonthKey]
   );
+  const completedCurrentMonthMeetings = useMemo(
+    () =>
+      meetings.filter(
+        (meeting) =>
+          getMonthKeyFromIso(meeting.inicioAt) === currentMonthKey &&
+          meeting.isCompleted
+      ),
+    [meetings, currentMonthKey]
+  );
+  const totalExpectedCurrentMonth = pendingCurrentMonthMeetings.length + completedCurrentMonthMeetings.length;
+  const allCurrentMonthMeetings = useMemo(
+    () => [...pendingCurrentMonthMeetings, ...completedCurrentMonthMeetings],
+    [pendingCurrentMonthMeetings, completedCurrentMonthMeetings]
+  );
   const totalFutureMeetings = upcomingMeetings.length;
   const totalMinutesVirtual = useMemo(
     () =>
-      pendingCurrentMonthMeetings.reduce(
+      allCurrentMonthMeetings.reduce(
         (acc, meeting) => acc + (meeting.modalidadReunion === "VIRTUAL" ? meeting.minutos : 0),
         0
       ),
-    [pendingCurrentMonthMeetings]
+    [allCurrentMonthMeetings]
   );
   const totalMinutesHibrida = useMemo(
     () =>
-      pendingCurrentMonthMeetings.reduce(
+      allCurrentMonthMeetings.reduce(
         (acc, meeting) => acc + (meeting.modalidadReunion === "HIBRIDA" ? meeting.minutos : 0),
         0
       ),
-    [pendingCurrentMonthMeetings]
+    [allCurrentMonthMeetings]
   );
   const isInitialLoading = isLoading && meetings.length === 0;
 
@@ -540,13 +627,24 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
             <Skeleton variant="rounded" width={170} height={30} />
             <Skeleton variant="rounded" width={150} height={30} />
+            <Skeleton variant="rounded" width={140} height={30} />
+            <Skeleton variant="rounded" width={180} height={30} />
           </Stack>
         ) : (
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
             <Chip variant="outlined" label={`${monthlyGroups.length} mes(es)`} />
             <Chip
               variant="outlined"
+              label={`${completedCurrentMonthMeetings.length} cumplida(s) este mes`}
+            />
+            <Chip
+              variant="outlined"
               label={`${pendingCurrentMonthMeetings.length} reunion(es) pendiente(s) este mes`}
+            />
+            <Chip
+              variant="outlined"
+              color="primary"
+              label={`${totalExpectedCurrentMonth} reunion(es) esperada(s) total`}
             />
             <Chip variant="outlined" label={`${totalFutureMeetings} reunion(es) futura(s)`} />
           </Stack>
@@ -673,13 +771,25 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                   </CardContent>
                 </Card>
               ))
-            : monthlyGroups.map((group) => (
-                <Stack key={group.monthKey} spacing={1}>
-                  <Divider textAlign="left">
-                    <Chip size="small" variant="outlined" label={formatMonthKey(group.monthKey)} />
-                  </Divider>
+            : monthWithDaysGroups.map((monthGroup) => (
+                <Stack key={monthGroup.monthKey} spacing={1}>
+                  <Chip 
+                    size="small" 
+                    variant="outlined" 
+                    label={monthGroup.monthLabel}
+                    sx={{ alignSelf: "flex-start" }}
+                  />
 
-                  {group.meetings.map((meeting) => {
+                  {monthGroup.dayGroups.map((dayGroup) => (
+                    <Stack key={dayGroup.dayKey} spacing={0.8}>
+                      <Chip
+                        size="small"
+                        variant="filled"
+                        label={capitalizeFirst(dayGroup.dayLabel)}
+                        sx={{ fontSize: "0.75rem", alignSelf: "flex-start" }}
+                      />
+
+                      {dayGroup.meetings.map((meeting) => {
                     const meetingKey = getMeetingKey(meeting);
                     const meetingId = resolveMeetingId(meeting);
                     const recurringCount = meetingId ? recurrenceCountByMeetingId.get(meetingId) ?? 1 : 1;
@@ -743,7 +853,7 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                                   target="_blank"
                                   rel="noreferrer"
                                 >
-                                  Abrir
+                                  Ir a sesión zoom
                                 </Button>
                               ) : null}
                               <Button
@@ -872,7 +982,9 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                         </CardContent>
                       </Card>
                     );
-                  })}
+                      })}
+                    </Stack>
+                  ))}
                 </Stack>
               ))}
         </Stack>

@@ -1264,7 +1264,7 @@ export function SpaTabSolicitudes({
     }
 
     return (
-      <Stack spacing={1.4}>
+      <Stack spacing={1.8}>
         {activeOrFinalizedInstances.length > 0 ? renderInstanceRows(activeOrFinalizedInstances) : null}
 
         {cancelledInstances.length > 0 ? (
@@ -1344,7 +1344,7 @@ export function SpaTabSolicitudes({
           spacing={1.5}
           alignItems={{ xs: "flex-start", sm: "center" }}
           justifyContent="space-between"
-          sx={{ mb: 1.5 }}
+          sx={{ mb: 2 }}
         >
           <Typography variant="h5" component="h2" sx={{ fontWeight: 700 }}>
             Solicitudes de sala
@@ -1368,7 +1368,7 @@ export function SpaTabSolicitudes({
             </Stack>
           )}
         </Stack>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
           Listado de solicitudes con estado, solicitante e informacion de reunion.
         </Typography>
 
@@ -2045,7 +2045,7 @@ export function SpaTabSolicitudes({
           <Typography variant="h6" sx={{ mb: 1.5 }}>
             Listado de solicitudes
           </Typography>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 1.5 }}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2.5 }}>
             <Button
               type="button"
               size="small"
@@ -2069,11 +2069,11 @@ export function SpaTabSolicitudes({
               Finalizadas ({solicitudesByLifecycle.finalizadas.length})
             </Button>
           </Stack>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }} sx={{ mb: 1.5 }}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }} sx={{ mb: 2.5 }}>
             <Typography variant="caption" color="text.secondary">
               Ordenar por:
             </Typography>
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1.5}>
               <Button
                 type="button"
                 size="small"
@@ -2105,7 +2105,7 @@ export function SpaTabSolicitudes({
             </Typography>
           )}
           {visibleSolicitudes.length > 0 && (
-            <Stack spacing={1.4}>
+            <Stack spacing={2}>
               <Box
                 sx={{
                   display: "grid",
@@ -2114,10 +2114,10 @@ export function SpaTabSolicitudes({
                     sm: "repeat(3, minmax(0, 1fr))",
                     lg: "repeat(6, minmax(0, 1fr))"
                   },
-                  gap: 1
+                  gap: 1.5
                 }}
               >
-                <Paper variant="outlined" sx={{ p: 1.2 }}>
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
                   <Typography variant="caption" color="text.secondary">
                     Total (vista)
                   </Typography>
@@ -2126,7 +2126,7 @@ export function SpaTabSolicitudes({
                   </Typography>
                 </Paper>
                 {statusSummary.map((summary) => (
-                  <Paper key={summary.estado} variant="outlined" sx={{ p: 1.2 }}>
+                  <Paper key={summary.estado} variant="outlined" sx={{ p: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">
                       {summary.label}
                     </Typography>
@@ -2137,7 +2137,7 @@ export function SpaTabSolicitudes({
                 ))}
               </Box>
 
-              <Stack spacing={1.2}>
+              <Stack spacing={1.8}>
                 {visibleSolicitudes.map((item) => {
                   const joinUrl =
                     item.zoomJoinUrl ??
@@ -2280,7 +2280,7 @@ export function SpaTabSolicitudes({
                       <Box sx={{ p: { xs: 1.3, sm: 1.7 } }}>
                         <Stack
                           direction={{ xs: "column", md: "row" }}
-                          spacing={1}
+                          spacing={1.2}
                           justifyContent="space-between"
                           alignItems={{ xs: "flex-start", md: "center" }}
                           sx={{ mb: 1 }}
@@ -2507,7 +2507,7 @@ export function SpaTabSolicitudes({
                         </Box>
 
                         {canDeleteSolicitud && (
-                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
+                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} sx={{ mt: 1.5 }}>
                             <Button
                               type="button"
                               size="small"
@@ -2589,7 +2589,7 @@ export function SpaTabSolicitudes({
             </Typography>
           ) : null}
           {isSubmittingAddInstance ? (
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.2 }}>
+            <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mt: 1.5 }}>
               <CircularProgress size={16} />
               <Typography variant="body2" color="text.secondary">
                 {addInstanceBusyLabel}

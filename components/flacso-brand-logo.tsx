@@ -20,7 +20,8 @@ export function FlacsoBrandLogo({
 }: FlacsoBrandLogoProps) {
   const theme = useTheme();
   const resolvedContrast = contrast === "auto" ? (theme.palette.mode === "dark" ? "light" : "dark") : contrast;
-  const src = `/branding/flacso-uruguay-${color}-${resolvedContrast === "light" ? "white" : color === "primary" ? "blue" : "black"}.png`;
+  const colorSuffix = resolvedContrast === "light" ? "white" : color === "primary" ? "blue" : "blue";
+  const src = `/branding/flacso-uruguay-${color}-${colorSuffix}.png`;
   const resolvedHeight = height ?? 36;
 
   return (

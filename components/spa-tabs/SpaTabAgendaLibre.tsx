@@ -260,12 +260,6 @@ export function SpaTabAgendaLibre({
                       </Typography>
                       <Typography variant="body2">{getEncargado(item) || item.solicitud.responsableNombre || "-"}</Typography>
                     </Box>
-                    <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
-                      <ZoomAccountPasswordField
-                        hostAccount={hostAccount}
-                        label="Contrasena cuenta streaming"
-                      />
-                    </Box>
                   </Box>
                 </Paper>
               );

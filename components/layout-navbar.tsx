@@ -153,7 +153,7 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
           alignItems={{ xs: "flex-start", sm: "center" }}
         >
           <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-            <FlacsoBrandLogo height={34} />
+            <FlacsoBrandLogo height={42} color="primary" />
             <Typography
               variant="subtitle1"
               sx={{
@@ -176,12 +176,14 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
               justifyContent: { xs: "space-between", sm: "flex-end" }
             }}
           >
-            <Chip
-              size="small"
-              variant="outlined"
-              label={`Rol: ${normalizedRoleLabel}`}
-              sx={{ display: { xs: "none", sm: "inline-flex" } }}
-            />
+            {isAdminRole && (
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`Rol: ${normalizedRoleLabel}`}
+                sx={{ display: { xs: "none", sm: "inline-flex" } }}
+              />
+            )}
             <UserMenu
               firstName={user.firstName}
               lastName={user.lastName}
@@ -190,13 +192,17 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
               role={user.role ?? "ADMINISTRADOR"}
             />
             <IconButton
-              size="small"
               onClick={() => setMobileExpanded((prev) => !prev)}
               sx={{
-                display: { xs: "inline-flex", md: "none" },
-                border: "1px solid",
-                borderColor: "divider",
-                borderRadius: 2
+                display: { md: "none" },
+                border: "2px solid",
+                borderColor: "primary.main",
+                borderRadius: 1.5,
+                color: "primary.main",
+                backgroundColor: "action.hover",
+                "&:hover": {
+                  backgroundColor: "primary.lighter"
+                }
               }}
               aria-label={mobileExpanded ? "Ocultar navegacion" : "Mostrar navegacion"}
             >
