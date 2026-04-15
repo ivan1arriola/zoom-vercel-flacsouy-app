@@ -1510,10 +1510,11 @@ export function SpaHomeScreen() {
     setUpdatingAsistenciaInstanciaKey(instanceKey);
 
     try {
-      const response = await disableSolicitudInstanciaAsistenciaApi({
+      const response = await updateSolicitudInstanciaAsistenciaApi({
         solicitudId: input.solicitudId,
         eventoId: input.eventoId ?? undefined,
-        inicioProgramadoAt: input.startTime
+        inicioProgramadoAt: input.startTime,
+        requiereAsistencia: false
       });
 
       if (!response.success) {
@@ -1543,7 +1544,7 @@ export function SpaHomeScreen() {
     }
   }
 
-  async function setInterest(eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA") {
+  async function setInterest(eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA" | "RETIRADO") {
     setUpdatingInterestId(eventoId);
     const previousAgenda = agendaLibre;
     const optimisticAnsweredAt = new Date().toISOString();

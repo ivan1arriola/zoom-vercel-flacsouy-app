@@ -49,7 +49,7 @@ export async function loadAgendaLibre(): Promise<AgendaEvent[] | null> {
 
 export async function setInterest(
   eventoId: string,
-  estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA"
+  estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA" | "RETIRADO"
 ): Promise<{
   success: boolean;
   error?: string;

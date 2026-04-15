@@ -769,7 +769,9 @@ function getEmailBaseUrl(): string {
 
 function buildBrandedEmailLayout(input: BrandedEmailLayoutInput): string {
   const baseUrl = getEmailBaseUrl();
-  const logoUrl = `${baseUrl.replace(/\/$/, "")}/flacso-logo.png`;
+  const brandingBaseUrl = `${baseUrl.replace(/\/$/, "")}/branding`;
+  const primaryLogoUrl = `${brandingBaseUrl}/flacso-uruguay-primary-white.png`;
+  const secondaryLogoUrl = `${brandingBaseUrl}/flacso-uruguay-secondary-blue.png`;
   const preheader = escapeHtml(input.preheader);
   const title = escapeHtml(input.title);
   const kicker = escapeHtml(input.kicker ?? "Plataforma Zoom de FLACSO Uruguay");
@@ -820,7 +822,7 @@ function buildBrandedEmailLayout(input: BrandedEmailLayoutInput): string {
           <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;border-collapse:collapse;">
             <tr>
               <td style="border-radius:14px 14px 0 0;padding:20px 24px;background:linear-gradient(135deg,#1d3a72,#254c95);">
-                <img src="${escapeHtml(logoUrl)}" alt="FLACSO Uruguay" style="height:44px;display:block;" />
+                <img src="${escapeHtml(primaryLogoUrl)}" alt="FLACSO Uruguay" style="height:42px;display:block;" />
                 <p style="margin:18px 0 6px 0;color:#cfd8ea;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;">${kicker}</p>
                 <h1 style="margin:0;color:#ffffff;font-size:28px;line-height:1.2;font-weight:800;">${title}</h1>
               </td>
@@ -836,7 +838,16 @@ function buildBrandedEmailLayout(input: BrandedEmailLayoutInput): string {
             </tr>
             <tr>
               <td style="background:#eef3fb;padding:16px 24px;border:1px solid #dbe3f0;border-top:0;border-radius:0 0 14px 14px;">
-                <p style="margin:0;color:#5c697e;font-size:12px;line-height:1.5;">${footerLine}</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="vertical-align:middle;">
+                      <p style="margin:0;color:#5c697e;font-size:12px;line-height:1.5;">${footerLine}</p>
+                    </td>
+                    <td align="right" style="padding-left:12px;vertical-align:middle;">
+                      <img src="${escapeHtml(secondaryLogoUrl)}" alt="FLACSO Uruguay" style="height:24px;display:block;" />
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
           </table>

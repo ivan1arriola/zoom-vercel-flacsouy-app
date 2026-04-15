@@ -32,25 +32,26 @@ import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPassw
 interface SpaTabAgendaLibreProps {
   agendaLibre: AgendaEvent[];
   updatingInterestId: string | null;
-  onSetInterest: (eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA") => void;
+  onSetInterest: (eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA" | "RETIRADO") => void;
 }
 
-type InterestState = "ME_INTERESA" | "NO_ME_INTERESA" | "SIN_RESPUESTA";
+type InterestState = "ME_INTERESA" | "NO_ME_INTERESA" | "RETIRADO" | "SIN_RESPUESTA";
 
 function mapInterestChip(
   currentInterest: InterestState
 ): { color: "success" | "error" | "warning"; label: string; icon: ReactElement } {
   if (currentInterest === "ME_INTERESA") {
-    return { color: "success", label: "Me interesa", icon: <CheckCircleOutlineIcon fontSize="small" /> };
+    return { color: "success", label: "Me postulo", icon: <CheckCircleOutlineIcon fontSize="small" /> };
   }
-  if (currentInterest === "NO_ME_INTERESA") {
-    return { color: "error", label: "No me interesa", icon: <HighlightOffIcon fontSize="small" /> };
+  if (currentInterest === "NO_ME_INTERESA" || currentInterest === "RETIRADO") {
+    return { color: "error", label: "No voy a postular", icon: <HighlightOffIcon fontSize="small" /> };
   }
   return { color: "warning", label: "Sin respuesta", icon: <HelpOutlineIcon fontSize="small" /> };
 }
 
 function resolveInterestState(value?: string | null): InterestState {
   if (value === "ME_INTERESA") return "ME_INTERESA";
+  if (value === "RETIRADO") return "RETIRADO";
   if (value === "NO_ME_INTERESA") return "NO_ME_INTERESA";
   return "SIN_RESPUESTA";
 }
@@ -103,7 +104,7 @@ export function SpaTabAgendaLibre({
           Vista para asistentes Zoom. Aqui solo se muestran instancias sin persona asignada y listas para tomar.
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-          Puedes marcar me interesa o no me interesa en cada instancia y cambiar tu respuesta cuando quieras.
+          Puedes indicar si te postulas o si no vas a postular, y cambiar tu respuesta cuando quieras.
         </Typography>
 
         {agendaLibre.length === 0 ? (
@@ -175,16 +176,18 @@ export function SpaTabAgendaLibre({
                         disabled={updatingInterestId === item.id || currentInterest === "ME_INTERESA"}
                         color="success"
                       >
-                        {currentInterest === "NO_ME_INTERESA" ? "Cambiar a me interesa" : "Me interesa"}
+                        {currentInterest === "NO_ME_INTERESA" || currentInterest === "RETIRADO"
+                          ? "Cambiar a me postulo"
+                          : "Me postulo"}
                       </Button>
                       <Button
                         size="small"
-                        variant={currentInterest === "NO_ME_INTERESA" ? "contained" : "outlined"}
-                        onClick={() => onSetInterest(item.id, "NO_ME_INTERESA")}
-                        disabled={updatingInterestId === item.id || currentInterest === "NO_ME_INTERESA"}
+                        variant={currentInterest === "NO_ME_INTERESA" || currentInterest === "RETIRADO" ? "contained" : "outlined"}
+                        onClick={() => onSetInterest(item.id, "RETIRADO")}
+                        disabled={updatingInterestId === item.id || currentInterest === "NO_ME_INTERESA" || currentInterest === "RETIRADO"}
                         color="error"
                       >
-                        {currentInterest === "ME_INTERESA" ? "Cambiar a no me interesa" : "No me interesa"}
+                        {currentInterest === "ME_INTERESA" ? "Cambiar a no voy a postular" : "No voy a postular"}
                       </Button>
                     </Stack>
                   </Stack>

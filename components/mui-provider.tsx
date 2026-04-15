@@ -28,6 +28,25 @@ export function MuiProvider({ children }: { children: ReactNode }) {
         },
         typography: {
           fontFamily: "Roboto, 'Helvetica Neue', Arial, sans-serif"
+        },
+        components: {
+          MuiCardContent: {
+            styleOverrides: {
+              root: {
+                padding: 20,
+                "&:last-child": {
+                  paddingBottom: 20
+                }
+              }
+            }
+          },
+          MuiDialogContent: {
+            styleOverrides: {
+              root: {
+                padding: 20
+              }
+            }
+          }
         }
       }),
     []

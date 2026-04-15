@@ -7,7 +7,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  LinearProgress,
   Stack,
   TextField,
   Typography
@@ -58,7 +57,7 @@ type MetricCardItem = {
   key: DashboardMetricKey;
   title: string;
   description: string;
-  color: string;
+  semanticColor: keyof typeof SEMANTIC_METRIC_COLORS;
   icon: ReactNode;
   formatValue?: (value: number) => string;
 };
@@ -79,9 +78,18 @@ type DashboardRoleConfig = {
   priorityItems: string[];
 };
 
-function clampPercent(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, value));
+const SEMANTIC_METRIC_COLORS = {
+  info: "#0288D1",
+  success: "#2E7D32",
+  warning: "#ED6C02",
+  error: "#D32F2F"
+} as const;
+
+function resolveMetricSemanticColor(metric: MetricCardItem, value: number): keyof typeof SEMANTIC_METRIC_COLORS {
+  if (value === 0 && (metric.semanticColor === "warning" || metric.semanticColor === "error")) {
+    return "info";
+  }
+  return metric.semanticColor;
 }
 
 function metricValue(summary: DashboardSummary, key: DashboardMetricKey): number {
@@ -383,28 +391,28 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
           key: "solicitudesTotales",
           title: "Solicitudes totales",
           description: "Solicitudes creadas desde tu perfil.",
-          color: "#175FA1",
+          semanticColor: "info",
           icon: <AssignmentTurnedInIcon fontSize="small" />
         },
         {
           key: "solicitudesActivas",
           title: "Solicitudes activas",
           description: "Solicitudes aun en curso o vigentes.",
-          color: "#2F855A",
+          semanticColor: "success",
           icon: <PendingActionsIcon fontSize="small" />
         },
         {
           key: "proximasReuniones",
           title: "Proximas reuniones",
           description: "Instancias futuras ya registradas.",
-          color: "#C05621",
+          semanticColor: "warning",
           icon: <EventNoteIcon fontSize="small" />
         },
         {
           key: "reunionesConZoom",
           title: "Con link Zoom",
           description: "Instancias futuras que ya tienen meeting ID asignado.",
-          color: "#5A67D8",
+          semanticColor: "info",
           icon: <LinkIcon fontSize="small" />
         }
       ],
@@ -443,28 +451,28 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
           key: "agendaDisponible",
           title: "Reuniones disponibles",
           description: "Eventos abiertos que todavia pueden tomarse.",
-          color: "#2F855A",
+          semanticColor: "success",
           icon: <EventAvailableIcon fontSize="small" />
         },
         {
           key: "misPostulaciones",
           title: "Mis postulaciones",
           description: "Eventos donde marcaste interes.",
-          color: "#D69E2E",
+          semanticColor: "warning",
           icon: <PendingActionsIcon fontSize="small" />
         },
         {
           key: "misAsignacionesProximas",
           title: "Mis proximas reuniones",
           description: "Reuniones futuras ya asignadas a tu perfil.",
-          color: "#2B6CB0",
+          semanticColor: "info",
           icon: <ScheduleIcon fontSize="small" />
         },
         {
           key: "misHorasMes",
           title: "Horas del mes",
           description: `Virtual ${formatHours(misHorasVirtualesMes)} | Presencial ${formatHours(misHorasPresencialesMes)}.`,
-          color: "#2F855A",
+          semanticColor: "success",
           icon: <ScheduleIcon fontSize="small" />,
           formatValue: formatHours
         },
@@ -472,7 +480,7 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
           key: "misHorasMesAnterior",
           title: "Horas del mes pasado",
           description: `Virtual ${formatHours(misHorasVirtualesMesAnterior)} | Presencial ${formatHours(misHorasPresencialesMesAnterior)}.`,
-          color: "#6B46C1",
+          semanticColor: "info",
           icon: <EventNoteIcon fontSize="small" />,
           formatValue: formatHours
         }
@@ -503,14 +511,14 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
           key: "reunionesCompletadasMes",
           title: "Reuniones ejecutadas",
           description: "Eventos ejecutados en el mes actual.",
-          color: "#B7791F",
+          semanticColor: "warning",
           icon: <EventNoteIcon fontSize="small" />
         },
         {
           key: "horasCompletadasMes",
           title: "Horas ejecutadas",
           description: "Horas de asistencia acumuladas en el mes.",
-          color: "#2B6CB0",
+          semanticColor: "info",
           icon: <ScheduleIcon fontSize="small" />,
           formatValue: formatHours
         },
@@ -518,7 +526,7 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
           key: "personasActivasMes",
           title: "Personas con actividad",
           description: "Asistentes con reuniones ejecutadas en el mes.",
-          color: "#2F855A",
+          semanticColor: "success",
           icon: <GroupIcon fontSize="small" />
         }
       ],
@@ -550,49 +558,49 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
         key: "solicitudesTotales",
         title: "Solicitudes totales",
         description: "Volumen general del sistema.",
-        color: "#2B6CB0",
+        semanticColor: "info",
         icon: <AssignmentTurnedInIcon fontSize="small" />
       },
       {
         key: "manualPendings",
         title: "Pendientes manuales",
         description: "Casos que requieren intervencion administrativa.",
-        color: "#B7791F",
+        semanticColor: "warning",
         icon: <BuildCircleIcon fontSize="small" />
       },
       {
         key: "solicitudesNoResueltas",
         title: "No resueltas",
         description: "Solicitudes que no pudieron provisionarse automáticamente.",
-        color: "#C05621",
+        semanticColor: "warning",
         icon: <WarningAmberIcon fontSize="small" />
       },
       {
         key: "colisionesZoom7d",
         title: "Colisiones Zoom (7d)",
         description: "Eventos superpuestos en la misma cuenta anfitriona.",
-        color: "#C53030",
+        semanticColor: "error",
         icon: <WarningAmberIcon fontSize="small" />
       },
       {
         key: "eventosSinAsistencia7d",
         title: "Sin asistencia (7d)",
         description: "Reuniones próximas con asistencia requerida sin personal asignado.",
-        color: "#9B2C2C",
+        semanticColor: "error",
         icon: <Groups2Icon fontSize="small" />
       },
       {
         key: "eventosSinCobertura",
         title: "Sin asistencia",
         description: "Eventos que todavia no tienen cobertura asignada.",
-        color: "#C53030",
+        semanticColor: "error",
         icon: <Groups2Icon fontSize="small" />
       },
       {
         key: "agendaAbierta",
         title: "Agenda abierta",
         description: "Eventos visibles para el equipo de asistencia.",
-        color: "#2F855A",
+        semanticColor: "success",
         icon: <EventAvailableIcon fontSize="small" />
       }
     ],
@@ -1174,8 +1182,6 @@ export function SpaTabDashboard({
   }
 
   const config = buildRoleConfig(role, summary);
-  const totalMetrics = config.metrics.reduce((acc, metric) => acc + metricValue(summary, metric.key), 0);
-
   return (
     <Stack spacing={2.2}>
       <Card variant="outlined" sx={{ borderRadius: 3, background: config.background }}>
@@ -1260,48 +1266,58 @@ export function SpaTabDashboard({
       >
         {config.metrics.map((metric) => {
           const value = metricValue(summary, metric.key);
-          const share = totalMetrics > 0 ? (value / totalMetrics) * 100 : 0;
+          const formattedValue = metric.formatValue ? metric.formatValue(value) : String(value);
+          const resolvedSemanticColor = resolveMetricSemanticColor(metric, value);
+          const metricColor = SEMANTIC_METRIC_COLORS[resolvedSemanticColor];
 
           return (
-            <Card key={metric.key} variant="outlined" sx={{ borderRadius: 3 }}>
-              <CardContent>
-                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.8 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            <Card
+              key={metric.key}
+              variant="outlined"
+              sx={{
+                borderRadius: 3,
+                position: "relative",
+                overflow: "hidden",
+                borderColor: `${metricColor}55`,
+                background: `linear-gradient(180deg, ${metricColor}14 0%, #ffffff 38%)`
+              }}
+            >
+              <CardContent sx={{ p: 1.5 }}>
+                <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 1.1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.25, pr: 1 }}>
                     {metric.title}
                   </Typography>
                   <Box
                     sx={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: "50%",
+                      minWidth: 34,
+                      height: 34,
+                      borderRadius: 1.4,
                       display: "grid",
                       placeItems: "center",
-                      bgcolor: `${metric.color}20`,
-                      color: metric.color
+                      bgcolor: `${metricColor}22`,
+                      color: metricColor,
+                      border: "1px solid",
+                      borderColor: `${metricColor}44`
                     }}
                   >
                     {metric.icon}
                   </Box>
                 </Stack>
-                <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                  {metric.formatValue ? metric.formatValue(value) : value}
+                <Typography
+                  variant="h3"
+                  sx={{
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    letterSpacing: "-0.03em",
+                    color: metricColor,
+                    mb: 0.7
+                  }}
+                >
+                  {formattedValue}
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.45 }}>
                   {metric.description}
                 </Typography>
-                <LinearProgress
-                  variant="determinate"
-                  value={clampPercent(share)}
-                  sx={{
-                    height: 8,
-                    borderRadius: 999,
-                    bgcolor: "#edf2f7",
-                    "& .MuiLinearProgress-bar": {
-                      borderRadius: 999,
-                      backgroundColor: metric.color
-                    }
-                  }}
-                />
               </CardContent>
             </Card>
           );
@@ -1557,30 +1573,6 @@ export function SpaTabDashboard({
         </Card>
       ) : null}
 
-      <Card variant="outlined" sx={{ borderRadius: 3 }}>
-        <CardContent>
-          <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.8 }}>
-            Prioridades
-          </Typography>
-          <Stack spacing={0.75}>
-            {config.priorityItems.map((item) => (
-              <Box
-                key={item}
-                sx={{
-                  px: 1.2,
-                  py: 0.9,
-                  borderRadius: 1.6,
-                  bgcolor: "grey.50",
-                  border: "1px solid",
-                  borderColor: "divider"
-                }}
-              >
-                <Typography variant="body2">{item}</Typography>
-              </Box>
-            ))}
-          </Stack>
-        </CardContent>
-      </Card>
     </Stack>
   );
 }

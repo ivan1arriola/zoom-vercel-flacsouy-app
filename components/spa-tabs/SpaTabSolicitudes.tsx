@@ -118,6 +118,7 @@ interface SpaTabSolicitudesProps {
 
 const CREATE_PROGRAMA_VALUE = "__create_programa__";
 type SolicitudesListScope = "ACTIVAS" | "FINALIZADAS";
+type SolicitudesSortMode = "PROXIMA_INSTANCIA" | "FECHA_SOLICITUD";
 
 const zoomWeekdayOptionsFull: Array<{ value: string; label: string }> = [
   { value: "1", label: "Domingo" },
@@ -456,6 +457,7 @@ export function SpaTabSolicitudes({
   const [createProgramaOpen, setCreateProgramaOpen] = useState(false);
   const [newProgramaNombre, setNewProgramaNombre] = useState("");
   const [solicitudesListScope, setSolicitudesListScope] = useState<SolicitudesListScope>("ACTIVAS");
+  const [solicitudesSortMode, setSolicitudesSortMode] = useState<SolicitudesSortMode>("PROXIMA_INSTANCIA");
   const [specificDateInput, setSpecificDateInput] = useState("");
   const [reminderDialogSolicitud, setReminderDialogSolicitud] = useState<{
     id: string;
@@ -1029,6 +1031,14 @@ export function SpaTabSolicitudes({
         : solicitudesByLifecycle.finalizadas;
 
     return [...source].sort((left, right) => {
+      if (solicitudesSortMode === "FECHA_SOLICITUD") {
+        const leftCreatedAtMs = new Date(left.createdAt).getTime();
+        const rightCreatedAtMs = new Date(right.createdAt).getTime();
+        if (Number.isFinite(leftCreatedAtMs) && Number.isFinite(rightCreatedAtMs) && leftCreatedAtMs !== rightCreatedAtMs) {
+          return rightCreatedAtMs - leftCreatedAtMs;
+        }
+      }
+
       const leftStartMs = resolveSolicitudSortStartMs(left, solicitudesListScope, nowMs);
       const rightStartMs = resolveSolicitudSortStartMs(right, solicitudesListScope, nowMs);
       if (leftStartMs !== rightStartMs) return leftStartMs - rightStartMs;
@@ -1041,7 +1051,7 @@ export function SpaTabSolicitudes({
 
       return left.id.localeCompare(right.id, "es", { sensitivity: "base" });
     });
-  }, [solicitudesByLifecycle, solicitudesListScope]);
+  }, [solicitudesByLifecycle, solicitudesListScope, solicitudesSortMode]);
 
   const statusSummary = useMemo(() => {
     const counts = new Map<string, number>();
@@ -2059,6 +2069,29 @@ export function SpaTabSolicitudes({
               Finalizadas ({solicitudesByLifecycle.finalizadas.length})
             </Button>
           </Stack>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }} sx={{ mb: 1.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              Ordenar por:
+            </Typography>
+            <Stack direction="row" spacing={1}>
+              <Button
+                type="button"
+                size="small"
+                variant={solicitudesSortMode === "PROXIMA_INSTANCIA" ? "contained" : "outlined"}
+                onClick={() => setSolicitudesSortMode("PROXIMA_INSTANCIA")}
+              >
+                Proxima instancia
+              </Button>
+              <Button
+                type="button"
+                size="small"
+                variant={solicitudesSortMode === "FECHA_SOLICITUD" ? "contained" : "outlined"}
+                onClick={() => setSolicitudesSortMode("FECHA_SOLICITUD")}
+              >
+                Fecha de solicitud
+              </Button>
+            </Stack>
+          </Stack>
           {solicitudes.length === 0 && (
             <Typography variant="body2" color="text.secondary">
               No hay solicitudes registradas.
@@ -2396,6 +2429,12 @@ export function SpaTabSolicitudes({
                               Solicitado por
                             </Typography>
                             <Typography variant="body2">{requesterLabel}</Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Fecha de solicitud
+                            </Typography>
+                            <Typography variant="body2">{formatDateTime(item.createdAt)}</Typography>
                           </Box>
                           <Box>
                             <Typography variant="caption" color="text.secondary">
