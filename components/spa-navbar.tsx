@@ -19,6 +19,7 @@ import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import { FlacsoBrandLogo } from "@/components/flacso-brand-logo";
 import { UserMenu } from "@/components/user-menu";
 import {
+  type Tab,
   type NavigationGroup,
   NAVIGATION_GROUP_LABEL,
   NAVIGATION_GROUP_ORDER,
@@ -56,7 +57,7 @@ type SpaNavbarProps = {
   onCreateDocenteShortcut?: () => void;
   adminNavigationGroups?: Array<{
     group: NavigationGroup;
-    tabs: string[];
+    tabs: Tab[];
   }>;
   roleQuickActions?: NavbarAction[];
   onSelectTab: (tab: string) => void;
@@ -255,7 +256,7 @@ export function SpaNavbar({
                             <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
                               {getTabIcon(groupTab)}
                             </Box>
-                            <Box component="span">{TAB_CONFIG[groupTab as keyof typeof TAB_CONFIG].label}</Box>
+                            <Box component="span">{TAB_CONFIG[groupTab].label}</Box>
                           </MenuItem>
                         ))}
                       </Menu>
