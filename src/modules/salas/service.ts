@@ -3321,7 +3321,6 @@ export class SalasService {
               },
               evento: {
                 requiereAsistencia: true,
-                estadoEjecucion: EstadoEjecucionEvento.EJECUTADO,
                 estadoEvento: { not: EstadoEventoZoom.CANCELADO },
                 inicioProgramadoAt: {
                   gte: previousMonthStart,
