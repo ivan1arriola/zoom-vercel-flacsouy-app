@@ -20,6 +20,7 @@ import {
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import GoogleIcon from "@mui/icons-material/Google";
+import { FlacsoBrandLogo } from "@/components/flacso-brand-logo";
 
 type InlineLoginProps = {
   initialError?: string;
@@ -372,9 +373,10 @@ export function InlineLogin({
   return (
     <Box component="section">
       <Box sx={{ maxWidth: 980, mx: "auto" }}>
-        <Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>
-          FLACSO Uruguay
-        </Typography>
+        <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mb: 0.8 }}>
+          <FlacsoBrandLogo variant="primary" backgroundTone="light" height={36} />
+          <FlacsoBrandLogo variant="secondary" backgroundTone="light" height={20} />
+        </Stack>
         <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
           Herramienta para coordinar salas Zoom
         </Typography>

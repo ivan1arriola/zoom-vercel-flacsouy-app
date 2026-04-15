@@ -124,6 +124,7 @@ import { SpaTabPasadasReunionesZoom } from "@/components/spa-tabs/SpaTabPasadasR
 import { SpaTabUsuarios } from "@/components/spa-tabs/SpaTabUsuarios";
 import { SpaTabPerfil } from "@/components/spa-tabs/SpaTabPerfil";
 import { buildDocenteSolicitudPayload } from "@/components/spa-tabs/solicitud-payload-builder";
+import { FlacsoBrandLogo } from "@/components/flacso-brand-logo";
 
 
 export type CurrentUser = {
@@ -2370,6 +2371,12 @@ export function SpaHomeScreen() {
             alignItems={{ xs: "flex-start", sm: "center" }}
           >
             <Box sx={{ minWidth: 0 }}>
+              <FlacsoBrandLogo
+                variant="primary"
+                backgroundTone="auto"
+                height={30}
+                sx={{ mb: 0.5 }}
+              />
               <Typography variant="overline" color="text.secondary">
                 {isAdminWorkspace ? "Panel principal" : "Vista por rol"}
               </Typography>
