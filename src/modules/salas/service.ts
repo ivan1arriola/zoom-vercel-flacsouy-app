@@ -4896,54 +4896,57 @@ export class SalasService {
       const motivo = (input.motivo ?? "").trim() ||
         "Asistencia Zoom habilitada para una instancia puntual desde la pestana Solicitudes.";
 
-      await db.$transaction(async (tx) => {
-        await tx.eventoZoom.update({
-          where: { id: targetEvent.id },
-          data: {
-            requiereAsistencia: true,
-            estadoCobertura:
-              targetEvent.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE
-                ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
-                : targetEvent.estadoCobertura,
-            agendaAbiertaAt: targetEvent.agendaAbiertaAt ?? now,
-            agendaCierraAt: resolvedAgendaCierraAt
-          }
-        });
-
-        if (!solicitud.requiereAsistencia) {
-          await tx.solicitudSala.update({
-            where: { id: solicitud.id },
+      await db.$transaction(
+        async (tx) => {
+          await tx.eventoZoom.update({
+            where: { id: targetEvent.id },
             data: {
               requiereAsistencia: true,
-              motivoAsistencia: solicitud.motivoAsistencia?.trim() ? solicitud.motivoAsistencia : motivo
-            }
-          });
-        }
-
-        await tx.auditoria.create({
-          data: {
-            actorUsuarioId: user.id,
-            accion: "SOLICITUD_HABILITA_ASISTENCIA_INSTANCIA",
-            entidadTipo: "EventoZoom",
-            entidadId: targetEvent.id,
-            valorAnterior: {
-              solicitudRequiereAsistencia: solicitud.requiereAsistencia,
-              eventoRequiereAsistencia: targetEvent.requiereAsistencia,
-              eventoEstadoCobertura: targetEvent.estadoCobertura
-            },
-            valorNuevo: {
-              solicitudRequiereAsistencia: true,
-              eventoRequiereAsistencia: true,
-              eventoEstadoCobertura:
+              estadoCobertura:
                 targetEvent.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE
                   ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
                   : targetEvent.estadoCobertura,
-              eventoId: targetEvent.id,
-              motivo
+              agendaAbiertaAt: targetEvent.agendaAbiertaAt ?? now,
+              agendaCierraAt: resolvedAgendaCierraAt
             }
+          });
+
+          if (!solicitud.requiereAsistencia) {
+            await tx.solicitudSala.update({
+              where: { id: solicitud.id },
+              data: {
+                requiereAsistencia: true,
+                motivoAsistencia: solicitud.motivoAsistencia?.trim() ? solicitud.motivoAsistencia : motivo
+              }
+            });
           }
-        });
-      });
+
+          await tx.auditoria.create({
+            data: {
+              actorUsuarioId: user.id,
+              accion: "SOLICITUD_HABILITA_ASISTENCIA_INSTANCIA",
+              entidadTipo: "EventoZoom",
+              entidadId: targetEvent.id,
+              valorAnterior: {
+                solicitudRequiereAsistencia: solicitud.requiereAsistencia,
+                eventoRequiereAsistencia: targetEvent.requiereAsistencia,
+                eventoEstadoCobertura: targetEvent.estadoCobertura
+              },
+              valorNuevo: {
+                solicitudRequiereAsistencia: true,
+                eventoRequiereAsistencia: true,
+                eventoEstadoCobertura:
+                  targetEvent.estadoCobertura === EstadoCoberturaSoporte.NO_REQUIERE
+                    ? EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+                    : targetEvent.estadoCobertura,
+                eventoId: targetEvent.id,
+                motivo
+              }
+            }
+          });
+        },
+        { timeout: 15000 }
+      );
 
       await notifyAdminTelegramMovement({
         action: "SOLICITUD_HABILITA_ASISTENCIA_INSTANCIA",
@@ -5025,77 +5028,80 @@ export class SalasService {
       });
     }
 
-    const result = await db.$transaction(async (tx) => {
-      await tx.eventoZoom.update({
-        where: { id: targetEvent.id },
-        data: {
-          requiereAsistencia: false,
-          estadoCobertura: EstadoCoberturaSoporte.NO_REQUIERE,
-          agendaAbiertaAt: null,
-          agendaCierraAt: null
-        }
-      });
-
-      const assignmentsResult = await tx.asignacionAsistente.updateMany({
-        where: {
-          eventoZoomId: targetEvent.id,
-          estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
-        },
-        data: {
-          estadoAsignacion: EstadoAsignacion.CANCELADO
-        }
-      });
-
-      const remainingAssistanceInstances = await tx.eventoZoom.count({
-        where: {
-          solicitudSalaId: solicitud.id,
-          id: { not: targetEvent.id },
-          finProgramadoAt: { gt: now },
-          estadoEvento: { notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO] },
-          requiereAsistencia: true,
-          estadoCobertura: { not: EstadoCoberturaSoporte.NO_REQUIERE }
-        }
-      });
-
-      let solicitudRequiereAsistencia = true;
-      if (remainingAssistanceInstances === 0) {
-        await tx.solicitudSala.update({
-          where: { id: solicitud.id },
+    const result = await db.$transaction(
+      async (tx) => {
+        await tx.eventoZoom.update({
+          where: { id: targetEvent.id },
           data: {
             requiereAsistencia: false,
-            motivoAsistencia: null
+            estadoCobertura: EstadoCoberturaSoporte.NO_REQUIERE,
+            agendaAbiertaAt: null,
+            agendaCierraAt: null
           }
         });
-        solicitudRequiereAsistencia = false;
-      }
 
-      await tx.auditoria.create({
-        data: {
-          actorUsuarioId: user.id,
-          accion: "SOLICITUD_DESHABILITA_ASISTENCIA_INSTANCIA",
-          entidadTipo: "EventoZoom",
-          entidadId: targetEvent.id,
-          valorAnterior: {
-            solicitudRequiereAsistencia: solicitud.requiereAsistencia,
-            eventoRequiereAsistencia: targetEvent.requiereAsistencia,
-            eventoEstadoCobertura: targetEvent.estadoCobertura
+        const assignmentsResult = await tx.asignacionAsistente.updateMany({
+          where: {
+            eventoZoomId: targetEvent.id,
+            estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
           },
-          valorNuevo: {
-            solicitudRequiereAsistencia,
-            eventoRequiereAsistencia: false,
-            eventoEstadoCobertura: EstadoCoberturaSoporte.NO_REQUIERE,
-            eventoId: targetEvent.id,
-            cancelledAssignments: assignmentsResult.count,
-            motivo
+          data: {
+            estadoAsignacion: EstadoAsignacion.CANCELADO
           }
-        }
-      });
+        });
 
-      return {
-        cancelledAssignments: assignmentsResult.count,
-        solicitudRequiereAsistencia
-      };
-    });
+        const remainingAssistanceInstances = await tx.eventoZoom.count({
+          where: {
+            solicitudSalaId: solicitud.id,
+            id: { not: targetEvent.id },
+            finProgramadoAt: { gt: now },
+            estadoEvento: { notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO] },
+            requiereAsistencia: true,
+            estadoCobertura: { not: EstadoCoberturaSoporte.NO_REQUIERE }
+          }
+        });
+
+        let solicitudRequiereAsistencia = true;
+        if (remainingAssistanceInstances === 0) {
+          await tx.solicitudSala.update({
+            where: { id: solicitud.id },
+            data: {
+              requiereAsistencia: false,
+              motivoAsistencia: null
+            }
+          });
+          solicitudRequiereAsistencia = false;
+        }
+
+        await tx.auditoria.create({
+          data: {
+            actorUsuarioId: user.id,
+            accion: "SOLICITUD_DESHABILITA_ASISTENCIA_INSTANCIA",
+            entidadTipo: "EventoZoom",
+            entidadId: targetEvent.id,
+            valorAnterior: {
+              solicitudRequiereAsistencia: solicitud.requiereAsistencia,
+              eventoRequiereAsistencia: targetEvent.requiereAsistencia,
+              eventoEstadoCobertura: targetEvent.estadoCobertura
+            },
+            valorNuevo: {
+              solicitudRequiereAsistencia,
+              eventoRequiereAsistencia: false,
+              eventoEstadoCobertura: EstadoCoberturaSoporte.NO_REQUIERE,
+              eventoId: targetEvent.id,
+              cancelledAssignments: assignmentsResult.count,
+              motivo
+            }
+          }
+        });
+
+        return {
+          cancelledAssignments: assignmentsResult.count,
+          solicitudRequiereAsistencia
+        };
+      },
+      { timeout: 15000 }
+    );
 
     await notifyAdminTelegramMovement({
       action: "SOLICITUD_DESHABILITA_ASISTENCIA_INSTANCIA",

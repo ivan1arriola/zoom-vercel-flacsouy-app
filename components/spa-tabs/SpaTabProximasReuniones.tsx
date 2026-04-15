@@ -45,6 +45,18 @@ type ZoomMeetingGroup = {
   meetings: ZoomUpcomingMeeting[];
 };
 
+type ZoomMeetingGroupByDay = {
+  key: string;
+  label: string;
+  meetings: ZoomUpcomingMeeting[];
+};
+
+type ZoomMeetingsByMonthAndDay = {
+  key: string;
+  label: string;
+  dayGroups: ZoomMeetingGroupByDay[];
+};
+
 type ZoomRecurringSeries = {
   key: string;
   meetingId: string | null;
@@ -156,6 +168,69 @@ function groupMeetingsByPeriod(
   }
 
   return Array.from(grouped.values());
+}
+
+function groupMeetingsByMonthAndDay(meetings: ZoomUpcomingMeeting[]): ZoomMeetingsByMonthAndDay[] {
+  const monthGrouped = new Map<string, Map<string, ZoomMeetingGroupByDay>>();
+
+  for (const meeting of meetings) {
+    const startDate = new Date(meeting.startTime);
+    if (Number.isNaN(startDate.getTime())) continue;
+
+    const monthKey = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}`;
+    const monthLabel = new Intl.DateTimeFormat("es-UY", {
+      month: "long",
+      year: "numeric"
+    }).format(startDate);
+
+    const dayKey = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}-${String(
+      startDate.getDate()
+    ).padStart(2, "0")}`;
+    const dayLabel = new Intl.DateTimeFormat("es-UY", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    }).format(startDate);
+
+    let dayGroups = monthGrouped.get(monthKey);
+    if (!dayGroups) {
+      dayGroups = new Map();
+      monthGrouped.set(monthKey, dayGroups);
+    }
+
+    const existingDay = dayGroups.get(dayKey);
+    if (existingDay) {
+      existingDay.meetings.push(meeting);
+    } else {
+      dayGroups.set(dayKey, {
+        key: dayKey,
+        label: dayLabel,
+        meetings: [meeting]
+      });
+    }
+  }
+
+  const result: ZoomMeetingsByMonthAndDay[] = [];
+  for (const [monthKey, dayGroups] of monthGrouped.entries()) {
+    const firstDate = new Date(dayGroups.values().next().value.meetings[0].startTime);
+    const monthLabel = new Intl.DateTimeFormat("es-UY", {
+      month: "long",
+      year: "numeric"
+    }).format(firstDate);
+
+    const dayGroupsArray = Array.from(dayGroups.values());
+    dayGroupsArray.sort((a, b) => a.key.localeCompare(b.key));
+
+    result.push({
+      key: monthKey,
+      label: monthLabel,
+      dayGroups: dayGroupsArray
+    });
+  }
+
+  result.sort((a, b) => a.key.localeCompare(b.key));
+  return result;
 }
 
 function buildRecurringSeries(
@@ -294,6 +369,15 @@ export function SpaTabProximasReuniones({
 
   const groupedMeetings = useMemo(
     () => groupMeetingsByPeriod(meetings, grouping),
+    [meetings, grouping]
+  );
+  const groupedMeetingsByMonthAndDay = useMemo(
+    () => {
+      if (grouping === "MONTH") {
+        return groupMeetingsByMonthAndDay(meetings);
+      }
+      return [];
+    },
     [meetings, grouping]
   );
   const accountColorMap = useMemo(
@@ -878,16 +962,36 @@ export function SpaTabProximasReuniones({
         ) : (
           <Stack spacing={2}>
             {viewMode === "CALENDAR"
-              ? groupedMeetings.map((group) => (
-                  <Paper key={group.key} variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.8 }}>
-                      {group.label} ({group.meetings.length})
-                    </Typography>
-                    <Stack spacing={1}>
-                      {group.meetings.map((meeting) => renderMeetingCard(meeting, true))}
-                    </Stack>
-                  </Paper>
-                ))
+              ? grouping === "MONTH"
+                ? groupedMeetingsByMonthAndDay.map((monthGroup) => (
+                    <Paper key={monthGroup.key} variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.2 }}>
+                        {monthGroup.label} ({monthGroup.dayGroups.reduce((acc, dg) => acc + dg.meetings.length, 0)})
+                      </Typography>
+                      <Stack spacing={1.5}>
+                        {monthGroup.dayGroups.map((dayGroup) => (
+                          <Paper key={dayGroup.key} variant="outlined" sx={{ p: 1, borderRadius: 1.5, backgroundColor: "grey.50" }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.8, color: "primary.main" }}>
+                              {dayGroup.label} ({dayGroup.meetings.length})
+                            </Typography>
+                            <Stack spacing={1}>
+                              {dayGroup.meetings.map((meeting) => renderMeetingCard(meeting, true))}
+                            </Stack>
+                          </Paper>
+                        ))}
+                      </Stack>
+                    </Paper>
+                  ))
+                : groupedMeetings.map((group) => (
+                    <Paper key={group.key} variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.8 }}>
+                        {group.label} ({group.meetings.length})
+                      </Typography>
+                      <Stack spacing={1}>
+                        {group.meetings.map((meeting) => renderMeetingCard(meeting, true))}
+                      </Stack>
+                    </Paper>
+                  ))
               : recurringSeries.length === 0
                 ? (
                   <Typography variant="body2" color="text.secondary">

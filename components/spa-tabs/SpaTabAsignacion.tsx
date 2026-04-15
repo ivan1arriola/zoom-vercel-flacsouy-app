@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -13,6 +13,8 @@ import {
   Paper,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography
 } from "@mui/material";
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
@@ -75,6 +77,7 @@ export function SpaTabAsignacion({
   onSuggestMonthly,
   onSuggestNext
 }: SpaTabAsignacionProps) {
+  const [viewMode, setViewMode] = useState<"pending" | "assigned">("pending");
   const sortedEvents = useMemo(
     () =>
       [...assignmentBoardEvents].sort(
@@ -142,7 +145,6 @@ export function SpaTabAsignacion({
 
   function buildOptionsForEvent(item: AssignmentBoardEvent): Array<{ id: string; label: string }> {
     const currentAssignment = item.currentAssignment ?? null;
-    const interestedIds = new Set(item.interesados.map((interest) => interest.asistenteZoomId));
     const optionsMap = new Map<string, { id: string; label: string }>();
 
     if (currentAssignment) {
@@ -157,15 +159,6 @@ export function SpaTabAsignacion({
         optionsMap.set(interest.asistenteZoomId, {
           id: interest.asistenteZoomId,
           label: `${interest.nombre} (${interest.email})`
-        });
-      }
-    }
-
-    for (const assistant of assignableAssistants) {
-      if (!optionsMap.has(assistant.id) && !interestedIds.has(assistant.id)) {
-        optionsMap.set(assistant.id, {
-          id: assistant.id,
-          label: `${assistant.nombre} (${assistant.email})`
         });
       }
     }
@@ -189,12 +182,19 @@ export function SpaTabAsignacion({
         ? item.interesados.map((interest) => `${interest.nombre} (${interest.email})`).join(", ")
         : "Sin interesados";
     const isPending = section === "pending";
-    const actionDisabled = assigningEventId === item.id || !selectedAssistantId || isNoopSelection;
-    const actionHelper = !selectedAssistantId
-      ? "Selecciona una persona para habilitar la asignacion."
-      : isNoopSelection
-        ? "La persona elegida ya esta asignada a esta reunion."
-        : "Confirma para guardar la asignacion.";
+    const hasNoInterested = item.interesados.length === 0;
+    const actionDisabled = 
+      assigningEventId === item.id || 
+      !selectedAssistantId || 
+      isNoopSelection || 
+      hasNoInterested;
+    const actionHelper = hasNoInterested
+      ? "No hay interesados postulados. Solo se pueden asignar personas que se hayan postulado."
+      : !selectedAssistantId
+        ? "Selecciona un interesado de la lista."
+        : isNoopSelection
+          ? "La persona elegida ya esta asignada a esta reunion."
+          : "Confirma para guardar la asignacion.";
     const statusLabel = currentAssignment ? "Asignada" : "Pendiente";
     const statusColor = currentAssignment ? "success" : "warning";
     const suggestedAssignment =
@@ -212,6 +212,173 @@ export function SpaTabAsignacion({
       item.cuentaZoom?.nombreCuenta?.trim() ||
       null;
 
+    // For assigned view, show simplified version
+    if (section === "assigned") {
+      return (
+        <Paper
+          key={item.id}
+          variant="outlined"
+          sx={{
+            p: { xs: 1.2, sm: 1.5 },
+            borderRadius: 2.5,
+            borderColor: "info.main",
+            backgroundColor: "rgba(2, 136, 209, 0.04)"
+          }}
+        >
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={1.2}
+            justifyContent="space-between"
+            alignItems={{ xs: "flex-start", md: "center" }}
+          >
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                {item.solicitud.titulo}
+              </Typography>
+              <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
+                <Chip size="small" color="success" label="Asignada" />
+                <Chip size="small" variant="outlined" label={formatModalidad(item.modalidadReunion)} />
+                <Chip size="small" variant="outlined" label={formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)} />
+                {currentAssignment ? (
+                  <Chip
+                    size="small"
+                    color="info"
+                    variant="outlined"
+                    label={`Asignado: ${currentAssignment.nombre}`}
+                  />
+                ) : null}
+              </Stack>
+            </Box>
+          </Stack>
+
+          <Box
+            sx={{
+              mt: 1.2,
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "1.35fr 1fr"
+              },
+              gap: 1.1
+            }}
+          >
+            <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
+              <Typography variant="overline" color="text.secondary">
+                Detalle de la reunion
+              </Typography>
+              <Stack spacing={0.8} sx={{ mt: 0.2 }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Dia y hora
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {formatZoomDate(item.inicioProgramadoAt)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatZoomTime(item.inicioProgramadoAt)} a {formatZoomTime(item.finProgramadoAt)} (
+                    {formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
+                  </Typography>
+                </Box>
+                <Divider />
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Cuenta streaming asociada
+                  </Typography>
+                  <Typography variant="body2">
+                    {item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || "-"}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    ID de reunion
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                    {meetingId}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Cantidad de reuniones
+                  </Typography>
+                  <Typography variant="body2">
+                    {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Programa
+                  </Typography>
+                  <Typography variant="body2">{item.solicitud.programaNombre || "-"}</Typography>
+                </Box>
+                <ZoomAccountPasswordField
+                  hostAccount={hostAccount}
+                  label="Contrasena cuenta streaming"
+                />
+              </Stack>
+            </Paper>
+
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 1.2,
+                borderRadius: 2,
+                borderColor: "info.main",
+                backgroundColor: "rgba(2, 136, 209, 0.05)"
+              }}
+            >
+              <Typography variant="overline" color="text.secondary">
+                Asignacion actual
+              </Typography>
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Persona asignada
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                    {currentAssignment
+                      ? `${currentAssignment.nombre} (${currentAssignment.email})`
+                      : "Sin asignar"}
+                  </Typography>
+                </Box>
+                <Divider />
+                <Stack spacing={0.8}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="warning"
+                    startIcon={<CancelScheduleSendOutlinedIcon fontSize="small" />}
+                    onClick={() =>
+                      onRemoveAssistanceForEvent({
+                        eventoId: item.id,
+                        solicitudId: item.solicitud.id,
+                        titulo: item.solicitud.titulo,
+                        inicioProgramadoAt: item.inicioProgramadoAt
+                      })
+                    }
+                    disabled={removingAssistanceEventId === item.id}
+                    fullWidth
+                  >
+                    {removingAssistanceEventId === item.id
+                      ? "Cancelando..."
+                      : "Cancelar asistencia"}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={() => setViewMode("pending")}
+                    fullWidth
+                  >
+                    Cambiar asistencia
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+          </Box>
+        </Paper>
+      );
+    }
+
+    // For pending view, show full assignment interface
     return (
       <Paper
         key={item.id}
@@ -362,12 +529,13 @@ export function SpaTabAsignacion({
               <Divider />
               <Box>
                 <Typography variant="caption" color="text.secondary">
-                  Seleccion manual
+                  Asignar interesado
                 </Typography>
                 <TextField
                   select
                   size="small"
                   fullWidth
+                  disabled={hasNoInterested}
                   value={selectedAssistantByEvent[item.id] ?? ""}
                   onChange={(e) => onSelectedAssistantChange(item.id, e.target.value)}
                   sx={{ mt: 0.4 }}
@@ -414,7 +582,7 @@ export function SpaTabAsignacion({
                     if (!suggestedAssignment) return;
                     onSelectedAssistantChange(item.id, suggestedAssignment.asistenteZoomId);
                   }}
-                  disabled={!canApplySuggestionToSelector}
+                  disabled={!canApplySuggestionToSelector || hasNoInterested}
                   sx={{ mt: 0.8 }}
                 >
                   Aplicar sugerencia al selector
@@ -652,74 +820,107 @@ export function SpaTabAsignacion({
               sx={{
                 p: 1.2,
                 borderRadius: 2.5,
-                borderColor: "warning.main",
-                backgroundColor: "rgba(237, 108, 2, 0.03)"
+                mb: 1.5,
+                borderColor: "primary.main"
               }}
             >
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                spacing={0.8}
-                alignItems={{ xs: "flex-start", sm: "center" }}
-                justifyContent="space-between"
-              >
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                    Reuniones sin asistencia Zoom ({pendingEvents.length})
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Prioridad operativa: estas reuniones requieren asignacion.
-                  </Typography>
-                </Box>
-                <Chip color="warning" label={`Pendientes: ${pendingEvents.length}`} />
-              </Stack>
-
-              {pendingEvents.length === 0 ? (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  No hay reuniones pendientes de asignacion.
+              <Stack direction="row" spacing={1}>
+                <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+                  Selecciona la vista:
                 </Typography>
-              ) : (
-                <Stack spacing={1} sx={{ mt: 1 }}>
-                  {pendingEvents.map((item) => renderEventCard(item, "pending"))}
-                </Stack>
-              )}
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={viewMode}
+                  onChange={(_event, value: "pending" | "assigned" | null) => {
+                    if (value) setViewMode(value);
+                  }}
+                >
+                  <ToggleButton value="pending">
+                    Sin asignar ({pendingEvents.length})
+                  </ToggleButton>
+                  <ToggleButton value="assigned">
+                    Asignadas ({assignedEvents.length})
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Stack>
             </Paper>
 
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 1.2,
-                borderRadius: 2.5,
-                borderColor: "info.main",
-                backgroundColor: "rgba(2, 136, 209, 0.03)"
-              }}
-            >
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                spacing={0.8}
-                alignItems={{ xs: "flex-start", sm: "center" }}
-                justifyContent="space-between"
+            {viewMode === "pending" ? (
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 1.2,
+                  borderRadius: 2.5,
+                  borderColor: "warning.main",
+                  backgroundColor: "rgba(237, 108, 2, 0.03)"
+                }}
               >
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                    Reuniones asignadas ({assignedEvents.length})
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Mantenimiento: puedes reasignar si necesitas balancear la carga.
-                  </Typography>
-                </Box>
-                <Chip color="info" label={`Asignadas: ${assignedEvents.length}`} />
-              </Stack>
-
-              {assignedEvents.length === 0 ? (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  No hay reuniones asignadas actualmente.
-                </Typography>
-              ) : (
-                <Stack spacing={1} sx={{ mt: 1 }}>
-                  {assignedEvents.map((item) => renderEventCard(item, "assigned"))}
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={0.8}
+                  alignItems={{ xs: "flex-start", sm: "center" }}
+                  justifyContent="space-between"
+                >
+                  <Box>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                      Reuniones sin asistencia Zoom ({pendingEvents.length})
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Prioridad operativa: estas reuniones requieren asignacion.
+                    </Typography>
+                  </Box>
+                  <Chip color="warning" label={`Pendientes: ${pendingEvents.length}`} />
                 </Stack>
-              )}
-            </Paper>
+
+                {pendingEvents.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    No hay reuniones pendientes de asignacion.
+                  </Typography>
+                ) : (
+                  <Stack spacing={1} sx={{ mt: 1 }}>
+                    {pendingEvents.map((item) => renderEventCard(item, "pending"))}
+                  </Stack>
+                )}
+              </Paper>
+            ) : (
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 1.2,
+                  borderRadius: 2.5,
+                  borderColor: "info.main",
+                  backgroundColor: "rgba(2, 136, 209, 0.03)"
+                }}
+              >
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={0.8}
+                  alignItems={{ xs: "flex-start", sm: "center" }}
+                  justifyContent="space-between"
+                >
+                  <Box>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                      Reuniones asignadas ({assignedEvents.length})
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Mantenimiento: presiona "Cambiar asistencia" para reasignar.
+                    </Typography>
+                  </Box>
+                  <Chip color="info" label={`Asignadas: ${assignedEvents.length}`} />
+                </Stack>
+
+                {assignedEvents.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    No hay reuniones asignadas actualmente.
+                  </Typography>
+                ) : (
+                  <Stack spacing={1} sx={{ mt: 1 }}>
+                    {assignedEvents.map((item) => renderEventCard(item, "assigned"))}
+                  </Stack>
+                )}
+              </Paper>
+            )}
           </Stack>
         )}
       </CardContent>
