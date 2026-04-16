@@ -15,6 +15,7 @@ import UpcomingOutlinedIcon from "@mui/icons-material/UpcomingOutlined";
 import HistoryToggleOffOutlinedIcon from "@mui/icons-material/HistoryToggleOffOutlined";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
+import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 
 export const tabs = [
   "dashboard",
@@ -29,6 +30,7 @@ export const tabs = [
   "cuentas",
   "proximas_zoom",
   "pasadas_zoom",
+  "estadisticas",
   "tarifas",
   "usuarios",
   "perfil"
@@ -130,6 +132,12 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     roles: ["ADMINISTRADOR"],
     group: "ZOOM"
   },
+  estadisticas: {
+    label: "Estadisticas",
+    visibleInNavigation: true,
+    roles: ["ADMINISTRADOR"],
+    group: "ADMIN"
+  },
   tarifas: {
     label: "Tarifas",
     visibleInNavigation: true,
@@ -209,6 +217,8 @@ export function getTabIcon(tab: Tab): ReactNode {
       return <UpcomingOutlinedIcon fontSize="small" />;
     case "pasadas_zoom":
       return <HistoryToggleOffOutlinedIcon fontSize="small" />;
+    case "estadisticas":
+      return <QueryStatsOutlinedIcon fontSize="small" />;
     case "tarifas":
       return <PaidOutlinedIcon fontSize="small" />;
     case "usuarios":

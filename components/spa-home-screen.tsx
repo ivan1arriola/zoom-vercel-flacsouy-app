@@ -114,6 +114,7 @@ import { SpaTabProximasReuniones } from "@/components/spa-tabs/SpaTabProximasReu
 import { SpaTabPasadasReunionesZoom } from "@/components/spa-tabs/SpaTabPasadasReunionesZoom";
 import { SpaTabUsuarios } from "@/components/spa-tabs/SpaTabUsuarios";
 import { SpaTabPerfil } from "@/components/spa-tabs/SpaTabPerfil";
+import { SpaTabEstadisticas } from "@/components/spa-tabs/SpaTabEstadisticas";
 import { buildDocenteSolicitudPayload } from "@/components/spa-tabs/solicitud-payload-builder";
 
 
@@ -431,6 +432,7 @@ export function SpaHomeScreen() {
   const canSeeMisAsistencias = canAccessTabForRole("mis_asistencias", effectiveRole);
   const canSeeAssignmentBoard = canAccessTabForRole("asignacion", effectiveRole);
   const canSeeTarifas = canAccessTabForRole("tarifas", effectiveRole);
+  const canSeeEstadisticas = canAccessTabForRole("estadisticas", effectiveRole);
   const canSeeSolicitudes = canAccessTabForRole("solicitudes", effectiveRole);
   const canSeeProgramas = canAccessTabForRole("programas", effectiveRole);
   const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
@@ -2434,6 +2436,10 @@ export function SpaHomeScreen() {
           onSelectMonthKey={selectZoomPastMonth}
           onCreatePostMeetingRecord={preloadPastMeetingFormFromZoom}
         />
+      )}
+
+      {String(tab) === "estadisticas" && canSeeEstadisticas && (
+        <SpaTabEstadisticas />
       )}
 
       {tab === "usuarios" && canSeeUsers && (

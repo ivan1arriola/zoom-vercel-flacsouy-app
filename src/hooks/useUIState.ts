@@ -14,6 +14,7 @@ const tabs = [
   "cuentas",
   "proximas_zoom",
   "pasadas_zoom",
+  "estadisticas",
   "tarifas",
   "usuarios",
   "perfil"
