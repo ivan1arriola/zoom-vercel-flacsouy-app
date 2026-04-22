@@ -1,6 +1,8 @@
-# FLACSO Zoom Salas (Next.js + Prisma)
+# FLACSO Zoom Web
 
-Sistema web para gestión institucional de solicitudes Zoom, cobertura de asistencia, asignaciones y base económica.
+App web principal para gestion institucional de solicitudes Zoom, cobertura de asistencia, asignaciones y base economica.
+
+Este proyecto representa la capa web pensada para Vercel. La sincronizacion pesada con Zoom/Drive y la futura API externa viven por separado en `../flacso-zoom-sync-backend`.
 
 ## Estado actual
 

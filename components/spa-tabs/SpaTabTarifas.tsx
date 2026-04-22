@@ -38,6 +38,81 @@ const modalidadCards: Array<{ key: TarifaModalidad; label: string }> = [
   { key: "HIBRIDA", label: "Hibrida" }
 ];
 
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function formatAmount(value: number, currency: string): string {
+  const formatted = new Intl.NumberFormat("es-UY", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(round2(value));
+  return currency ? `${currency} ${formatted}` : formatted;
+}
+
+function resolveMonthProjection(monthKey: string): {
+  isCurrentMonth: boolean;
+  isPastMonth: boolean;
+  isFutureMonth: boolean;
+  factor: number;
+  elapsedDays: number;
+  daysInMonth: number;
+} {
+  const [yearRaw = "0", monthRaw = "0"] = monthKey.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return {
+      isCurrentMonth: false,
+      isPastMonth: false,
+      isFutureMonth: false,
+      factor: 1,
+      elapsedDays: 0,
+      daysInMonth: 0
+    };
+  }
+
+  const now = new Date();
+  const nowYear = now.getFullYear();
+  const nowMonth = now.getMonth() + 1;
+  const isCurrentMonth = year === nowYear && month === nowMonth;
+  const isPastMonth = year < nowYear || (year === nowYear && month < nowMonth);
+  const isFutureMonth = year > nowYear || (year === nowYear && month > nowMonth);
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  if (isCurrentMonth) {
+    const elapsedDays = Math.min(daysInMonth, Math.max(1, now.getDate()));
+    return {
+      isCurrentMonth,
+      isPastMonth,
+      isFutureMonth,
+      factor: daysInMonth / elapsedDays,
+      elapsedDays,
+      daysInMonth
+    };
+  }
+
+  if (isPastMonth) {
+    return {
+      isCurrentMonth,
+      isPastMonth,
+      isFutureMonth,
+      factor: 1,
+      elapsedDays: daysInMonth,
+      daysInMonth
+    };
+  }
+
+  return {
+    isCurrentMonth,
+    isPastMonth,
+    isFutureMonth,
+    factor: 0,
+    elapsedDays: 0,
+    daysInMonth
+  };
+}
+
 function formatMonthKey(monthKey: string): string {
   const [yearRaw = "0", monthRaw = "1"] = monthKey.split("-");
   const year = Number(yearRaw);
@@ -102,20 +177,50 @@ export function SpaTabTarifas({
     void refreshPersonHours();
   }, [showHoursPanel]);
 
+  const currencyByModalidad = useMemo(
+    () => ({
+      VIRTUAL: (currentTarifaByModalidad.VIRTUAL?.moneda ?? "").trim().toUpperCase(),
+      HIBRIDA: (currentTarifaByModalidad.HIBRIDA?.moneda ?? "").trim().toUpperCase()
+    }),
+    [currentTarifaByModalidad]
+  );
+  const hasMixedCurrencies = useMemo(
+    () =>
+      Boolean(
+        currencyByModalidad.VIRTUAL &&
+        currencyByModalidad.HIBRIDA &&
+        currencyByModalidad.VIRTUAL !== currencyByModalidad.HIBRIDA
+      ),
+    [currencyByModalidad]
+  );
+  const projection = useMemo(() => resolveMonthProjection(selectedMonthKey), [selectedMonthKey]);
+  const projectionAmountLabel = projection.isCurrentMonth ? "Proyeccion fin de mes" : "Total estimado del mes";
+
   const monthOptions = useMemo(() => getMonthOptions(personHours), [personHours]);
   const assistantRows = useMemo(() => {
     return (personHours?.assistantSummaries ?? []).map((assistant) => {
       const monthSummary = selectedMonthKey
         ? assistant.months.find((month) => month.monthKey === selectedMonthKey) ?? null
         : null;
+      const selectedMonthAmountVirtual = monthSummary?.estimatedAmountVirtual ?? 0;
+      const selectedMonthAmountHibrida = monthSummary?.estimatedAmountHibrida ?? 0;
+      const selectedMonthAmount = monthSummary?.estimatedAmount ?? 0;
       return {
         ...assistant,
         selectedMonthMeetings: monthSummary?.meetingsCount ?? 0,
         selectedMonthHours: monthSummary?.totalHours ?? 0,
+        selectedMonthVirtualHours: monthSummary?.virtualHours ?? 0,
+        selectedMonthHibridaHours: monthSummary?.hibridaHours ?? 0,
+        selectedMonthAmountVirtual,
+        selectedMonthAmountHibrida,
+        selectedMonthAmount,
+        projectedMonthAmountVirtual: round2(selectedMonthAmountVirtual * projection.factor),
+        projectedMonthAmountHibrida: round2(selectedMonthAmountHibrida * projection.factor),
+        projectedMonthAmount: round2(selectedMonthAmount * projection.factor),
         selectedMonthOverrunAlerts: monthSummary?.overrunAlerts ?? 0
       };
     });
-  }, [personHours, selectedMonthKey]);
+  }, [personHours, projection.factor, selectedMonthKey]);
   const selectedMonthLabel = useMemo(
     () => (selectedMonthKey ? formatMonthKey(selectedMonthKey) : "Sin datos"),
     [selectedMonthKey]
@@ -123,6 +228,20 @@ export function SpaTabTarifas({
   const selectedMonthTotals = useMemo(() => {
     const meetings = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthMeetings, 0);
     const hoursRaw = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthHours, 0);
+    const virtualHoursRaw = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthVirtualHours, 0);
+    const hibridaHoursRaw = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthHibridaHours, 0);
+    const amountRaw = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthAmount, 0);
+    const amountVirtualRaw = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthAmountVirtual, 0);
+    const amountHibridaRaw = assistantRows.reduce((acc, assistant) => acc + assistant.selectedMonthAmountHibrida, 0);
+    const projectedAmountRaw = assistantRows.reduce((acc, assistant) => acc + assistant.projectedMonthAmount, 0);
+    const projectedAmountVirtualRaw = assistantRows.reduce(
+      (acc, assistant) => acc + assistant.projectedMonthAmountVirtual,
+      0
+    );
+    const projectedAmountHibridaRaw = assistantRows.reduce(
+      (acc, assistant) => acc + assistant.projectedMonthAmountHibrida,
+      0
+    );
     const overrunAlerts = assistantRows.reduce(
       (acc, assistant) => acc + assistant.selectedMonthOverrunAlerts,
       0
@@ -131,7 +250,15 @@ export function SpaTabTarifas({
       assistants: assistantRows.length,
       activeAssistants: assistantRows.filter((assistant) => assistant.selectedMonthHours > 0).length,
       meetings,
-      hours: Math.round(hoursRaw * 100) / 100,
+      hours: round2(hoursRaw),
+      virtualHours: round2(virtualHoursRaw),
+      hibridaHours: round2(hibridaHoursRaw),
+      amount: round2(amountRaw),
+      amountVirtual: round2(amountVirtualRaw),
+      amountHibrida: round2(amountHibridaRaw),
+      projectedAmount: round2(projectedAmountRaw),
+      projectedAmountVirtual: round2(projectedAmountVirtualRaw),
+      projectedAmountHibrida: round2(projectedAmountHibridaRaw),
       overrunAlerts
     };
   }, [assistantRows]);
@@ -244,6 +371,9 @@ export function SpaTabTarifas({
                 <Typography variant="body2" color="text.secondary">
                   Vista para Administracion y Contaduria: reuniones y horas efectivas por mes.
                 </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.4 }}>
+                  La proyeccion toma el ritmo de horas acumuladas y lo extrapola al cierre del mes.
+                </Typography>
               </Box>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ minWidth: { md: 320 } }}>
                 <TextField
@@ -286,6 +416,40 @@ export function SpaTabTarifas({
                 <Chip variant="outlined" label={`${selectedMonthTotals.activeAssistants} con horas`} />
                 <Chip variant="outlined" label={`${selectedMonthTotals.meetings} reuniones`} />
                 <Chip color="success" variant="filled" label={`${selectedMonthTotals.hours} h`} />
+                <Chip variant="outlined" label={`Virtual ${selectedMonthTotals.virtualHours} h`} />
+                <Chip variant="outlined" label={`Hibrida ${selectedMonthTotals.hibridaHours} h`} />
+                {hasMixedCurrencies ? (
+                  <Chip
+                    color="primary"
+                    variant="outlined"
+                    label={`Acumulado: Virtual ${formatAmount(selectedMonthTotals.amountVirtual, currencyByModalidad.VIRTUAL)} + Hibrida ${formatAmount(selectedMonthTotals.amountHibrida, currencyByModalidad.HIBRIDA)}`}
+                  />
+                ) : (
+                  <Chip
+                    color="primary"
+                    variant="outlined"
+                    label={`Acumulado: ${formatAmount(selectedMonthTotals.amount, currencyByModalidad.VIRTUAL || currencyByModalidad.HIBRIDA)}`}
+                  />
+                )}
+                {hasMixedCurrencies ? (
+                  <Chip
+                    color="secondary"
+                    variant="outlined"
+                    label={`${projectionAmountLabel}: Virtual ${formatAmount(selectedMonthTotals.projectedAmountVirtual, currencyByModalidad.VIRTUAL)} + Hibrida ${formatAmount(selectedMonthTotals.projectedAmountHibrida, currencyByModalidad.HIBRIDA)}`}
+                  />
+                ) : (
+                  <Chip
+                    color="secondary"
+                    variant="outlined"
+                    label={`${projectionAmountLabel}: ${formatAmount(selectedMonthTotals.projectedAmount, currencyByModalidad.VIRTUAL || currencyByModalidad.HIBRIDA)}`}
+                  />
+                )}
+                {projection.isCurrentMonth ? (
+                  <Chip
+                    variant="outlined"
+                    label={`Proyeccion por ritmo: ${projection.elapsedDays}/${projection.daysInMonth} dias`}
+                  />
+                ) : null}
                 {selectedMonthTotals.overrunAlerts > 0 ? (
                   <Chip
                     color="warning"
@@ -330,6 +494,12 @@ export function SpaTabTarifas({
                           color={assistant.selectedMonthHours > 0 ? "success" : "default"}
                           label={`${assistant.selectedMonthHours} h`}
                         />
+                        {assistant.selectedMonthVirtualHours > 0 ? (
+                          <Chip size="small" variant="outlined" label={`V ${assistant.selectedMonthVirtualHours} h`} />
+                        ) : null}
+                        {assistant.selectedMonthHibridaHours > 0 ? (
+                          <Chip size="small" variant="outlined" label={`H ${assistant.selectedMonthHibridaHours} h`} />
+                        ) : null}
                         {assistant.selectedMonthOverrunAlerts > 0 ? (
                           <Chip
                             size="small"
@@ -339,6 +509,26 @@ export function SpaTabTarifas({
                           />
                         ) : null}
                       </Stack>
+                      {assistant.selectedMonthHours > 0 ? (
+                        <Stack spacing={0.3}>
+                          <Typography variant="caption" color="text.secondary">
+                            Acumulado estimado: {hasMixedCurrencies
+                              ? `Virtual ${formatAmount(assistant.selectedMonthAmountVirtual, currencyByModalidad.VIRTUAL)} + Hibrida ${formatAmount(assistant.selectedMonthAmountHibrida, currencyByModalidad.HIBRIDA)}`
+                              : formatAmount(
+                                assistant.selectedMonthAmount,
+                                currencyByModalidad.VIRTUAL || currencyByModalidad.HIBRIDA
+                              )}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {projectionAmountLabel}: {hasMixedCurrencies
+                              ? `Virtual ${formatAmount(assistant.projectedMonthAmountVirtual, currencyByModalidad.VIRTUAL)} + Hibrida ${formatAmount(assistant.projectedMonthAmountHibrida, currencyByModalidad.HIBRIDA)}`
+                              : formatAmount(
+                                assistant.projectedMonthAmount,
+                                currencyByModalidad.VIRTUAL || currencyByModalidad.HIBRIDA
+                              )}
+                          </Typography>
+                        </Stack>
+                      ) : null}
 
                       {assistant.hasAssistantProfile ? (
                         <Typography variant="caption" color="text.secondary">

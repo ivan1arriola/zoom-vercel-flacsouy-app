@@ -213,14 +213,17 @@ function groupMeetingsByMonthAndDay(meetings: ZoomUpcomingMeeting[]): ZoomMeetin
 
   const result: ZoomMeetingsByMonthAndDay[] = [];
   for (const [monthKey, dayGroups] of monthGrouped.entries()) {
-    const firstDate = new Date(dayGroups.values().next().value.meetings[0].startTime);
+    const dayGroupsArray = Array.from(dayGroups.values());
+    dayGroupsArray.sort((a, b) => a.key.localeCompare(b.key));
+    if (dayGroupsArray.length === 0 || dayGroupsArray[0].meetings.length === 0) {
+      continue;
+    }
+
+    const firstDate = new Date(dayGroupsArray[0].meetings[0].startTime);
     const monthLabel = new Intl.DateTimeFormat("es-UY", {
       month: "long",
       year: "numeric"
     }).format(firstDate);
-
-    const dayGroupsArray = Array.from(dayGroups.values());
-    dayGroupsArray.sort((a, b) => a.key.localeCompare(b.key));
 
     result.push({
       key: monthKey,

@@ -110,14 +110,16 @@ function groupMeetingsByMonthAndDay(meetings: PersonHoursMeeting[]): MonthWithDa
 
   const result: MonthWithDaysGroup[] = [];
   for (const [monthKey, dayGroups] of monthGrouped.entries()) {
-    const firstDay = dayGroups.values().next().value;
-    const firstDate = new Date(firstDay.meetings[0].inicioAt);
+    const dayGroupsArray = Array.from(dayGroups.values());
+    dayGroupsArray.sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+    if (dayGroupsArray.length === 0 || dayGroupsArray[0].meetings.length === 0) {
+      continue;
+    }
+
+    const firstDate = new Date(dayGroupsArray[0].meetings[0].inicioAt);
     const monthLabel = capitalizeFirst(
       firstDate.toLocaleDateString("es-UY", { month: "long", year: "numeric" })
     );
-
-    const dayGroupsArray = Array.from(dayGroups.values());
-    dayGroupsArray.sort((a, b) => a.dayKey.localeCompare(b.dayKey));
 
     result.push({
       monthKey,

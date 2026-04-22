@@ -14,6 +14,7 @@ const tabs = [
   "cuentas",
   "proximas_zoom",
   "pasadas_zoom",
+  "zoom_drive_sync",
   "estadisticas",
   "tarifas",
   "usuarios",
@@ -34,6 +35,7 @@ export function useUIState() {
     if (rawTab === "asistencias") return "mis_asistencias" as Tab;
     if (rawTab === "proximas") return "proximas_zoom" as Tab;
     if (rawTab === "pasadas") return "pasadas_zoom" as Tab;
+    if (rawTab === "grabaciones") return "zoom_drive_sync" as Tab;
     if (rawTab === "programa") return "programas" as Tab;
     return tabs.includes(rawTab as Tab) ? (rawTab as Tab) : null;
   }, [searchParams]);

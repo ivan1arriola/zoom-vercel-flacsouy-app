@@ -298,4 +298,26 @@ export class ZoomMeetingsClient {
 
     return members;
   }
+
+  async listGroups(pageSize = 300): Promise<Array<Record<string, unknown>>> {
+    const groups: Array<Record<string, unknown>> = [];
+    let nextPageToken = "";
+
+    do {
+      const data = await this.requestJson("GET", "/groups", {
+        query: {
+          page_size: pageSize,
+          next_page_token: nextPageToken || undefined
+        }
+      });
+
+      const pageGroups = Array.isArray(data?.groups)
+        ? (data.groups as Array<Record<string, unknown>>)
+        : [];
+      groups.push(...pageGroups);
+      nextPageToken = typeof data?.next_page_token === "string" ? data.next_page_token : "";
+    } while (nextPageToken);
+
+    return groups;
+  }
 }

@@ -22,6 +22,13 @@ export type PersonHoursMonthSummary = {
   meetingsCount: number;
   totalMinutes: number;
   totalHours: number;
+  virtualMinutes: number;
+  hibridaMinutes: number;
+  virtualHours: number;
+  hibridaHours: number;
+  estimatedAmountVirtual: number;
+  estimatedAmountHibrida: number;
+  estimatedAmount: number;
   overrunAlerts: number;
 };
 
@@ -78,6 +85,13 @@ export type PersonHoursResponse = {
     totalCompletedMeetings: number;
     totalCompletedMinutes: number;
     totalCompletedHours: number;
+    totalVirtualMinutes: number;
+    totalHibridaMinutes: number;
+    totalVirtualHours: number;
+    totalHibridaHours: number;
+    totalEstimatedAmountVirtual: number;
+    totalEstimatedAmountHibrida: number;
+    totalEstimatedAmount: number;
     totalOverrunAlerts: number;
     months: PersonHoursMonthSummary[];
   }>;

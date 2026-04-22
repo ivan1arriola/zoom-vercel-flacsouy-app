@@ -9081,7 +9081,20 @@ export class SalasService {
       ? people.find((item) => item.userId === selectedUserId) ?? null
       : null;
 
+    const rates = await this.listTarifas();
+    const ratesByModalidad: Record<ModalidadReunion, { valorHora: number; moneda: string }> = {
+      [ModalidadReunion.VIRTUAL]: {
+        valorHora: Number(rates.find((rate) => rate.modalidadReunion === ModalidadReunion.VIRTUAL)?.valorHora ?? 0),
+        moneda: rates.find((rate) => rate.modalidadReunion === ModalidadReunion.VIRTUAL)?.moneda ?? ""
+      },
+      [ModalidadReunion.HIBRIDA]: {
+        valorHora: Number(rates.find((rate) => rate.modalidadReunion === ModalidadReunion.HIBRIDA)?.valorHora ?? 0),
+        moneda: rates.find((rate) => rate.modalidadReunion === ModalidadReunion.HIBRIDA)?.moneda ?? ""
+      }
+    };
+
     const now = new Date();
+    const round2 = (value: number) => Math.round(value * 100) / 100;
 
     const buildMeetingFromAssignment = (assignment: {
       id: string;
@@ -9197,6 +9210,7 @@ export class SalasService {
       completedMeetings: Array<{
         inicioAt: string;
         minutos: number;
+        modalidadReunion: ModalidadReunion;
         timezone: string;
         requiereRevisionAdminPorExceso: boolean;
       }>
@@ -9207,6 +9221,8 @@ export class SalasService {
         month: number;
         meetingsCount: number;
         totalMinutes: number;
+        virtualMinutes: number;
+        hibridaMinutes: number;
         overrunAlerts: number;
       }>();
 
@@ -9221,10 +9237,17 @@ export class SalasService {
           month,
           meetingsCount: 0,
           totalMinutes: 0,
+          virtualMinutes: 0,
+          hibridaMinutes: 0,
           overrunAlerts: 0
         };
         current.meetingsCount += 1;
         current.totalMinutes += meeting.minutos;
+        if (meeting.modalidadReunion === ModalidadReunion.VIRTUAL) {
+          current.virtualMinutes += meeting.minutos;
+        } else {
+          current.hibridaMinutes += meeting.minutos;
+        }
         if (meeting.requiereRevisionAdminPorExceso) {
           current.overrunAlerts += 1;
         }
@@ -9235,7 +9258,15 @@ export class SalasService {
         .sort((a, b) => b.monthKey.localeCompare(a.monthKey))
         .map((item) => ({
           ...item,
-          totalHours: Math.round((item.totalMinutes / 60) * 100) / 100
+          totalHours: round2(item.totalMinutes / 60),
+          virtualHours: round2(item.virtualMinutes / 60),
+          hibridaHours: round2(item.hibridaMinutes / 60),
+          estimatedAmountVirtual: round2((item.virtualMinutes / 60) * ratesByModalidad[ModalidadReunion.VIRTUAL].valorHora),
+          estimatedAmountHibrida: round2((item.hibridaMinutes / 60) * ratesByModalidad[ModalidadReunion.HIBRIDA].valorHora),
+          estimatedAmount: round2(
+            ((item.virtualMinutes / 60) * ratesByModalidad[ModalidadReunion.VIRTUAL].valorHora) +
+            ((item.hibridaMinutes / 60) * ratesByModalidad[ModalidadReunion.HIBRIDA].valorHora)
+          )
         }));
     };
 
@@ -9395,6 +9426,13 @@ export class SalasService {
       meetingsCount: number;
       totalMinutes: number;
       totalHours: number;
+      virtualMinutes: number;
+      hibridaMinutes: number;
+      virtualHours: number;
+      hibridaHours: number;
+      estimatedAmountVirtual: number;
+      estimatedAmountHibrida: number;
+      estimatedAmount: number;
       overrunAlerts: number;
     }>>();
 
@@ -9412,6 +9450,13 @@ export class SalasService {
         meetingsCount: number;
         totalMinutes: number;
         totalHours: number;
+        virtualMinutes: number;
+        hibridaMinutes: number;
+        virtualHours: number;
+        hibridaHours: number;
+        estimatedAmountVirtual: number;
+        estimatedAmountHibrida: number;
+        estimatedAmount: number;
         overrunAlerts: number;
       }>();
       const current = userMonths.get(monthKey) ?? {
@@ -9421,11 +9466,32 @@ export class SalasService {
         meetingsCount: 0,
         totalMinutes: 0,
         totalHours: 0,
+        virtualMinutes: 0,
+        hibridaMinutes: 0,
+        virtualHours: 0,
+        hibridaHours: 0,
+        estimatedAmountVirtual: 0,
+        estimatedAmountHibrida: 0,
+        estimatedAmount: 0,
         overrunAlerts: 0
       };
       current.meetingsCount += 1;
       current.totalMinutes += item.meeting.minutos;
-      current.totalHours = Math.round((current.totalMinutes / 60) * 100) / 100;
+      if (item.meeting.modalidadReunion === ModalidadReunion.VIRTUAL) {
+        current.virtualMinutes += item.meeting.minutos;
+      } else {
+        current.hibridaMinutes += item.meeting.minutos;
+      }
+      current.totalHours = round2(current.totalMinutes / 60);
+      current.virtualHours = round2(current.virtualMinutes / 60);
+      current.hibridaHours = round2(current.hibridaMinutes / 60);
+      current.estimatedAmountVirtual = round2(
+        current.virtualHours * ratesByModalidad[ModalidadReunion.VIRTUAL].valorHora
+      );
+      current.estimatedAmountHibrida = round2(
+        current.hibridaHours * ratesByModalidad[ModalidadReunion.HIBRIDA].valorHora
+      );
+      current.estimatedAmount = round2(current.estimatedAmountVirtual + current.estimatedAmountHibrida);
       if (item.meeting.requiereRevisionAdminPorExceso) {
         current.overrunAlerts += 1;
       }
@@ -9441,7 +9507,17 @@ export class SalasService {
         const totalCompletedMinutes = months.reduce((acc, month) => acc + month.totalMinutes, 0);
         const totalCompletedMeetings = months.reduce((acc, month) => acc + month.meetingsCount, 0);
         const totalOverrunAlerts = months.reduce((acc, month) => acc + month.overrunAlerts, 0);
-        const totalCompletedHours = Math.round((totalCompletedMinutes / 60) * 100) / 100;
+        const totalVirtualMinutes = months.reduce((acc, month) => acc + month.virtualMinutes, 0);
+        const totalHibridaMinutes = months.reduce((acc, month) => acc + month.hibridaMinutes, 0);
+        const totalCompletedHours = round2(totalCompletedMinutes / 60);
+        const totalVirtualHours = round2(totalVirtualMinutes / 60);
+        const totalHibridaHours = round2(totalHibridaMinutes / 60);
+        const totalEstimatedAmountVirtual = round2(
+          totalVirtualHours * ratesByModalidad[ModalidadReunion.VIRTUAL].valorHora
+        );
+        const totalEstimatedAmountHibrida = round2(
+          totalHibridaHours * ratesByModalidad[ModalidadReunion.HIBRIDA].valorHora
+        );
         return {
           userId: person.userId,
           email: person.email,
@@ -9451,6 +9527,13 @@ export class SalasService {
           totalCompletedMeetings,
           totalCompletedMinutes,
           totalCompletedHours,
+          totalVirtualMinutes,
+          totalHibridaMinutes,
+          totalVirtualHours,
+          totalHibridaHours,
+          totalEstimatedAmountVirtual,
+          totalEstimatedAmountHibrida,
+          totalEstimatedAmount: round2(totalEstimatedAmountVirtual + totalEstimatedAmountHibrida),
           totalOverrunAlerts,
           months
         };

@@ -13,6 +13,7 @@ export { SpaTabTarifas } from "./SpaTabTarifas";
 export { SpaTabCuentas } from "./SpaTabCuentas";
 export { SpaTabProximasReuniones } from "./SpaTabProximasReuniones";
 export { SpaTabPasadasReunionesZoom } from "./SpaTabPasadasReunionesZoom";
+export { SpaTabZoomDriveSync } from "./SpaTabZoomDriveSync";
 export { SpaTabUsuarios } from "./SpaTabUsuarios";
 export { SpaTabPerfil } from "./SpaTabPerfil";
 

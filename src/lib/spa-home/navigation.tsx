@@ -13,6 +13,7 @@ import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import VideoSettingsOutlinedIcon from "@mui/icons-material/VideoSettingsOutlined";
 import UpcomingOutlinedIcon from "@mui/icons-material/UpcomingOutlined";
 import HistoryToggleOffOutlinedIcon from "@mui/icons-material/HistoryToggleOffOutlined";
+import CloudDownloadOutlinedIcon from "@mui/icons-material/CloudDownloadOutlined";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
 import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
@@ -30,6 +31,7 @@ export const tabs = [
   "cuentas",
   "proximas_zoom",
   "pasadas_zoom",
+  "zoom_drive_sync",
   "estadisticas",
   "tarifas",
   "usuarios",
@@ -132,6 +134,12 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     roles: ["ADMINISTRADOR"],
     group: "ZOOM"
   },
+  zoom_drive_sync: {
+    label: "Descargar grabaciones",
+    visibleInNavigation: true,
+    roles: ["ADMINISTRADOR"],
+    group: "ZOOM"
+  },
   estadisticas: {
     label: "Estadisticas",
     visibleInNavigation: true,
@@ -217,6 +225,8 @@ export function getTabIcon(tab: Tab): ReactNode {
       return <UpcomingOutlinedIcon fontSize="small" />;
     case "pasadas_zoom":
       return <HistoryToggleOffOutlinedIcon fontSize="small" />;
+    case "zoom_drive_sync":
+      return <CloudDownloadOutlinedIcon fontSize="small" />;
     case "estadisticas":
       return <QueryStatsOutlinedIcon fontSize="small" />;
     case "tarifas":
