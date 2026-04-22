@@ -1,25 +1,13 @@
 {
   "version": 2,
   "functions": {
-    "app/api/zoom-drive/sync/route.ts": {
+    "app/api/v1/zoom-drive-sync/sync/route.ts": {
       "maxDuration": 300
     },
-    "app/api/cron/zoom-drive-sync/route.ts": {
+    "app/api/v1/zoom-drive-sync/sync/stream/route.ts": {
       "maxDuration": 300
     },
-    "app/api/cron/zoom-rooms-process/route.ts": {
-      "maxDuration": 300
-    },
-    "app/api/cron/zoom-rooms-reminders/route.ts": {
-      "maxDuration": 300
-    },
-    "app/api/zoom-drive/webhook/route.ts": {
-      "maxDuration": 60
-    },
-    "app/api/zoom-rooms/process/route.ts": {
-      "maxDuration": 300
-    },
-    "app/api/zoom-rooms/reminders/run/route.ts": {
+    "app/api/v1/zoom-drive-sync/validate/route.ts": {
       "maxDuration": 300
     }
   }
