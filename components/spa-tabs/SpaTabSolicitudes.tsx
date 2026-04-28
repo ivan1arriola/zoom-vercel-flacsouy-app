@@ -415,6 +415,23 @@ function downloadSolicitudInstanceIcs(input: {
   URL.revokeObjectURL(objectUrl);
 }
 
+function formatFullInstanceDateTime(instance: NonNullable<Solicitud["zoomInstances"]>[number]): string {
+  const startDate = new Date(instance.startTime);
+  const endDate = new Date(resolveInstanceEndIso(instance));
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    // Fallback to basic date-time if parsing fails
+    return formatDateTime(instance.startTime);
+  }
+
+  const weekday = new Intl.DateTimeFormat("es-UY", { weekday: "long" }).format(startDate);
+  const date = new Intl.DateTimeFormat("es-UY", { day: "2-digit", month: "2-digit", year: "numeric" }).format(startDate);
+  const startTime = new Intl.DateTimeFormat("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false }).format(startDate);
+  const endTime = new Intl.DateTimeFormat("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false }).format(endDate);
+
+  return `${weekday}, ${date} ${startTime} - ${endTime}`;
+}
+
 export function SpaTabSolicitudes({
   solicitudes,
   form,
@@ -1150,7 +1167,7 @@ export function SpaTabSolicitudes({
                 <Box>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {withNumbering ? `${rowIndex + 1}. ` : ""}
-                    {formatDateTime(instance.startTime)}
+                  {formatFullInstanceDateTime(instance)}
                   </Typography>
                   <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
                     <Chip size="small" color={status.color} label={status.label} />
@@ -2475,7 +2492,7 @@ export function SpaTabSolicitudes({
                               {instanceTimeLabel}
                             </Typography>
                             <Typography variant="body2">
-                              {highlightedInstance ? formatDateTime(highlightedInstance.startTime) : "Sin instancias"}
+                              {highlightedInstance ? formatFullInstanceDateTime(highlightedInstance) : "Sin instancias"}
                             </Typography>
                           </Box>
                           <Box>

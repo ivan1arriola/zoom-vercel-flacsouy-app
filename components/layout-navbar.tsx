@@ -131,18 +131,19 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
   return (
     <Paper
       component="header"
-      variant="outlined"
+      elevation={0}
       sx={{
-        mb: 2,
+        mb: 3,
         width: "100vw",
         ml: "calc(50% - 50vw)",
         mr: "calc(50% - 50vw)",
-        py: { xs: 1, sm: 1.05 },
-        px: { xs: 1.5, sm: 2.5, md: 3.5 },
+        py: { xs: 1.5, sm: 1.25 },
+        px: { xs: 2, sm: 3, md: 4 },
         borderRadius: 0,
-        borderLeft: 0,
-        borderRight: 0,
-        backgroundColor: "background.paper"
+        borderBottom: "1px solid",
+        borderColor: "divider",
+        backgroundColor: "background.paper",
+        boxShadow: "0 2px 12px rgba(0,0,0,0.03)"
       }}
     >
       <Stack spacing={1}>
@@ -153,12 +154,12 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
           alignItems={{ xs: "flex-start", sm: "center" }}
         >
           <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-            <FlacsoBrandLogo height={42} color="primary" />
+            <FlacsoBrandLogo height={46} color="primary" />
             <Typography
               variant="subtitle1"
               sx={{
-                fontWeight: 800,
-                lineHeight: 1.15,
+                fontWeight: 900,
+                lineHeight: 1.1,
                 fontSize: { xs: "1rem", sm: "1.08rem" }
               }}
             >
@@ -179,8 +180,9 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
             {isAdminRole && (
               <Chip
                 size="small"
-                variant="outlined"
-                label={`Rol: ${normalizedRoleLabel}`}
+                color="primary"
+                variant="filled"
+                label={normalizedRoleLabel}
                 sx={{ display: { xs: "none", sm: "inline-flex" } }}
               />
             )}
@@ -195,7 +197,7 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
               onClick={() => setMobileExpanded((prev) => !prev)}
               sx={{
                 display: { md: "none" },
-                border: "2px solid",
+                border: "1px solid",
                 borderColor: "primary.main",
                 borderRadius: 1.5,
                 color: "primary.main",
@@ -210,16 +212,6 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
             </IconButton>
           </Stack>
         </Stack>
-
-        <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontSize: { xs: "0.72rem", sm: "0.76rem" }, lineHeight: 1.2 }}
-          >
-            Seccion: {TAB_CONFIG[currentTab].label}
-          </Typography>
-        </Box>
       </Stack>
 
       {isAdminWorkspace ? (
@@ -227,8 +219,8 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
           sx={{
             borderTop: "1px solid",
             borderColor: "divider",
-            pt: 1,
-            pb: 0.2,
+            pt: 2,
+            pb: 0.5,
             display: {
               xs: mobileExpanded ? "block" : "none",
               md: "block"
@@ -240,7 +232,7 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
             spacing={0.8}
             sx={{
               overflowX: "visible",
-              flexWrap: { xs: "nowrap", sm: "wrap", md: "nowrap" },
+              flexWrap: { xs: "nowrap", sm: "wrap", md: "wrap" },
               py: 0.2,
               px: 0.1
             }}
@@ -271,12 +263,14 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
                     startIcon={getNavigationGroupIcon(groupItem.group)}
                     sx={{
                       width: "100%",
-                      minHeight: 46,
-                      borderRadius: 999,
-                      px: 1.5,
+                      minHeight: 44,
+                      borderRadius: 2.5,
+                      px: 2,
                       textTransform: "none",
                       whiteSpace: "nowrap",
-                      justifyContent: "space-between"
+                      justifyContent: "space-between",
+                      fontWeight: activeTabInGroup ? 700 : 500,
+                      boxShadow: activeTabInGroup ? "0 4px 12px rgba(31, 75, 143, 0.25)" : "none"
                     }}
                   >
                     <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.7 }}>
@@ -322,9 +316,9 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
             mt: 0.4,
             borderTop: "1px solid",
             borderColor: "divider",
-            pt: 1,
-            gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" },
-            gap: 1,
+            pt: 2,
+            gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))", lg: "repeat(5, minmax(0, 1fr))" },
+            gap: 1.2,
             display: {
               xs: mobileExpanded ? "grid" : "none",
               md: "grid"
@@ -342,9 +336,11 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
               sx={{
                 justifyContent: "flex-start",
                 textTransform: "none",
-                fontWeight: 700,
-                borderRadius: 999,
-                py: 1.1
+                fontWeight: tabItem === currentTab ? 700 : 500,
+                borderRadius: 2.5,
+                py: 1.25,
+                px: 2,
+                boxShadow: tabItem === currentTab ? "0 4px 12px rgba(31, 75, 143, 0.2)" : "none"
               }}
             >
               {TAB_CONFIG[tabItem].label}

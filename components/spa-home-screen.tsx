@@ -253,13 +253,13 @@ function resolveSnackbarSeverity(message: string): "success" | "info" | "warning
   if (!normalized) return "info";
 
   if (
-    /(no se pudo|error|fall[oó]|no autenticado|unauthorized|inv[aá]lido|debes|denegad)/i.test(normalized)
+    /(no se pudo|error|fall[oó]|no autenticado|unauthorized|inv[aá]lido|debes|denegad|prohibido|vencido|falta)/i.test(normalized)
   ) {
-    return /(no autenticado|unauthorized|denegad|error)/i.test(normalized) ? "error" : "warning";
+    return /(no autenticado|unauthorized|denegad|error|prohibido)/i.test(normalized) ? "error" : "warning";
   }
 
   if (
-    /(correctamente|enviado|cread|actualizad|registrad|habilitad|sincronizad|listo)/i.test(normalized)
+    /(correctamente|enviado|cread|actualizad|registrad|habilitad|sincronizad|listo|eliminad|cancelad|descancelad|resuelto|asignacion)/i.test(normalized)
   ) {
     return "success";
   }
@@ -729,7 +729,7 @@ export function SpaHomeScreen() {
 
     const intervalId = window.setInterval(() => {
       setBusyMessageIndex((prev) => (prev + 1) % busyMessageSequence.length);
-    }, 2200);
+    }, 2500);
 
     return () => {
       window.clearInterval(intervalId);
@@ -2551,7 +2551,8 @@ export function SpaHomeScreen() {
           sx={{
             width: "100%",
             alignItems: "center",
-            boxShadow: 4
+            boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+            borderRadius: 2
           }}
         >
           {message}
@@ -2563,6 +2564,8 @@ export function SpaHomeScreen() {
         sx={{
           zIndex: (theme) => theme.zIndex.modal + 10,
           color: "#fff",
+          backdropFilter: "blur(4px)",
+          backgroundColor: "rgba(0, 0, 0, 0.45)",
           display: "flex",
           flexDirection: "column",
           gap: 1.2

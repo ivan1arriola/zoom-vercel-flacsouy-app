@@ -106,25 +106,29 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
       <Button
         variant="outlined"
         onClick={(event: MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget)}
-        startIcon={<UserAvatar firstName={firstName} lastName={lastName} image={image} size={34} />}
+        startIcon={<UserAvatar firstName={firstName} lastName={lastName} image={image} size={32} />}
         endIcon={<ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary" }} />}
         sx={{
           textTransform: "none",
-          borderRadius: 999,
-          px: 1.2,
-          py: 0.7,
+          borderRadius: 3,
+          px: 1.5,
+          py: 0.6,
           width: { xs: "100%", sm: "auto" },
-          minWidth: { xs: 0, sm: 220, md: 280 },
-          maxWidth: { xs: "100%", sm: 360 },
+          minWidth: { xs: 0, sm: 240 },
           justifyContent: "space-between",
-          "& .MuiButton-startIcon": { mr: 1 }
+          borderColor: "divider",
+          backgroundColor: "rgba(0,0,0,0.01)",
+          "&:hover": {
+            backgroundColor: "rgba(0,0,0,0.03)",
+            borderColor: "primary.main"
+          }
         }}
       >
-        <Box sx={{ textAlign: "left", minWidth: 0 }}>
-          <Typography noWrap variant="body2" sx={{ fontWeight: 700 }}>
-            {primaryLabel}
+        <Box sx={{ textAlign: "left", minWidth: 0, ml: 0.5 }}>
+          <Typography noWrap variant="body2" sx={{ fontWeight: 700, color: "text.primary" }}>
+            {displayName}
           </Typography>
-          <Typography noWrap variant="caption" color="text.secondary">
+          <Typography noWrap variant="caption" color="primary.main" sx={{ fontWeight: 600, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: "0.05em" }}>
             {secondaryLabel}
           </Typography>
         </Box>
@@ -139,19 +143,20 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
         PaperProps={{
           sx: {
             width: { xs: "min(92vw, 360px)", sm: 360 },
-            borderRadius: 2.5,
-            mt: 1
+            borderRadius: 4,
+            mt: 1,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.15)"
           }
         }}
       >
-        <Box sx={{ px: 2, py: 1.5 }}>
+        <Box sx={{ px: 2.5, py: 2 }}>
           <Stack direction="row" spacing={1.5} alignItems="center">
-            <UserAvatar firstName={firstName} lastName={lastName} image={image} size={40} />
+            <UserAvatar firstName={firstName} lastName={lastName} image={image} size={48} />
             <Box sx={{ minWidth: 0 }}>
-              <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800 }} noWrap>
                 {displayName}
               </Typography>
-              <Typography variant="caption" color="text.secondary" noWrap>
+              <Typography variant="body2" color="text.secondary" noWrap>
                 {email || "-"}
               </Typography>
             </Box>
@@ -160,8 +165,8 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
         <Divider />
 
         {isAdmin ? (
-          <Box sx={{ px: 2, py: 1.5 }}>
-            <Typography variant="overline" color="text.secondary">
+          <Box sx={{ px: 2, py: 2, backgroundColor: "rgba(0,0,0,0.02)" }}>
+            <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 800, ml: 0.5 }}>
               Modo de vista
             </Typography>
             <ToggleButtonGroup
@@ -184,10 +189,17 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
                     sx={{
                       justifyContent: "space-between",
                       textTransform: "none",
-                      borderRadius: 1.5
+                      borderRadius: 2,
+                      border: "1px solid !important",
+                      borderColor: isSelected ? "primary.main" : "divider",
+                      backgroundColor: isSelected ? "primary.lighter" : "background.paper",
+                      "&.Mui-selected": {
+                        backgroundColor: "rgba(31, 75, 143, 0.08)",
+                        color: "primary.main",
+                      }
                     }}
                   >
-                    <Typography component="span" variant="body2">
+                    <Typography component="span" variant="body2" sx={{ fontWeight: isSelected ? 700 : 500 }}>
                       {option.label}
                     </Typography>
                     {isPendingOption ? (
@@ -222,7 +234,7 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
           <ListItemIcon>
             <PersonIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Editar perfil</ListItemText>
+          <ListItemText primaryTypographyProps={{ variant: "body2", fontWeight: 600 }}>Mi perfil</ListItemText>
         </MenuItem>
         <MenuItem
           onClick={async () => {
@@ -233,7 +245,7 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
           <ListItemIcon>
             <LogoutIcon fontSize="small" color="error" />
           </ListItemIcon>
-          <ListItemText primaryTypographyProps={{ color: "error.main" }}>
+          <ListItemText primaryTypographyProps={{ color: "error.main", variant: "body2", fontWeight: 600 }}>
             Cerrar sesion
           </ListItemText>
         </MenuItem>
