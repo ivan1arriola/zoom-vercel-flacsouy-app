@@ -55,20 +55,33 @@ export default async function RootLayout({
       <body>
         <MuiProvider>
           <PwaRegister />
-          <Box sx={{ height: 6, background: "linear-gradient(90deg, #1f4b8f, #f9b503)" }} />
+          <Box sx={{ display: "flex", minHeight: "100vh", backgroundColor: "#f8f9fa" }}>
+            {session?.user ? <LayoutNavbar user={session.user} /> : null}
 
-          {session?.user ? <LayoutNavbar user={session.user} /> : null}
-
-          <Container
-            maxWidth="lg"
-            component="main"
-            sx={{
-              pt: 0,
-              pb: 2.5
-            }}
-          >
-            {children}
-          </Container>
+            <Box
+              component="main"
+              sx={{
+                flexGrow: 1,
+                display: "flex",
+                flexDirection: "column",
+                minWidth: 0,
+                pt: { xs: 8, md: 0 },
+                backgroundColor: "background.default"
+              }}
+            >
+              <Box sx={{ height: 4, background: "linear-gradient(90deg, #1f4b8f, #f9b503)", opacity: 0.8 }} />
+              <Container
+                maxWidth="xl"
+                sx={{
+                  py: { xs: 3, md: 6 },
+                  px: { xs: 2, sm: 4, md: 6 },
+                  flexGrow: 1
+                }}
+              >
+                {children}
+              </Container>
+            </Box>
+          </Box>
         </MuiProvider>
       </body>
     </html>

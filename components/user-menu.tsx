@@ -22,6 +22,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import AutorenewIcon from "@mui/icons-material/Autorenew";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
+import ArrowDropUpIcon from "@mui/icons-material/ArrowDropUp";
 import { UserAvatar } from "./user-avatar";
 
 const VIEW_ROLE_COOKIE = "zoom_view_as";
@@ -57,9 +58,10 @@ interface UserMenuProps {
   email?: string | null;
   image?: string | null;
   role: string;
+  vertical?: boolean;
 }
 
-export function UserMenu({ firstName, lastName, email, image, role }: UserMenuProps) {
+export function UserMenu({ firstName, lastName, email, image, role, vertical = false }: UserMenuProps) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [pendingView, setPendingView] = useState<string | null>(null);
   const router = useRouter();
@@ -106,40 +108,51 @@ export function UserMenu({ firstName, lastName, email, image, role }: UserMenuPr
       <Button
         variant="outlined"
         onClick={(event: MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget)}
-        startIcon={<UserAvatar firstName={firstName} lastName={lastName} image={image} size={32} />}
-        endIcon={<ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary" }} />}
+        startIcon={<UserAvatar firstName={firstName} lastName={lastName} image={image} size={vertical ? 36 : 32} />}
         sx={{
           textTransform: "none",
           borderRadius: 3,
-          px: 1.5,
-          py: 0.6,
-          width: { xs: "100%", sm: "auto" },
-          minWidth: { xs: 0, sm: 240 },
-          justifyContent: "space-between",
+          px: vertical ? 1.5 : 1.5,
+          py: vertical ? 1 : 0.6,
+          width: "100%",
+          minWidth: vertical ? 0 : { xs: 0, sm: 240 },
+          justifyContent: vertical ? "flex-start" : "space-between",
           borderColor: "divider",
           backgroundColor: "rgba(0,0,0,0.01)",
           "&:hover": {
             backgroundColor: "rgba(0,0,0,0.03)",
             borderColor: "primary.main"
-          }
+          },
+          ...(vertical && {
+            border: "none",
+            backgroundColor: "transparent",
+            "&:hover": {
+              backgroundColor: "rgba(31, 75, 143, 0.04)"
+            }
+          })
         }}
       >
-        <Box sx={{ textAlign: "left", minWidth: 0, ml: 0.5 }}>
-          <Typography noWrap variant="body2" sx={{ fontWeight: 700, color: "text.primary" }}>
+        <Box sx={{ textAlign: "left", minWidth: 0, ml: 1, flexGrow: 1 }}>
+          <Typography noWrap variant="body2" sx={{ fontWeight: 700, color: "text.primary", fontSize: vertical ? "0.875rem" : "0.875rem" }}>
             {displayName}
           </Typography>
           <Typography noWrap variant="caption" color="primary.main" sx={{ fontWeight: 600, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: "0.05em" }}>
             {secondaryLabel}
           </Typography>
         </Box>
+        {vertical ? (
+          Boolean(anchorEl) ? <ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary", ml: "auto" }} /> : <ArrowDropUpIcon fontSize="small" sx={{ color: "text.secondary", ml: "auto" }} />
+        ) : (
+          <ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary" }} />
+        )}
       </Button>
 
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={() => setAnchorEl(null)}
-        transformOrigin={{ horizontal: "right", vertical: "top" }}
-        anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+        transformOrigin={{ horizontal: vertical ? "left" : "right", vertical: vertical ? "bottom" : "top" }}
+        anchorOrigin={{ horizontal: vertical ? "left" : "right", vertical: vertical ? "top" : "bottom" }}
         PaperProps={{
           sx: {
             width: { xs: "min(92vw, 360px)", sm: 360 },

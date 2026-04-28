@@ -11,7 +11,8 @@ export function useSolicitudes() {
   const [cancellingInstanciaKey, setCancellingInstanciaKey] = useState<string | null>(null);
   const [restoringInstanciaKey, setRestoringInstanciaKey] = useState<string | null>(null);
   const [sendingReminderSolicitudId, setSendingReminderSolicitudId] = useState<string | null>(null);
-  const [form, setForm] = useState<SolicitudFormState>(DEFAULT_SOLICITUD_FORM);
+   const [form, setForm] = useState<SolicitudFormState>(DEFAULT_SOLICITUD_FORM);
+  const [isLoadingSolicitudes, setIsLoadingSolicitudes] = useState(false);
 
   function updateForm<K extends keyof SolicitudFormState>(key: K, value: SolicitudFormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -36,6 +37,8 @@ export function useSolicitudes() {
     setSendingReminderSolicitudId,
     form,
     setForm,
-    updateForm
+    updateForm,
+    isLoadingSolicitudes,
+    setIsLoadingSolicitudes
   };
 }

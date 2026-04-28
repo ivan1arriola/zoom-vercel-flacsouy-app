@@ -371,48 +371,67 @@ export function InlineLogin({
   }
 
   return (
-    <Box component="section">
-      <Box sx={{ maxWidth: 980, mx: "auto" }}>
-        <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mb: 0.8 }}>
-          <FlacsoBrandLogo height={38} />
-        </Stack>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
-          Herramienta para coordinar salas Zoom
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Inicia sesion para continuar.
-        </Typography>
+    <Box
+      sx={{
+        minHeight: "85vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        py: 4,
+        px: 2,
+        background: "radial-gradient(circle at 50% 50%, rgba(31, 75, 143, 0.05) 0%, rgba(246, 248, 252, 1) 100%)",
+      }}
+    >
+      <Box sx={{ width: "100%", maxWidth: 450 }}>
+        <Box sx={{ textAlign: "center", mb: 4 }}>
+          <Stack direction="row" justifyContent="center" sx={{ mb: 2.5 }}>
+            <FlacsoBrandLogo height={52} />
+          </Stack>
+          <Typography variant="h5" sx={{ fontWeight: 800, mb: 1, color: "primary.main", letterSpacing: "-0.5px" }}>
+            Plataforma Zoom
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+            {activePanel === "login" && "Bienvenido de nuevo. Inicia sesión para continuar."}
+            {activePanel === "register" && "Crea tu cuenta para empezar a coordinar salas."}
+            {activePanel === "recovery" && "Recupera el acceso a tu cuenta fácilmente."}
+            {activePanel === "activation" && "Estás a un paso de activar tu cuenta."}
+          </Typography>
+        </Box>
 
-        <Tabs
-          value={activePanel}
-          onChange={(_event, value) => setActivePanel(value as AuthPanel)}
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-          sx={{ mb: 2 }}
+        <Card 
+          variant="outlined" 
+          sx={{ 
+            borderRadius: "24px", 
+            boxShadow: "0 20px 60px rgba(15, 26, 45, 0.08)",
+            border: "1px solid",
+            borderColor: "rgba(0, 0, 0, 0.06)",
+            overflow: "visible",
+            backgroundColor: "background.paper",
+            position: "relative"
+          }}
         >
-          <Tab value="login" label="Acceder" />
-          <Tab value="register" label="Registrarse" />
-          <Tab value="recovery" label="Recuperar" />
-          {isActivationFlow ? <Tab value="activation" label="Activar cuenta" /> : null}
-        </Tabs>
-
-        <Stack spacing={1.5}>
-          {activePanel === "login" ? (
-            <Card variant="outlined" sx={{ borderRadius: 3 }}>
-              <CardContent>
-                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-                  Acceso
-                </Typography>
+          <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+            <Stack spacing={3}>
+              {activePanel === "login" && (
                 <Box component="form" action={onSubmit}>
-                  <Stack spacing={1.2}>
-                    <TextField name="email" label="Email" type="email" required autoComplete="email" />
+                  <Stack spacing={2}>
+                    <TextField 
+                      fullWidth
+                      name="email" 
+                      label="Email" 
+                      type="email" 
+                      required 
+                      autoComplete="email"
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                    />
                     <TextField
+                      fullWidth
                       name="password"
-                      label="Contrasena"
+                      label="Contraseña"
                       type={showLoginPassword ? "text" : "password"}
                       required
                       autoComplete="current-password"
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
@@ -423,61 +442,74 @@ export function InlineLogin({
                         )
                       }}
                     />
-                    <Button type="submit" variant="contained" disabled={isSubmitting}>
-                      {isSubmitting ? "Ingresando..." : "Ingresar"}
+                    <Box sx={{ textAlign: "right" }}>
+                      <Button 
+                        size="small" 
+                        variant="text" 
+                        onClick={() => setActivePanel("recovery")}
+                        sx={{ textTransform: "none", fontWeight: 600 }}
+                      >
+                        ¿Olvidaste tu contraseña?
+                      </Button>
+                    </Box>
+                    <Button 
+                      fullWidth
+                      type="submit" 
+                      variant="contained" 
+                      size="large"
+                      disabled={isSubmitting}
+                      sx={{ 
+                        borderRadius: "12px", 
+                        py: 1.5, 
+                        textTransform: "none", 
+                        fontWeight: 700,
+                        fontSize: "1rem",
+                        boxShadow: "0 8px 20px rgba(31, 75, 143, 0.25)"
+                      }}
+                    >
+                      {isSubmitting ? <CircularProgress size={24} color="inherit" /> : "Iniciar Sesión"}
                     </Button>
                   </Stack>
                 </Box>
-                <Button
-                  sx={{ mt: 1.2 }}
-                  fullWidth
-                  variant="outlined"
-                  onClick={onGoogleSignIn}
-                  disabled={isGoogleSubmitting}
-                  startIcon={<GoogleIcon />}
-                >
-                  {isGoogleSubmitting ? "Redirigiendo..." : "Ingresar con Google"}
-                </Button>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.8, display: "block" }}>
-                  {googleDomainNotice}
-                </Typography>
-              </CardContent>
-            </Card>
-          ) : null}
+              )}
 
-          {activePanel === "register" ? (
-            <Card variant="outlined" sx={{ borderRadius: 3 }}>
-              <CardContent>
-                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-                  Autoregistro por correo
-                </Typography>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  onClick={onGoogleSignIn}
-                  disabled={isGoogleSubmitting}
-                  startIcon={<GoogleIcon />}
-                  sx={{ mb: 1.2 }}
-                >
-                  {isGoogleSubmitting ? "Redirigiendo..." : "Registrarme con Google"}
-                </Button>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 1.2, display: "block" }}>
-                  {googleDomainNotice}
-                </Typography>
+              {activePanel === "register" && (
                 <Box component="form" action={onRegister}>
-                  <Stack spacing={1.2}>
-                    <Stack direction={{ xs: "column", md: "row" }} spacing={1.2}>
-                      <TextField name="firstName" label="Nombre" fullWidth autoComplete="given-name" />
-                      <TextField name="lastName" label="Apellido" fullWidth autoComplete="family-name" />
+                  <Stack spacing={2}>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                      <TextField 
+                        fullWidth 
+                        name="firstName" 
+                        label="Nombre" 
+                        autoComplete="given-name"
+                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      />
+                      <TextField 
+                        fullWidth 
+                        name="lastName" 
+                        label="Apellido" 
+                        autoComplete="family-name"
+                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      />
                     </Stack>
-                    <TextField name="regEmail" label="Correo electronico" type="email" required autoComplete="email" />
+                    <TextField 
+                      fullWidth
+                      name="regEmail" 
+                      label="Correo electrónico" 
+                      type="email" 
+                      required 
+                      autoComplete="email"
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                    />
                     <TextField
+                      fullWidth
                       name="regPassword"
-                      label="Contrasena inicial"
+                      label="Contraseña"
                       type={showRegisterPassword ? "text" : "password"}
                       required
                       autoComplete="new-password"
                       inputProps={{ minLength: 8 }}
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
@@ -488,67 +520,225 @@ export function InlineLogin({
                         )
                       }}
                     />
-                    <Button type="submit" variant="contained" color="secondary" disabled={isRegisterSubmitting}>
-                      {isRegisterSubmitting ? "Enviando verificacion..." : "Registrarme"}
+                    <Button 
+                      fullWidth
+                      type="submit" 
+                      variant="contained" 
+                      color="secondary"
+                      size="large"
+                      disabled={isRegisterSubmitting}
+                      sx={{ 
+                        borderRadius: "12px", 
+                        py: 1.5, 
+                        textTransform: "none", 
+                        fontWeight: 700,
+                        fontSize: "1rem"
+                      }}
+                    >
+                      {isRegisterSubmitting ? <CircularProgress size={24} color="inherit" /> : "Crear Cuenta"}
                     </Button>
                   </Stack>
                 </Box>
-              </CardContent>
-            </Card>
-          ) : null}
+              )}
 
-          {activePanel === "recovery" ? (
-            <Card variant="outlined" sx={{ borderRadius: 3 }}>
-              <CardContent>
-                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-                  Recuperar contrasena
-                </Typography>
+              {activePanel === "recovery" && !hasResetPayload && (
                 <Box component="form" action={onRequestRecovery}>
-                  <Stack spacing={1.2}>
+                  <Stack spacing={2}>
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", mb: 1 }}>
+                      Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.
+                    </Typography>
                     <TextField
+                      fullWidth
                       name="recoveryEmail"
-                      label="Correo de la cuenta"
+                      label="Correo electrónico"
                       type="email"
                       required
                       autoComplete="email"
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
                     />
-                    <Button type="submit" variant="outlined" disabled={isRecoverySubmitting}>
-                      {isRecoverySubmitting ? "Enviando enlace..." : "Enviar enlace de recuperacion"}
+                    <Button 
+                      fullWidth
+                      type="submit" 
+                      variant="contained" 
+                      size="large"
+                      disabled={isRecoverySubmitting}
+                      sx={{ borderRadius: "12px", py: 1.5, textTransform: "none", fontWeight: 700 }}
+                    >
+                      {isRecoverySubmitting ? <CircularProgress size={24} color="inherit" /> : "Enviar enlace"}
+                    </Button>
+                    <Button 
+                      fullWidth
+                      variant="text" 
+                      onClick={() => setActivePanel("login")}
+                      sx={{ textTransform: "none", fontWeight: 600 }}
+                    >
+                      Volver al inicio de sesión
                     </Button>
                   </Stack>
                 </Box>
-              </CardContent>
-            </Card>
-          ) : null}
+              )}
 
-          {!isActivationFlow && hasResetPayload && activePanel === "recovery"
-            ? renderResetForm({
-                title: "Restablecer contrasena",
-                submitLabel: "Actualizar contrasena",
-                helper: "Define una nueva contrasena para recuperar tu acceso."
-              })
-            : null}
+              {(activePanel === "activation" || (activePanel === "recovery" && hasResetPayload)) && (
+                <Box component="form" action={onResetPassword}>
+                  <Stack spacing={2}>
+                    <Typography variant="body2" sx={{ textAlign: "center", fontWeight: 600 }}>
+                      Cuenta: {verificationEmail}
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      name="resetPassword"
+                      label="Nueva contraseña"
+                      type={showResetPassword ? "text" : "password"}
+                      required
+                      autoComplete="new-password"
+                      inputProps={{ minLength: 8 }}
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      InputProps={{
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton onClick={() => setShowResetPassword((prev) => !prev)} edge="end">
+                              {showResetPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                            </IconButton>
+                          </InputAdornment>
+                        )
+                      }}
+                    />
+                    <TextField
+                      fullWidth
+                      name="resetPasswordConfirm"
+                      label="Confirmar contraseña"
+                      type={showResetPasswordConfirm ? "text" : "password"}
+                      required
+                      autoComplete="new-password"
+                      inputProps={{ minLength: 8 }}
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      InputProps={{
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton onClick={() => setShowResetPasswordConfirm((prev) => !prev)} edge="end">
+                              {showResetPasswordConfirm ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                            </IconButton>
+                          </InputAdornment>
+                        )
+                      }}
+                    />
+                    <Button 
+                      fullWidth
+                      type="submit" 
+                      variant="contained" 
+                      color="secondary"
+                      size="large"
+                      disabled={isResetSubmitting}
+                      sx={{ borderRadius: "12px", py: 1.5, textTransform: "none", fontWeight: 700 }}
+                    >
+                      {isResetSubmitting ? <CircularProgress size={24} color="inherit" /> : isActivationFlow ? "Activar Cuenta" : "Restablecer Contraseña"}
+                    </Button>
+                  </Stack>
+                </Box>
+              )}
 
-          {isActivationFlow && hasResetPayload && activePanel === "activation"
-            ? renderResetForm({
-                title: "Activar cuenta",
-                submitLabel: "Activar cuenta",
-                helper: "Este paso completa la creacion de tu cuenta."
-              })
-            : null}
-        </Stack>
+              {(activePanel === "login" || activePanel === "register") && (
+                <Box>
+                  <Box sx={{ display: "flex", alignItems: "center", my: 2 }}>
+                    <Box sx={{ flex: 1, height: "1px", bgcolor: "divider" }} />
+                    <Typography variant="caption" sx={{ px: 2, color: "text.disabled", fontWeight: 700 }}>
+                      O CONTINÚA CON
+                    </Typography>
+                    <Box sx={{ flex: 1, height: "1px", bgcolor: "divider" }} />
+                  </Box>
 
-        <Box sx={{ mt: 2 }} aria-live="polite">
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    size="large"
+                    onClick={onGoogleSignIn}
+                    disabled={isGoogleSubmitting}
+                    startIcon={<GoogleIcon />}
+                    sx={{ 
+                      borderRadius: "12px", 
+                      py: 1.2, 
+                      textTransform: "none", 
+                      fontWeight: 600,
+                      borderColor: "rgba(0, 0, 0, 0.12)",
+                      color: "text.primary",
+                      "&:hover": {
+                        borderColor: "primary.main",
+                        backgroundColor: "rgba(31, 75, 143, 0.04)"
+                      }
+                    }}
+                  >
+                    {isGoogleSubmitting ? "Cargando..." : "Google"}
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block", textAlign: "center", lineHeight: 1.4 }}>
+                    {googleDomainNotice}
+                  </Typography>
+                </Box>
+              )}
+            </Stack>
+          </CardContent>
+
+          <Box 
+            sx={{ 
+              py: 2.5, 
+              px: 4, 
+              borderTop: "1px solid", 
+              borderColor: "divider", 
+              bgcolor: "rgba(0, 0, 0, 0.01)",
+              borderBottomLeftRadius: "24px",
+              borderBottomRightRadius: "24px",
+              textAlign: "center"
+            }}
+          >
+            {activePanel === "login" && (
+              <Typography variant="body2" color="text.secondary">
+                ¿No tienes una cuenta?{" "}
+                <Button 
+                  variant="text" 
+                  size="small" 
+                  onClick={() => setActivePanel("register")}
+                  sx={{ textTransform: "none", fontWeight: 700, p: 0, minWidth: "auto", verticalAlign: "baseline" }}
+                >
+                  Regístrate
+                </Button>
+              </Typography>
+            )}
+            {activePanel === "register" && (
+              <Typography variant="body2" color="text.secondary">
+                ¿Ya tienes una cuenta?{" "}
+                <Button 
+                  variant="text" 
+                  size="small" 
+                  onClick={() => setActivePanel("login")}
+                  sx={{ textTransform: "none", fontWeight: 700, p: 0, minWidth: "auto", verticalAlign: "baseline" }}
+                >
+                  Inicia sesión
+                </Button>
+              </Typography>
+            )}
+            {(activePanel === "recovery" || activePanel === "activation") && !hasResetPayload && (
+              <Button 
+                variant="text" 
+                size="small" 
+                onClick={() => setActivePanel("login")}
+                sx={{ textTransform: "none", fontWeight: 700 }}
+              >
+                Volver al inicio de sesión
+              </Button>
+            )}
+          </Box>
+        </Card>
+
+        <Box sx={{ mt: 3, textAlign: "center" }} aria-live="polite">
           {isVerifying ? (
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" spacing={1} justifyContent="center" alignItems="center">
               <CircularProgress size={16} />
               <Typography variant="body2" color="text.secondary">
                 Verificando correo...
               </Typography>
             </Stack>
           ) : null}
-          {info ? <Alert severity="success" sx={{ mt: 1 }}>{info}</Alert> : null}
-          {error ? <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert> : null}
+          {info ? <Alert severity="success" sx={{ mt: 1, borderRadius: "12px" }}>{info}</Alert> : null}
+          {error ? <Alert severity="error" sx={{ mt: 1, borderRadius: "12px" }}>{error}</Alert> : null}
         </Box>
       </Box>
     </Box>

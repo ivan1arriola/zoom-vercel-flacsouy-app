@@ -216,23 +216,34 @@ export function SpaNavbar({
                           }
                           openMenu(groupItem.group, event.currentTarget);
                         }}
-                        endIcon={hasSingleTab ? undefined : <KeyboardArrowDownRoundedIcon />}
+                        endIcon={hasSingleTab ? undefined : <KeyboardArrowDownRoundedIcon sx={{ 
+                          transition: "transform 0.2s ease-in-out",
+                          transform: openGroup === groupItem.group ? "rotate(180deg)" : "rotate(0deg)"
+                        }} />}
                         startIcon={getNavigationGroupIcon(groupItem.group)}
                         sx={{
                           width: { xs: "100%", sm: "auto" },
-                          minHeight: 46,
-                          borderRadius: 999,
-                          px: 1.5,
+                          minHeight: 42,
+                          borderRadius: "24px",
+                          px: 2.2,
                           textTransform: "none",
                           whiteSpace: { xs: "normal", sm: "nowrap" },
-                          justifyContent: { xs: "space-between", sm: "flex-start" }
+                          justifyContent: { xs: "space-between", sm: "flex-start" },
+                          borderWidth: "1.5px",
+                          "&:hover": {
+                            borderWidth: "1.5px",
+                            backgroundColor: activeTabInGroup ? "primary.dark" : "rgba(31, 75, 143, 0.04)",
+                            boxShadow: "0 4px 12px rgba(31, 75, 143, 0.12)"
+                          },
+                          transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                          boxShadow: activeTabInGroup ? "0 4px 14px rgba(31, 75, 143, 0.25)" : "none"
                         }}
                       >
-                        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.7 }}>
-                          <Typography component="span" variant="body2" sx={{ fontWeight: 700 }}>
+                        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.8 }}>
+                          <Typography component="span" variant="body2" sx={{ fontWeight: 700, fontSize: "0.875rem" }}>
                             {groupItem.label}
                           </Typography>
-                          <Typography component="span" variant="body2" sx={{ opacity: 0.85 }}>
+                          <Typography component="span" variant="body2" sx={{ opacity: 0.8, fontSize: "0.875rem", fontWeight: 500 }}>
                             · {currentLabel}
                           </Typography>
                         </Box>
@@ -243,22 +254,85 @@ export function SpaNavbar({
                         onClose={closeMenu}
                         anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
                         transformOrigin={{ vertical: "top", horizontal: "left" }}
+                        slotProps={{
+                          paper: {
+                            sx: {
+                              mt: 1.5,
+                              borderRadius: "16px",
+                              minWidth: 220,
+                              boxShadow: "0 10px 40px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.03)",
+                              overflow: "visible",
+                              backgroundImage: "none",
+                              "&::before": {
+                                content: '""',
+                                display: "block",
+                                position: "absolute",
+                                top: 0,
+                                left: 24,
+                                width: 12,
+                                height: 12,
+                                bgcolor: "background.paper",
+                                transform: "translateY(-50%) rotate(45deg)",
+                                zIndex: 0,
+                                borderLeft: "1px solid rgba(0,0,0,0.03)",
+                                borderTop: "1px solid rgba(0,0,0,0.03)"
+                              }
+                            }
+                          }
+                        }}
                       >
-                        {groupItem.tabs.map((groupTab) => (
-                          <MenuItem
-                            key={groupTab}
-                            selected={groupTab === activeTab}
-                            onClick={() => {
-                              onSelectTab(groupTab);
-                              closeMenu();
-                            }}
-                          >
-                            <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
-                              {getTabIcon(groupTab)}
-                            </Box>
-                            <Box component="span">{TAB_CONFIG[groupTab].label}</Box>
-                          </MenuItem>
-                        ))}
+                        <Stack spacing={0.5} sx={{ p: 1 }}>
+                          {groupItem.tabs.map((groupTab) => (
+                            <MenuItem
+                              key={groupTab}
+                              selected={groupTab === activeTab}
+                              onClick={() => {
+                                onSelectTab(groupTab);
+                                closeMenu();
+                              }}
+                              sx={{
+                                borderRadius: "10px",
+                                py: 1.2,
+                                px: 1.5,
+                                gap: 1.5,
+                                transition: "all 0.15s ease",
+                                "&.Mui-selected": {
+                                  backgroundColor: "rgba(31, 75, 143, 0.08)",
+                                  color: "primary.main",
+                                  fontWeight: 600,
+                                  "&:hover": {
+                                    backgroundColor: "rgba(31, 75, 143, 0.12)"
+                                  }
+                                },
+                                "&:hover": {
+                                  backgroundColor: "rgba(0, 0, 0, 0.04)",
+                                  transform: "translateX(4px)"
+                                }
+                              }}
+                            >
+                              <Box 
+                                component="span" 
+                                sx={{ 
+                                  display: "inline-flex", 
+                                  alignItems: "center",
+                                  color: groupTab === activeTab ? "primary.main" : "text.secondary",
+                                  transition: "color 0.2s"
+                                }}
+                              >
+                                {getTabIcon(groupTab)}
+                              </Box>
+                              <Typography 
+                                variant="body2" 
+                                sx={{ 
+                                  fontWeight: groupTab === activeTab ? 700 : 500,
+                                  fontSize: "0.875rem"
+                                }}
+                              >
+                                {TAB_CONFIG[groupTab].label}
+                              </Typography>
+                            </MenuItem>
+                          ))}
+                        </Stack>
                       </Menu>
                     </Box>
                   );

@@ -9,6 +9,8 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Fade,
+  LinearProgress,
   Paper,
   Snackbar,
   Stack,
@@ -73,7 +75,8 @@ import {
 } from "@/src/services/userApi";
 import {
   loadTarifas,
-  submitTarifaUpdate as submitTarifaUpdateApi
+  submitTarifaUpdate as submitTarifaUpdateApi,
+  downloadMonthlyAccountingReport
 } from "@/src/services/tarifasApi";
 import {
   loadZoomAccounts,
@@ -109,6 +112,7 @@ import {
 } from "@/components/spa-tabs/SpaTabManual";
 import { SpaTabHistorico } from "@/components/spa-tabs/SpaTabHistorico";
 import { SpaTabTarifas } from "@/components/spa-tabs/SpaTabTarifas";
+import { SpaTabGestionAsistentes } from "@/components/spa-tabs/SpaTabGestionAsistentes";
 import { SpaTabCuentas } from "@/components/spa-tabs/SpaTabCuentas";
 import { SpaTabProximasReuniones } from "@/components/spa-tabs/SpaTabProximasReuniones";
 import { SpaTabPasadasReunionesZoom } from "@/components/spa-tabs/SpaTabPasadasReunionesZoom";
@@ -310,7 +314,9 @@ export function SpaHomeScreen() {
     setSendingReminderSolicitudId,
     form,
     setForm,
-    updateForm
+    updateForm,
+    isLoadingSolicitudes,
+    setIsLoadingSolicitudes
   } = useSolicitudes();
   const [addingInstanciaSolicitudId, setAddingInstanciaSolicitudId] = useState<string | null>(null);
   
@@ -432,7 +438,10 @@ export function SpaHomeScreen() {
   const canSeeAgendaLibre = canAccessTabForRole("agenda_libre", effectiveRole);
   const canSeeMisReunionesAsignadas = canAccessTabForRole("mis_reuniones_asignadas", effectiveRole);
   const canSeeMisAsistencias = canAccessTabForRole("mis_asistencias", effectiveRole);
-  const canSeeAssignmentBoard = canAccessTabForRole("asignacion", effectiveRole);
+  const canSeeAsistentesAsignacion = canAccessTabForRole("asistentes_asignacion", effectiveRole);
+  const canSeeAsistentesPerfiles = canAccessTabForRole("asistentes_perfiles", effectiveRole);
+  const canSeeAsistentesEstadisticas = canAccessTabForRole("asistentes_estadisticas", effectiveRole);
+  const canSeeGestionAsistentes = canSeeAsistentesAsignacion || canSeeAsistentesPerfiles || canSeeAsistentesEstadisticas;
   const canSeeTarifas = canAccessTabForRole("tarifas", effectiveRole);
   const canSeeEstadisticas = canAccessTabForRole("estadisticas", effectiveRole);
   const canSeeSolicitudes = canAccessTabForRole("solicitudes", effectiveRole);
@@ -736,9 +745,6 @@ export function SpaHomeScreen() {
     };
   }, [isGlobalBusy, busyMessageSequence]);
 
-  // currentTarifaByModalidad is already provided by useTarifas hook
-  // requestedTab is already provided by useUIState hook
-
   useEffect(() => {
     const rawViewAs = normalizeAssistantRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
     if (rawViewAs === "ADMINISTRADOR") {
@@ -816,8 +822,13 @@ export function SpaHomeScreen() {
       if (["DOCENTE", "ADMINISTRADOR"].includes(normalizedRole)) {
         loaders.push(
           (async () => {
-            const solicitudes = await loadSolicitudes();
-            if (solicitudes) setSolicitudes(solicitudes);
+            setIsLoadingSolicitudes(true);
+            try {
+              const solicitudes = await loadSolicitudes();
+              if (solicitudes) setSolicitudes(solicitudes);
+            } finally {
+              setIsLoadingSolicitudes(false);
+            }
           })()
         );
       }
@@ -968,7 +979,7 @@ export function SpaHomeScreen() {
   }, [tab, canSeeAgendaLibre]);
 
   useEffect(() => {
-    if (tab !== "asignacion" || !canSeeAssignmentBoard) return;
+    if (tab !== "asistentes_asignacion" || !canSeeAsistentesAsignacion) return;
     (async () => {
       setIsLoadingAssignmentBoard(true);
       try {
@@ -993,7 +1004,7 @@ export function SpaHomeScreen() {
         setIsLoadingAssignmentBoard(false);
       }
     })();
-  }, [tab, canSeeAssignmentBoard]);
+  }, [tab, canSeeAsistentesAsignacion]);
 
   useEffect(() => {
     if (tab !== "historico" || !canSeePastMeetings) return;
@@ -1015,22 +1026,27 @@ export function SpaHomeScreen() {
   }
 
   async function refreshAfterSolicitudMutation() {
-    const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
-      loadSummary(),
-      loadSolicitudes(),
-      loadAgendaLibre(),
-      loadAssignmentBoard(),
-      loadManualPendings()
-    ]);
+    setIsLoadingSolicitudes(true);
+    try {
+      const [summaryData, solicitudesData, agendaData, assignmentData, manualData] = await Promise.all([
+        loadSummary(),
+        loadSolicitudes(),
+        loadAgendaLibre(),
+        loadAssignmentBoard(),
+        loadManualPendings()
+      ]);
 
-    if (summaryData) setSummary(summaryData);
-    if (solicitudesData) setSolicitudes(solicitudesData);
-    if (agendaData) setAgendaLibre(agendaData);
-    if (assignmentData) {
-      setAssignmentBoardEvents(assignmentData.events ?? []);
-      setAssignableAssistants(assignmentData.assistants ?? []);
+      if (summaryData) setSummary(summaryData);
+      if (solicitudesData) setSolicitudes(solicitudesData);
+      if (agendaData) setAgendaLibre(agendaData);
+      if (assignmentData) {
+        setAssignmentBoardEvents(assignmentData.events ?? []);
+        setAssignableAssistants(assignmentData.assistants ?? []);
+      }
+      if (manualData) setManualPendings(manualData);
+    } finally {
+      setIsLoadingSolicitudes(false);
     }
-    if (manualData) setManualPendings(manualData);
   }
 
   async function resolveManualProvision(input: ManualResolutionInput) {
@@ -1722,8 +1738,6 @@ export function SpaHomeScreen() {
     }
   }
 
-  // Removed: loadGoogleAccountStatus function now called from useEffect with API service
-
   async function linkGoogleAccount() {
     if (!canUseGoogleByEmail) {
       setMessage("Google solo esta habilitado para cuentas @flacso.edu.uy.");
@@ -2233,7 +2247,7 @@ export function SpaHomeScreen() {
             setTab("solicitudes");
           }}
           onGoToAssignAssistants={() => {
-            setTab("asignacion");
+            setTab("asistentes_asignacion");
           }}
           onGoToAgendaAvailable={() => {
             setTab("agenda_libre");
@@ -2281,6 +2295,7 @@ export function SpaHomeScreen() {
           docenteSolicitudesView={docenteSolicitudesView}
           setDocenteSolicitudesView={setDocenteSolicitudesView}
           onSubmit={submitDocenteSolicitud}
+          isLoading={isLoadingSolicitudes}
         />
       )}
 
@@ -2313,26 +2328,6 @@ export function SpaHomeScreen() {
         <SpaTabMisReunionesAsignadas userId={user.id} />
       )}
 
-      {tab === "asignacion" && canSeeAssignmentBoard && (
-        <SpaTabAsignacion
-          assignmentBoardEvents={assignmentBoardEvents}
-          assignableAssistants={assignableAssistants}
-          isLoadingAssignmentBoard={isLoadingAssignmentBoard}
-          assignmentSuggestion={assignmentSuggestion}
-          isLoadingSuggestion={isLoadingSuggestion}
-          hasSuggestionSession={Boolean(suggestionSessionId)}
-          assigningEventId={assigningEventId}
-          removingAssistanceEventId={removingAssistanceAssignmentEventId}
-          selectedAssistantByEvent={selectedAssistantByEvent}
-          onSelectedAssistantChange={(eventId, assistantId) =>
-            setSelectedAssistantByEvent((prev) => ({ ...prev, [eventId]: assistantId }))
-          }
-          onAssignAssistant={assignAssistantToEvent}
-          onRemoveAssistanceForEvent={removeAssistanceFromAssignmentEvent}
-          onSuggestMonthly={suggestMonthlyAssignment}
-          onSuggestNext={suggestNextMonthlyAssignment}
-        />
-      )}
 
       {tab === "manual" && canSeeManual && (
         <SpaTabManual
@@ -2366,6 +2361,42 @@ export function SpaHomeScreen() {
           onClearZoomSeed={() => setPastMeetingZoomSeed(null)}
           isSubmittingPastMeeting={isSubmittingPastMeeting}
           onSubmit={submitPastMeeting}
+        />
+      )}
+
+      {(tab === "asistentes_asignacion" || tab === "asistentes_perfiles" || tab === "asistentes_estadisticas") && canSeeGestionAsistentes && (
+        <SpaTabGestionAsistentes 
+          activeSubTab={
+            tab === "asistentes_asignacion" ? 0 : 
+            tab === "asistentes_perfiles" ? 1 : 2
+          }
+          onTabChange={(index) => {
+            if (index === 0) setTab("asistentes_asignacion");
+            else if (index === 1) setTab("asistentes_perfiles");
+            else if (index === 2) setTab("asistentes_estadisticas");
+          }}
+          assignmentBoardEvents={assignmentBoardEvents}
+          assignableAssistants={assignableAssistants}
+          isLoadingAssignmentBoard={isLoadingAssignmentBoard}
+          assignmentSuggestion={assignmentSuggestion}
+          isLoadingSuggestion={isLoadingSuggestion}
+          hasSuggestionSession={Boolean(suggestionSessionId)}
+          assigningEventId={assigningEventId}
+          removingAssistanceEventId={removingAssistanceAssignmentEventId}
+          selectedAssistantByEvent={selectedAssistantByEvent}
+          onSelectedAssistantChange={(eventId, assistantId) =>
+            setSelectedAssistantByEvent((prev) => ({ ...prev, [eventId]: assistantId }))
+          }
+          onAssignAssistant={assignAssistantToEvent}
+          onRemoveAssistanceForEvent={removeAssistanceFromAssignmentEvent}
+          onSuggestMonthly={suggestMonthlyAssignment}
+          onSuggestNext={suggestNextMonthlyAssignment}
+          onDownloadReport={async () => {
+            const result = await downloadMonthlyAccountingReport();
+            if (!result.success && result.error) {
+              setSnackbarContext({ open: true, message: result.error, severity: "error" });
+            }
+          }}
         />
       )}
 
@@ -2559,22 +2590,63 @@ export function SpaHomeScreen() {
         </Alert>
       </Snackbar>
 
+      <Fade in={isGlobalBusy}>
+        <LinearProgress
+          sx={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: (theme) => theme.zIndex.modal + 20,
+            height: 3,
+            backgroundColor: "transparent",
+            "& .MuiLinearProgress-bar": {
+              background: "linear-gradient(90deg, #1f4b8f, #f9b503)"
+            }
+          }}
+        />
+      </Fade>
+
       <Backdrop
         open={isGlobalBusy}
         sx={{
           zIndex: (theme) => theme.zIndex.modal + 10,
           color: "#fff",
-          backdropFilter: "blur(4px)",
-          backgroundColor: "rgba(0, 0, 0, 0.45)",
+          backdropFilter: "blur(6px)",
+          backgroundColor: "rgba(31, 75, 143, 0.15)",
           display: "flex",
           flexDirection: "column",
-          gap: 1.2
+          gap: 3
         }}
       >
-        <CircularProgress color="inherit" />
-        <Typography variant="body1" sx={{ color: "#fff", fontWeight: 600 }}>
-          {globalBusyLabel}
-        </Typography>
+        <Box sx={{ position: "relative", display: "inline-flex" }}>
+          <CircularProgress 
+            size={64} 
+            thickness={2} 
+            sx={{ color: "primary.main", opacity: 0.3 }} 
+          />
+          <CircularProgress
+            size={64}
+            thickness={4}
+            sx={{
+              color: "primary.main",
+              position: "absolute",
+              left: 0,
+              animationDuration: "800ms",
+              [`& .MuiCircularProgress-circle`]: {
+                strokeLinecap: "round",
+              },
+            }}
+          />
+        </Box>
+        <Stack spacing={1} alignItems="center">
+          <Typography variant="h6" sx={{ color: "primary.main", fontWeight: 800, textShadow: "0 2px 4px rgba(0,0,0,0.05)" }}>
+            {globalBusyLabel}
+          </Typography>
+          <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+            Por favor, espera un momento
+          </Typography>
+        </Stack>
       </Backdrop>
     </Box>
   );

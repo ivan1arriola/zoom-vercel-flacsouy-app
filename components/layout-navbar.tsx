@@ -1,21 +1,29 @@
 "use client";
 
-import { useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  AppBar,
   Box,
-  Button,
   Chip,
+  Collapse,
+  Divider,
+  Drawer,
   IconButton,
-  Menu,
-  MenuItem,
-  Paper,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
   Stack,
-  Typography
+  Toolbar,
+  Typography,
+  useMediaQuery,
+  useTheme,
+  Fade
 } from "@mui/material";
-import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
-import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import ExpandLess from "@mui/icons-material/ExpandLess";
+import ExpandMore from "@mui/icons-material/ExpandMore";
 import { FlacsoBrandLogo } from "@/components/flacso-brand-logo";
 import { UserMenu } from "@/components/user-menu";
 import {
@@ -32,6 +40,8 @@ import {
   type Tab,
   type ViewRole
 } from "@/src/lib/spa-home/navigation";
+
+const SIDEBAR_WIDTH = 260;
 
 type LayoutNavbarUser = {
   firstName?: string | null;
@@ -60,10 +70,29 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const theme = useTheme();
+  
+  // Use state for mounted to avoid hydration mismatch with useMediaQuery
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    OPERACION: true,
+    ZOOM: false,
+    ADMIN: false,
+    GENERAL: true
+  });
 
-  const [openGroup, setOpenGroup] = useState<NavigationGroup | null>(null);
-  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
-  const [mobileExpanded, setMobileExpanded] = useState(false);
+  const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
+
+  const toggleGroup = (group: string) => {
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [group]: !prev[group]
+    }));
+  };
 
   const normalizedUserRole = normalizeAssistantRole((user.role ?? "ADMINISTRADOR").toUpperCase());
   const isAdminRole = normalizedUserRole === "ADMINISTRADOR";
@@ -82,7 +111,6 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
 
   const currentTab = useMemo(() => resolveTabFromSearchParams(searchParams), [searchParams]);
   const normalizedRoleLabel = (effectiveRole || "ADMINISTRADOR").replace(/_/g, " ");
-  const isAdminWorkspace = !effectiveRole || effectiveRole === "ADMINISTRADOR";
 
   const visibleNavigationTabs = useMemo(
     () =>
@@ -93,20 +121,16 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
     [effectiveRole]
   );
 
-  const adminNavigationGroups = useMemo(
+  const navigationGroups = useMemo(
     () =>
       NAVIGATION_GROUP_ORDER.map((group) => {
         const groupTabs = visibleNavigationTabs.filter((candidateTab) => TAB_CONFIG[candidateTab].group === group);
         return {
           group,
+          label: NAVIGATION_GROUP_LABEL[group],
           tabs: groupTabs
         };
       }).filter((item) => item.tabs.length > 0),
-    [visibleNavigationTabs]
-  );
-
-  const roleQuickTabs = useMemo(
-    () => visibleNavigationTabs.filter((candidateTab) => candidateTab !== "perfil"),
     [visibleNavigationTabs]
   );
 
@@ -115,239 +139,226 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
     params.set("tab", tab);
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-    setMobileExpanded(false);
+    if (isMobile) setMobileOpen(false);
   }
 
-  function openGroupMenu(group: NavigationGroup, event: MouseEvent<HTMLElement>) {
-    setOpenGroup(group);
-    setAnchorEl(event.currentTarget);
-  }
+  const drawerContent = (
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.paper" }}>
+      {/* Sidebar Header */}
+      <Box sx={{ px: 3, pt: 3, pb: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
+        <FlacsoBrandLogo height={40} color="primary" />
+        <Box>
+          <Typography variant="subtitle2" sx={{ fontWeight: 900, lineHeight: 1.1, color: "primary.main", fontSize: "0.95rem" }}>
+            FLACSO
+          </Typography>
+          <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", display: "block", fontSize: "0.7rem", opacity: 0.8 }}>
+            Plataforma Zoom
+          </Typography>
+        </Box>
+      </Box>
 
-  function closeGroupMenu() {
-    setOpenGroup(null);
-    setAnchorEl(null);
-  }
+      {/* Navigation List */}
+      <Box sx={{ 
+        flexGrow: 1, 
+        overflowY: "auto", 
+        py: 2, 
+        px: 1.5,
+        "&::-webkit-scrollbar": { width: "4px" },
+        "&::-webkit-scrollbar-thumb": { backgroundColor: "rgba(0,0,0,0.05)", borderRadius: "10px" }
+      }}>
+        <List component="nav" disablePadding>
+          {navigationGroups.map((groupItem) => {
+            const hasActiveTab = groupItem.tabs.some((t) => t === currentTab);
+            const isExpanded = expandedGroups[groupItem.group] || hasActiveTab;
+
+            return (
+              <Box key={groupItem.group} sx={{ mb: 1 }}>
+                <ListItemButton
+                  onClick={() => toggleGroup(groupItem.group)}
+                  sx={{
+                    borderRadius: "10px",
+                    mb: 0.2,
+                    py: 0.8,
+                    px: 1.5,
+                    color: hasActiveTab ? "primary.main" : "text.secondary",
+                    "&:hover": { bgcolor: "action.hover" }
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: 32, color: "inherit" }}>
+                    {getNavigationGroupIcon(groupItem.group, "small")}
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary={groupItem.label} 
+                    primaryTypographyProps={{ 
+                      fontSize: "0.85rem", 
+                      fontWeight: 700,
+                      color: hasActiveTab ? "primary.main" : "text.primary"
+                    }} 
+                  />
+                  {isExpanded ? <ExpandLess fontSize="small" sx={{ opacity: 0.5 }} /> : <ExpandMore fontSize="small" sx={{ opacity: 0.5 }} />}
+                </ListItemButton>
+
+                <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                  <List component="div" disablePadding>
+                    {groupItem.tabs.map((tabId) => {
+                      const isActive = tabId === currentTab;
+                      return (
+                        <ListItemButton
+                          key={tabId}
+                          onClick={() => navigateToTab(tabId)}
+                          sx={{
+                            pl: 5.5,
+                            pr: 2,
+                            py: 0.6,
+                            my: 0.2,
+                            borderRadius: "8px",
+                            bgcolor: isActive ? "rgba(31, 75, 143, 0.08)" : "transparent",
+                            color: isActive ? "primary.main" : "text.secondary",
+                            "&:hover": {
+                              bgcolor: isActive ? "rgba(31, 75, 143, 0.12)" : "action.hover"
+                            },
+                            position: "relative"
+                          }}
+                        >
+                          {isActive && (
+                            <Box sx={{ 
+                              position: "absolute", 
+                              left: 0, 
+                              top: "20%", 
+                              bottom: "20%", 
+                              width: 3, 
+                              bgcolor: "primary.main",
+                              borderRadius: "0 4px 4px 0"
+                            }} />
+                          )}
+                          <ListItemText 
+                            primary={TAB_CONFIG[tabId].label} 
+                            primaryTypographyProps={{ 
+                              fontSize: "0.8rem", 
+                              fontWeight: isActive ? 700 : 500 
+                            }} 
+                          />
+                        </ListItemButton>
+                      );
+                    })}
+                  </List>
+                </Collapse>
+              </Box>
+            );
+          })}
+        </List>
+      </Box>
+
+      {/* Sidebar Footer */}
+      {!isMobile && (
+        <>
+          <Divider sx={{ opacity: 0.4 }} />
+          <Box sx={{ p: 2 }}>
+            <Stack spacing={1}>
+              {isAdminRole && (
+                <Box sx={{ px: 1 }}>
+                  <Chip
+                    size="small"
+                    variant="soft"
+                    label={normalizedRoleLabel}
+                    sx={{ 
+                      fontWeight: 800,
+                      fontSize: "0.6rem",
+                      height: 20,
+                      bgcolor: "rgba(31, 75, 143, 0.06)",
+                      color: "primary.main",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em"
+                    }}
+                  />
+                </Box>
+              )}
+              <UserMenu
+                firstName={user.firstName}
+                lastName={user.lastName}
+                email={user.email}
+                image={user.image}
+                role={user.role ?? "ADMINISTRADOR"}
+                vertical={true}
+              />
+            </Stack>
+          </Box>
+        </>
+      )}
+    </Box>
+  );
+
+  if (!mounted) return null;
 
   return (
-    <Paper
-      component="header"
-      elevation={0}
-      sx={{
-        mb: 3,
-        width: "100vw",
-        ml: "calc(50% - 50vw)",
-        mr: "calc(50% - 50vw)",
-        py: { xs: 1.5, sm: 1.25 },
-        px: { xs: 2, sm: 3, md: 4 },
-        borderRadius: 0,
-        borderBottom: "1px solid",
-        borderColor: "divider",
-        backgroundColor: "background.paper",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.03)"
-      }}
-    >
-      <Stack spacing={1}>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          justifyContent="space-between"
-          alignItems={{ xs: "flex-start", sm: "center" }}
-        >
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-            <FlacsoBrandLogo height={46} color="primary" />
-            <Typography
-              variant="subtitle1"
-              sx={{
-                fontWeight: 900,
-                lineHeight: 1.1,
-                fontSize: { xs: "1rem", sm: "1.08rem" }
-              }}
-            >
-              Plataforma Zoom de FLACSO Uruguay
-            </Typography>
-          </Stack>
-
-          <Stack
-            direction="row"
-            spacing={0.6}
-            alignItems="center"
-            sx={{
-              flexShrink: 0,
-              width: { xs: "100%", sm: "auto" },
-              justifyContent: { xs: "space-between", sm: "flex-end" }
+    <>
+      {isMobile ? (
+        <>
+          <AppBar 
+            position="fixed" 
+            elevation={0}
+            sx={{ 
+              bgcolor: "background.paper", 
+              borderBottom: "1px solid", 
+              borderColor: "divider",
+              zIndex: theme.zIndex.drawer + 1
             }}
           >
-            {isAdminRole && (
-              <Chip
-                size="small"
-                color="primary"
-                variant="filled"
-                label={normalizedRoleLabel}
-                sx={{ display: { xs: "none", sm: "inline-flex" } }}
-              />
-            )}
-            <UserMenu
-              firstName={user.firstName}
-              lastName={user.lastName}
-              email={user.email}
-              image={user.image}
-              role={user.role ?? "ADMINISTRADOR"}
-            />
-            <IconButton
-              onClick={() => setMobileExpanded((prev) => !prev)}
-              sx={{
-                display: { md: "none" },
-                border: "1px solid",
-                borderColor: "primary.main",
-                borderRadius: 1.5,
-                color: "primary.main",
-                backgroundColor: "action.hover",
-                "&:hover": {
-                  backgroundColor: "primary.lighter"
-                }
-              }}
-              aria-label={mobileExpanded ? "Ocultar navegacion" : "Mostrar navegacion"}
-            >
-              {mobileExpanded ? <CloseRoundedIcon fontSize="small" /> : <MenuRoundedIcon fontSize="small" />}
-            </IconButton>
-          </Stack>
-        </Stack>
-      </Stack>
-
-      {isAdminWorkspace ? (
-        <Box
-          sx={{
-            borderTop: "1px solid",
-            borderColor: "divider",
-            pt: 2,
-            pb: 0.5,
-            display: {
-              xs: mobileExpanded ? "block" : "none",
-              md: "block"
-            }
-          }}
-        >
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={0.8}
-            sx={{
-              overflowX: "visible",
-              flexWrap: { xs: "nowrap", sm: "wrap", md: "wrap" },
-              py: 0.2,
-              px: 0.1
-            }}
-          >
-            {adminNavigationGroups.map((groupItem) => {
-              const activeTabInGroup = groupItem.tabs.find((candidateTab) => candidateTab === currentTab) ?? null;
-              const isGroupMenuOpen = openGroup === groupItem.group;
-              const hasSingleTab = groupItem.tabs.length === 1;
-              const singleTab = hasSingleTab ? groupItem.tabs[0] : null;
-              const activeLabel = activeTabInGroup ? TAB_CONFIG[activeTabInGroup].label : "Elegir sección";
-
-              return (
-                <Box
-                  key={groupItem.group}
-                  sx={{ flexShrink: 0, width: { xs: "100%", sm: "calc(50% - 4px)", md: "auto" } }}
+            <Toolbar sx={{ justifyContent: "space-between", minHeight: 64 }}>
+              <Stack direction="row" alignItems="center" spacing={1.5}>
+                <IconButton
+                  color="inherit"
+                  edge="start"
+                  onClick={handleDrawerToggle}
+                  sx={{ color: "primary.main" }}
                 >
-                  <Button
-                    variant={activeTabInGroup ? "contained" : "outlined"}
-                    color={activeTabInGroup ? "primary" : "inherit"}
-                    onClick={(event) => {
-                      if (hasSingleTab && singleTab) {
-                        navigateToTab(singleTab);
-                        return;
-                      }
-                      openGroupMenu(groupItem.group, event);
-                    }}
-                    endIcon={hasSingleTab ? undefined : <KeyboardArrowDownRoundedIcon />}
-                    startIcon={getNavigationGroupIcon(groupItem.group)}
-                    sx={{
-                      width: "100%",
-                      minHeight: 44,
-                      borderRadius: 2.5,
-                      px: 2,
-                      textTransform: "none",
-                      whiteSpace: "nowrap",
-                      justifyContent: "space-between",
-                      fontWeight: activeTabInGroup ? 700 : 500,
-                      boxShadow: activeTabInGroup ? "0 4px 12px rgba(31, 75, 143, 0.25)" : "none"
-                    }}
-                  >
-                    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.7 }}>
-                      <Typography component="span" variant="body2" sx={{ fontWeight: 700 }}>
-                        {NAVIGATION_GROUP_LABEL[groupItem.group]}
-                      </Typography>
-                      <Typography component="span" variant="body2" sx={{ opacity: 0.85 }}>
-                        · {activeLabel}
-                      </Typography>
-                    </Box>
-                  </Button>
-                  <Menu
-                    open={isGroupMenuOpen}
-                    anchorEl={anchorEl}
-                    onClose={closeGroupMenu}
-                    anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-                    transformOrigin={{ vertical: "top", horizontal: "left" }}
-                  >
-                    {groupItem.tabs.map((groupTab) => (
-                      <MenuItem
-                        key={groupTab}
-                        selected={groupTab === currentTab}
-                        onClick={() => {
-                          navigateToTab(groupTab);
-                          closeGroupMenu();
-                        }}
-                      >
-                        <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
-                          {getTabIcon(groupTab)}
-                        </Box>
-                        <Box component="span">{TAB_CONFIG[groupTab].label}</Box>
-                      </MenuItem>
-                    ))}
-                  </Menu>
-                </Box>
-              );
-            })}
-          </Stack>
-        </Box>
+                  <MenuRoundedIcon />
+                </IconButton>
+                <FlacsoBrandLogo height={32} />
+              </Stack>
+              <UserMenu
+                firstName={user.firstName}
+                lastName={user.lastName}
+                email={user.email}
+                image={user.image}
+                role={user.role ?? "ADMINISTRADOR"}
+              />
+            </Toolbar>
+          </AppBar>
+          <Drawer
+            variant="temporary"
+            open={mobileOpen}
+            onClose={handleDrawerToggle}
+            ModalProps={{ keepMounted: true }}
+            sx={{
+              "& .MuiDrawer-paper": { boxSizing: "border-box", width: SIDEBAR_WIDTH, borderRight: "none", boxShadow: "10px 0 30px rgba(0,0,0,0.1)" },
+            }}
+          >
+            {drawerContent}
+          </Drawer>
+        </>
       ) : (
         <Box
-          sx={{
-            mt: 0.4,
-            borderTop: "1px solid",
-            borderColor: "divider",
-            pt: 2,
-            gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))", lg: "repeat(5, minmax(0, 1fr))" },
-            gap: 1.2,
-            display: {
-              xs: mobileExpanded ? "grid" : "none",
-              md: "grid"
-            }
+          component="nav"
+          sx={{ 
+            width: SIDEBAR_WIDTH, 
+            flexShrink: 0,
+            borderRight: "1px solid",
+            borderColor: "divider"
           }}
         >
-          {roleQuickTabs.map((tabItem) => (
-            <Button
-              key={tabItem}
-              fullWidth
-              size="small"
-              variant={tabItem === currentTab ? "contained" : "outlined"}
-              startIcon={getTabIcon(tabItem)}
-              onClick={() => navigateToTab(tabItem)}
-              sx={{
-                justifyContent: "flex-start",
-                textTransform: "none",
-                fontWeight: tabItem === currentTab ? 700 : 500,
-                borderRadius: 2.5,
-                py: 1.25,
-                px: 2,
-                boxShadow: tabItem === currentTab ? "0 4px 12px rgba(31, 75, 143, 0.2)" : "none"
-              }}
-            >
-              {TAB_CONFIG[tabItem].label}
-            </Button>
-          ))}
+          <Box sx={{ 
+            width: SIDEBAR_WIDTH, 
+            height: "100vh", 
+            position: "fixed", 
+            left: 0, 
+            top: 0,
+            zIndex: theme.zIndex.drawer
+          }}>
+            {drawerContent}
+          </Box>
         </Box>
       )}
-    </Paper>
+    </>
   );
 }

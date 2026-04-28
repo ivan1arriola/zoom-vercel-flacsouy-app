@@ -17,6 +17,7 @@ import CloudDownloadOutlinedIcon from "@mui/icons-material/CloudDownloadOutlined
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
 import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
+import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 
 export const tabs = [
   "dashboard",
@@ -25,7 +26,9 @@ export const tabs = [
   "agenda_libre",
   "mis_reuniones_asignadas",
   "mis_asistencias",
-  "asignacion",
+  "asistentes_asignacion",
+  "asistentes_perfiles",
+  "asistentes_estadisticas",
   "manual",
   "historico",
   "cuentas",
@@ -43,7 +46,7 @@ export const VIEW_ROLES = ["ADMINISTRADOR", "DOCENTE", "ASISTENTE_ZOOM", "CONTAD
 export type ViewRole = (typeof VIEW_ROLES)[number];
 const ALL_VIEW_ROLES = [...VIEW_ROLES] as ViewRole[];
 
-export type NavigationGroup = "GENERAL" | "OPERACION" | "ZOOM" | "ADMIN";
+export type NavigationGroup = "GENERAL" | "OPERACION" | "ASISTENTES" | "ZOOM" | "ADMIN";
 
 export type TabConfig = {
   label: string;
@@ -52,11 +55,12 @@ export type TabConfig = {
   group: NavigationGroup;
 };
 
-export const NAVIGATION_GROUP_ORDER: NavigationGroup[] = ["GENERAL", "OPERACION", "ZOOM", "ADMIN"];
+export const NAVIGATION_GROUP_ORDER: NavigationGroup[] = ["GENERAL", "OPERACION", "ASISTENTES", "ZOOM", "ADMIN"];
 
 export const NAVIGATION_GROUP_LABEL: Record<NavigationGroup, string> = {
   GENERAL: "Inicio",
-  OPERACION: "Operacion",
+  OPERACION: "Solicitudes",
+  ASISTENTES: "Asistentes",
   ZOOM: "Zoom",
   ADMIN: "Administracion"
 };
@@ -98,11 +102,23 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     roles: ["ASISTENTE_ZOOM"],
     group: "OPERACION"
   },
-  asignacion: {
-    label: "Asignacion de personal",
+  asistentes_asignacion: {
+    label: "Tablero de Asignación",
     visibleInNavigation: true,
     roles: ["ADMINISTRADOR"],
-    group: "OPERACION"
+    group: "ASISTENTES"
+  },
+  asistentes_perfiles: {
+    label: "Perfiles y Pagos",
+    visibleInNavigation: true,
+    roles: ["ADMINISTRADOR", "CONTADURIA"],
+    group: "ASISTENTES"
+  },
+  asistentes_estadisticas: {
+    label: "Estadísticas y Reportes",
+    visibleInNavigation: true,
+    roles: ["ADMINISTRADOR", "CONTADURIA"],
+    group: "ASISTENTES"
   },
   manual: {
     label: "Asociacion manual",
@@ -190,6 +206,8 @@ export function getNavigationGroupIcon(group: NavigationGroup): ReactNode {
       return <HomeOutlinedIcon fontSize="small" />;
     case "OPERACION":
       return <WorkspacesOutlinedIcon fontSize="small" />;
+    case "ASISTENTES":
+      return <SupportAgentIcon fontSize="small" />;
     case "ZOOM":
       return <VideocamOutlinedIcon fontSize="small" />;
     case "ADMIN":
@@ -213,8 +231,12 @@ export function getTabIcon(tab: Tab): ReactNode {
       return <UpcomingOutlinedIcon fontSize="small" />;
     case "mis_asistencias":
       return <HistoryOutlinedIcon fontSize="small" />;
-    case "asignacion":
+    case "asistentes_asignacion":
       return <AssignmentIndOutlinedIcon fontSize="small" />;
+    case "asistentes_perfiles":
+      return <GroupOutlinedIcon fontSize="small" />;
+    case "asistentes_estadisticas":
+      return <QueryStatsOutlinedIcon fontSize="small" />;
     case "manual":
       return <BuildCircleOutlinedIcon fontSize="small" />;
     case "historico":

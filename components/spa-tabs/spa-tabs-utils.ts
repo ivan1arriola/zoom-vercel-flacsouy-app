@@ -233,3 +233,16 @@ export function getEncargado(item: {
   if (!docente) return "";
   return docente.name || [docente.firstName, docente.lastName].filter(Boolean).join(" ") || docente.email || "";
 }
+
+export function formatCurrency(value: number): string {
+  if (!Number.isFinite(value)) return "$0,00";
+  return new Intl.NumberFormat("es-UY", {
+    style: "currency",
+    currency: "UYU"
+  }).format(value);
+}
+
+export function formatHours(hours: number): string {
+  if (!Number.isFinite(hours)) return "0h";
+  return `${hours.toFixed(1).replace(/\.0$/, "")}h`;
+}

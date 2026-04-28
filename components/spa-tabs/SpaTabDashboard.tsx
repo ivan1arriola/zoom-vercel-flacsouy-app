@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Alert,
   Backdrop,
@@ -7,9 +9,12 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Divider,
   Stack,
   TextField,
-  Typography
+  Typography,
+  Skeleton,
+  Grid
 } from "@mui/material";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
@@ -251,41 +256,37 @@ function deriveAdminStatus(summary: DashboardSummary): DashboardStatus {
   const solicitudesNoResueltas = metricValue(summary, "solicitudesNoResueltas");
   const colisionesZoom7d = metricValue(summary, "colisionesZoom7d");
   const eventosSinAsistencia7d = metricValue(summary, "eventosSinAsistencia7d");
-  const eventosSinCobertura = metricValue(summary, "eventosSinCobertura");
-  const agendaAbierta = metricValue(summary, "agendaAbierta");
-  const eventosCriticosSinLinkZoom = metricValue(summary, "eventosCriticosSinLinkZoom");
-  const riesgosCriticosProximos =
-    solicitudesNoResueltas + colisionesZoom7d + eventosSinAsistencia7d + eventosCriticosSinLinkZoom;
+  
+  const totalManual = manualPendings + solicitudesNoResueltas;
 
-  if (colisionesZoom7d > 0 || eventosSinAsistencia7d > 0) {
+  if (colisionesZoom7d > 0) {
     return {
-      label: "Critico",
+      label: "Conflicto",
       color: "error",
-      message:
-        "Hay riesgo operativo en los proximos 7 dias: colisiones Zoom o reuniones con asistencia requerida sin asignar."
+      message: `¡Alerta! Hay ${colisionesZoom7d} colisiones de Zoom detectadas en los próximos 7 días.`
     };
   }
 
-  if (solicitudesNoResueltas > 0) {
+  if (eventosSinAsistencia7d > 0) {
     return {
-      label: "Atencion",
+      label: "Incompleto",
       color: "warning",
-      message: "Existen solicitudes que no se pudieron resolver y requieren intervención administrativa."
+      message: `Atención: Hay ${eventosSinAsistencia7d} reuniones sin personal asignado próximamente.`
     };
   }
 
-  if (eventosSinCobertura > 0 || manualPendings > 0 || agendaAbierta > 0) {
+  if (totalManual > 0 && totalManual !== 1) {
     return {
-      label: "Atencion",
+      label: "Gestión",
       color: "warning",
-      message: "Operacion estable, pero con puntos operativos a resolver."
+      message: `Tienes ${totalManual} solicitudes que requieren intervención manual.`
     };
   }
 
   return {
-    label: "Estable",
+    label: "Operativo",
     color: "success",
-    message: "No hay alertas operativas relevantes en este momento."
+    message: "El sistema se encuentra operando normalmente sin bloqueos críticos."
   };
 }
 
@@ -539,96 +540,40 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
     };
   }
 
-  const solicitudesTotales = metricValue(summary, "solicitudesTotales");
-  const manualPendings = metricValue(summary, "manualPendings");
-  const solicitudesNoResueltas = metricValue(summary, "solicitudesNoResueltas");
-  const colisionesZoom7d = metricValue(summary, "colisionesZoom7d");
-  const eventosSinAsistencia7d = metricValue(summary, "eventosSinAsistencia7d");
-  const eventosSinCobertura = metricValue(summary, "eventosSinCobertura");
-  const agendaAbierta = metricValue(summary, "agendaAbierta");
-  const eventosCriticosSinLinkZoom = metricValue(summary, "eventosCriticosSinLinkZoom");
+  const solicitudesActivas = metricValue(summary, "solicitudesActivas");
+  const proximasReuniones = metricValue(summary, "proximasReuniones");
+  const personasActivasMes = metricValue(summary, "personasActivasMes");
 
   return {
-    title: "Estado operativo general",
-    subtitle: "Resumen consolidado para administracion.",
+    title: "Panel de Gestión Administrativa",
+    subtitle: "Vista priorizada de la operación crítica y el pulso del sistema.",
     headerIcon: <AssignmentTurnedInIcon fontSize="small" />,
-    background: "linear-gradient(135deg, rgba(31,75,143,0.08) 0%, rgba(249,181,3,0.12) 100%)",
+    background: "linear-gradient(135deg, rgba(15,23,42,0.08) 0%, rgba(56,189,248,0.1) 100%)",
     metrics: [
       {
-        key: "solicitudesTotales",
-        title: "Solicitudes totales",
-        description: "Volumen general del sistema.",
-        semanticColor: "info",
-        icon: <AssignmentTurnedInIcon fontSize="small" />
-      },
-      {
-        key: "manualPendings",
-        title: "Pendientes manuales",
-        description: "Casos que requieren intervencion administrativa.",
-        semanticColor: "warning",
-        icon: <BuildCircleIcon fontSize="small" />
-      },
-      {
-        key: "solicitudesNoResueltas",
-        title: "No resueltas",
-        description: "Solicitudes que no pudieron provisionarse automáticamente.",
-        semanticColor: "warning",
-        icon: <WarningAmberIcon fontSize="small" />
-      },
-      {
-        key: "colisionesZoom7d",
-        title: "Colisiones Zoom (7d)",
-        description: "Eventos superpuestos en la misma cuenta anfitriona.",
-        semanticColor: "error",
-        icon: <WarningAmberIcon fontSize="small" />
-      },
-      {
-        key: "eventosSinAsistencia7d",
-        title: "Sin asistencia (7d)",
-        description: "Reuniones próximas con asistencia requerida sin personal asignado.",
-        semanticColor: "error",
-        icon: <Groups2Icon fontSize="small" />
-      },
-      {
-        key: "eventosSinCobertura",
-        title: "Sin asistencia",
-        description: "Eventos que todavia no tienen cobertura asignada.",
-        semanticColor: "error",
-        icon: <Groups2Icon fontSize="small" />
-      },
-      {
-        key: "agendaAbierta",
-        title: "Agenda abierta",
-        description: "Eventos visibles para el equipo de asistencia.",
+        key: "solicitudesActivas",
+        title: "Solicitudes vigentes",
+        description: "En curso o programadas para el futuro.",
         semanticColor: "success",
-        icon: <EventAvailableIcon fontSize="small" />
+        icon: <PendingActionsIcon fontSize="small" />
+      },
+      {
+        key: "proximasReuniones",
+        title: "Agenda hoy y mañana",
+        description: "Carga operativa inmediata del sistema.",
+        semanticColor: "info",
+        icon: <EventNoteIcon fontSize="small" />
+      },
+      {
+        key: "personasActivasMes",
+        title: "Asistentes activos",
+        description: "Personal con actividad en el mes actual.",
+        semanticColor: "info",
+        icon: <Groups2Icon fontSize="small" />
       }
     ],
     status: deriveAdminStatus(summary),
-    priorityItems: [
-      `${solicitudesTotales} solicitud(es) totales registradas.`,
-      eventosSinAsistencia7d > 0
-        ? `${eventosSinAsistencia7d} reunion(es) en los proximos 7 dias con asistencia requerida y sin personal asignado.`
-        : "Sin reuniones críticas por asistencia en los próximos 7 días.",
-      colisionesZoom7d > 0
-        ? `${colisionesZoom7d} evento(s) en colisión de horario en cuentas Zoom durante los próximos 7 días.`
-        : "Sin colisiones de horario en cuentas Zoom para los próximos 7 días.",
-      solicitudesNoResueltas > 0
-        ? `${solicitudesNoResueltas} solicitud(es) que no se pudieron resolver automáticamente.`
-        : "No hay solicitudes no resueltas.",
-      eventosCriticosSinLinkZoom > 0
-        ? `${eventosCriticosSinLinkZoom} evento(s) en 7 dias sin link Zoom generado.`
-        : "Sin eventos críticos por link Zoom en los próximos 7 días.",
-      eventosSinCobertura > 0
-        ? `${eventosSinCobertura} evento(s) sin asistencia asignada.`
-        : "No hay eventos sin asistencia asignada.",
-      manualPendings > 0
-        ? `${manualPendings} caso(s) pendiente(s) de resolucion manual.`
-        : "No hay pendientes manuales.",
-      agendaAbierta > 0
-        ? `${agendaAbierta} evento(s) con agenda abierta para asistentes.`
-        : "No hay agenda abierta en este momento."
-    ]
+    priorityItems: []
   };
 }
 
@@ -790,13 +735,23 @@ export function SpaTabDashboard({
 
   if (!summary) {
     return (
-      <Card variant="outlined" sx={{ borderRadius: 3 }}>
-        <CardContent>
-          <Typography variant="body2" color="text.secondary">
-            No hay datos de inicio disponibles.
-          </Typography>
-        </CardContent>
-      </Card>
+      <Box sx={{ p: 0 }}>
+        <Skeleton variant="rectangular" height={160} sx={{ borderRadius: 4, mb: 3 }} />
+        <Box sx={{ 
+          display: "grid", 
+          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "repeat(4, 1fr)" }, 
+          gap: 2,
+          mb: 4 
+        }}>
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} variant="rectangular" height={120} sx={{ borderRadius: 3 }} />
+          ))}
+        </Box>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "2fr 1fr" }, gap: 3 }}>
+          <Skeleton variant="rectangular" height={400} sx={{ borderRadius: 4 }} />
+          <Skeleton variant="rectangular" height={400} sx={{ borderRadius: 4 }} />
+        </Box>
+      </Box>
     );
   }
 
@@ -1256,6 +1211,81 @@ export function SpaTabDashboard({
           ) : null}
         </CardContent>
       </Card>
+
+      {role === "ADMINISTRADOR" && (
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, mb: 1.5, px: 0.5 }}>
+            Atención Requerida
+          </Typography>
+          <Grid container spacing={2}>
+            {summary.colisionesZoom7d && summary.colisionesZoom7d > 0 ? (
+              <Grid size={{ xs: 12, md: 4 }}>
+                <Card variant="outlined" sx={{ height: "100%", borderColor: "error.main", bgcolor: "error.lighter", borderRadius: 3, borderLeft: "8px solid", borderLeftColor: "error.main" }}>
+                  <CardContent>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <Box sx={{ p: 1, borderRadius: 2, bgcolor: "error.main", color: "white" }}>
+                        <WarningAmberIcon />
+                      </Box>
+                      <Box>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "error.dark" }}>Conflictos Detectados</Typography>
+                        <Typography variant="h3" sx={{ fontWeight: 900, color: "error.main" }}>{summary.colisionesZoom7d}</Typography>
+                      </Box>
+                    </Stack>
+                    <Typography variant="body2" sx={{ mt: 1.5, color: "error.dark", fontWeight: 500 }}>
+                      Colisiones de horario en Zoom detectadas para los próximos 7 días.
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ) : null}
+
+            {summary.eventosSinAsistencia7d && summary.eventosSinAsistencia7d > 0 ? (
+              <Grid size={{ xs: 12, md: 4 }}>
+                <Card variant="outlined" sx={{ height: "100%", borderColor: "warning.main", bgcolor: "warning.lighter", borderRadius: 3, borderLeft: "8px solid", borderLeftColor: "warning.main" }}>
+                  <CardContent>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <Box sx={{ p: 1, borderRadius: 2, bgcolor: "warning.main", color: "white" }}>
+                        <Groups2Icon />
+                      </Box>
+                      <Box>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "warning.dark" }}>Asistencia Pendiente</Typography>
+                        <Typography variant="h3" sx={{ fontWeight: 900, color: "warning.main" }}>{summary.eventosSinAsistencia7d}</Typography>
+                      </Box>
+                    </Stack>
+                    <Typography variant="body2" sx={{ mt: 1.5, color: "warning.dark", fontWeight: 500 }}>
+                      Reuniones con asistencia requerida sin personal asignado (&lt; 7d).
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ) : null}
+
+            {((summary.manualPendings || 0) + (summary.solicitudesNoResueltas || 0)) !== 1 && 
+             ((summary.manualPendings || 0) + (summary.solicitudesNoResueltas || 0)) > 0 ? (
+              <Grid size={{ xs: 12, md: 4 }}>
+                <Card variant="outlined" sx={{ height: "100%", borderColor: "info.main", bgcolor: "info.lighter", borderRadius: 3, borderLeft: "8px solid", borderLeftColor: "info.main" }}>
+                  <CardContent>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <Box sx={{ p: 1, borderRadius: 2, bgcolor: "info.main", color: "white" }}>
+                        <BuildCircleIcon />
+                      </Box>
+                      <Box>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "info.dark" }}>Gestión Manual</Typography>
+                        <Typography variant="h3" sx={{ fontWeight: 900, color: "info.main" }}>
+                          {(summary.manualPendings || 0) + (summary.solicitudesNoResueltas || 0)}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                    <Typography variant="body2" sx={{ mt: 1.5, color: "info.dark", fontWeight: 500 }}>
+                      Solicitudes pendientes o no resueltas que requieren tu intervención.
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ) : null}
+          </Grid>
+        </Box>
+      )}
 
       <Box
         sx={{

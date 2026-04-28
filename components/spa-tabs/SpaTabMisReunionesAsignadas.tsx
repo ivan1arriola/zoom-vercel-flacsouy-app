@@ -626,11 +626,11 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
         ) : null}
 
         {isInitialLoading ? (
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
-            <Skeleton variant="rounded" width={170} height={30} />
-            <Skeleton variant="rounded" width={150} height={30} />
-            <Skeleton variant="rounded" width={140} height={30} />
-            <Skeleton variant="rounded" width={180} height={30} />
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
+            <Skeleton variant="rounded" width={100} height={32} sx={{ borderRadius: 1.5 }} />
+            <Skeleton variant="rounded" width={160} height={32} sx={{ borderRadius: 1.5 }} />
+            <Skeleton variant="rounded" width={180} height={32} sx={{ borderRadius: 1.5 }} />
+            <Skeleton variant="rounded" width={140} height={32} sx={{ borderRadius: 1.5 }} />
           </Stack>
         ) : (
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
@@ -657,12 +657,12 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
             sx={{
               display: "grid",
               gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
-              gap: 1.2,
-              mb: 1.5
+              gap: 2,
+              mb: 3
             }}
           >
-            <Skeleton variant="rounded" height={142} />
-            <Skeleton variant="rounded" height={142} />
+            <Skeleton variant="rectangular" height={142} sx={{ borderRadius: 3 }} />
+            <Skeleton variant="rectangular" height={142} sx={{ borderRadius: 3 }} />
           </Box>
         ) : (
           <Box

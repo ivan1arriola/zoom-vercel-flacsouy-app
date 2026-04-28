@@ -15,7 +15,9 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Typography
+  Typography,
+  Skeleton,
+  Avatar
 } from "@mui/material";
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
 import EventNoteRoundedIcon from "@mui/icons-material/EventNoteRounded";
@@ -170,760 +172,278 @@ export function SpaTabAsignacion({
     const currentAssignment = item.currentAssignment ?? null;
     const options = buildOptionsForEvent(item);
     const selectedAssistantId = selectedAssistantByEvent[item.id] ?? "";
-    const isReassignment =
-      Boolean(currentAssignment) &&
-      Boolean(selectedAssistantId) &&
-      selectedAssistantId !== currentAssignment?.asistenteZoomId;
-    const isNoopSelection =
-      Boolean(currentAssignment) &&
-      selectedAssistantId === currentAssignment?.asistenteZoomId;
-    const interestedLabel =
-      item.interesados.length > 0
-        ? item.interesados.map((interest) => `${interest.nombre} (${interest.email})`).join(", ")
-        : "Sin interesados";
+    const isReassignment = Boolean(currentAssignment) && Boolean(selectedAssistantId) && selectedAssistantId !== currentAssignment?.asistenteZoomId;
+    const isNoopSelection = Boolean(currentAssignment) && selectedAssistantId === currentAssignment?.asistenteZoomId;
     const isPending = section === "pending";
     const hasNoInterested = item.interesados.length === 0;
-    const actionDisabled = 
-      assigningEventId === item.id || 
-      !selectedAssistantId || 
-      isNoopSelection || 
-      hasNoInterested;
-    const actionHelper = hasNoInterested
-      ? "No hay interesados postulados. Solo se pueden asignar personas que se hayan postulado."
-      : !selectedAssistantId
-        ? "Selecciona un interesado de la lista."
-        : isNoopSelection
-          ? "La persona elegida ya esta asignada a esta reunion."
-          : "Confirma para guardar la asignacion.";
-    const statusLabel = currentAssignment ? "Asignada" : "Pendiente";
-    const statusColor = currentAssignment ? "success" : "warning";
-    const suggestedAssignment =
-      assignmentSuggestion?.events.find((suggested) => suggested.eventoId === item.id) ?? null;
-    const suggestedAssistantLabel = suggestedAssignment
-      ? `${suggestedAssignment.asistenteNombre} (${suggestedAssignment.asistenteEmail})`
-      : "Sin sugerencia para esta reunion";
-    const canApplySuggestionToSelector =
-      Boolean(suggestedAssignment) &&
-      selectedAssistantId !== (suggestedAssignment?.asistenteZoomId ?? "");
+    
+    const actionDisabled = assigningEventId === item.id || !selectedAssistantId || isNoopSelection || hasNoInterested;
+    
+    const suggestedAssignment = assignmentSuggestion?.events.find((suggested) => suggested.eventoId === item.id) ?? null;
+    const canApplySuggestionToSelector = Boolean(suggestedAssignment) && selectedAssistantId !== (suggestedAssignment?.asistenteZoomId ?? "");
+    
     const meetingId = normalizeZoomMeetingId(item.zoomMeetingId) ?? "-";
     const recurringCount = meetingId === "-" ? 1 : recurrenceCountByMeetingId.get(meetingId) ?? 1;
-    const hostAccount =
-      item.cuentaZoom?.ownerEmail?.trim() ||
-      item.cuentaZoom?.nombreCuenta?.trim() ||
-      null;
+    const hostAccount = item.cuentaZoom?.ownerEmail?.trim() || item.cuentaZoom?.nombreCuenta?.trim() || "-";
 
-    // For assigned view, show simplified version
-    if (section === "assigned") {
-      return (
-        <Paper
-          key={item.id}
-          variant="outlined"
-          sx={{
-            p: { xs: 1.2, sm: 1.5 },
-            borderRadius: 2.5,
-            borderColor: "info.main",
-            backgroundColor: "rgba(2, 136, 209, 0.04)"
-          }}
-        >
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            spacing={1.2}
-            justifyContent="space-between"
-            alignItems={{ xs: "flex-start", md: "center" }}
-          >
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                {item.solicitud.titulo}
-              </Typography>
-              <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
-                <Chip size="small" color="success" label="Asignada" />
-                <Chip size="small" variant="outlined" label={formatModalidad(item.modalidadReunion)} />
-                <Chip size="small" variant="outlined" label={formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)} />
-                {currentAssignment ? (
-                  <Chip
-                    size="small"
-                    color="info"
-                    variant="outlined"
-                    label={`Asignado: ${currentAssignment.nombre}`}
-                  />
-                ) : null}
-              </Stack>
-            </Box>
-          </Stack>
-
-          <Box
-            sx={{
-              mt: 1.2,
-              display: "grid",
-              gridTemplateColumns: {
-                xs: "1fr",
-                lg: "1.35fr 1fr"
-              },
-              gap: 1.1
-            }}
-          >
-            <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
-              <Typography variant="overline" color="text.secondary">
-                Detalle de la reunion
-              </Typography>
-              <Stack spacing={0.8} sx={{ mt: 0.2 }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Dia y hora
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {formatZoomDate(item.inicioProgramadoAt)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {formatZoomTime(item.inicioProgramadoAt)} a {formatZoomTime(item.finProgramadoAt)} (
-                    {formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
-                  </Typography>
-                </Box>
-                <Divider />
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Cuenta streaming asociada
-                  </Typography>
-                  <Typography variant="body2">
-                    {item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || "-"}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    ID de reunion
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                    {meetingId}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Cantidad de reuniones
-                  </Typography>
-                  <Typography variant="body2">
-                    {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Programa
-                  </Typography>
-                  <Typography variant="body2">{item.solicitud.programaNombre || "-"}</Typography>
-                </Box>
-                <ZoomAccountPasswordField
-                  hostAccount={hostAccount}
-                  label="Contrasena cuenta streaming"
-                />
-              </Stack>
-            </Paper>
-
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 1.2,
-                borderRadius: 2,
-                borderColor: "info.main",
-                backgroundColor: "rgba(2, 136, 209, 0.05)"
-              }}
-            >
-              <Typography variant="overline" color="text.secondary">
-                Asignacion actual
-              </Typography>
-              <Stack spacing={1} sx={{ mt: 1 }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Persona asignada
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                    {currentAssignment
-                      ? `${currentAssignment.nombre} (${currentAssignment.email})`
-                      : "Sin asignar"}
-                  </Typography>
-                </Box>
-                <Divider />
-                <Stack spacing={0.8}>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="warning"
-                    startIcon={<CancelScheduleSendOutlinedIcon fontSize="small" />}
-                    onClick={() =>
-                      onRemoveAssistanceForEvent({
-                        eventoId: item.id,
-                        solicitudId: item.solicitud.id,
-                        titulo: item.solicitud.titulo,
-                        inicioProgramadoAt: item.inicioProgramadoAt
-                      })
-                    }
-                    disabled={removingAssistanceEventId === item.id}
-                    fullWidth
-                  >
-                    {removingAssistanceEventId === item.id
-                      ? "Cancelando..."
-                      : "Cancelar asistencia"}
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    onClick={() => setViewMode("pending")}
-                    fullWidth
-                  >
-                    Cambiar asistencia
-                  </Button>
-                </Stack>
-              </Stack>
-            </Paper>
-          </Box>
-        </Paper>
-      );
-    }
-
-    // For pending view, show full assignment interface
     return (
-      <Paper
+      <Card 
         key={item.id}
-        variant="outlined"
-        sx={{
-          p: { xs: 1.2, sm: 1.5 },
-          borderRadius: 2.5,
-          borderColor: isPending ? "warning.main" : "info.main",
-          backgroundColor: isPending ? "rgba(237, 108, 2, 0.04)" : "rgba(2, 136, 209, 0.04)"
+        variant="outlined" 
+        sx={{ 
+          borderRadius: 3, 
+          mb: 1.5,
+          borderLeft: "6px solid",
+          borderLeftColor: isPending ? "warning.main" : "success.main",
+          bgcolor: isPending ? "rgba(237, 108, 2, 0.02)" : "rgba(46, 125, 50, 0.02)",
+          transition: "box-shadow 0.2s",
+          "&:hover": { boxShadow: 2 }
         }}
       >
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={1.2}
-          justifyContent="space-between"
-          alignItems={{ xs: "flex-start", md: "center" }}
-        >
-          <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              {item.solicitud.titulo}
-            </Typography>
-            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
-              <Chip
-                size="small"
-                color={statusColor}
-                label={statusLabel}
-              />
-              <Chip size="small" variant="outlined" label={formatModalidad(item.modalidadReunion)} />
-              <Chip size="small" variant="outlined" label={formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)} />
-              {currentAssignment ? (
-                <Chip
-                  size="small"
-                  color="info"
-                  variant="outlined"
-                  label={`Actual: ${currentAssignment.nombre}`}
-                />
-              ) : null}
-            </Stack>
-          </Box>
-        </Stack>
-
-        <Box
-          sx={{
-            mt: 1.2,
-            display: "grid",
-            gridTemplateColumns: {
-              xs: "1fr",
-              lg: "1.35fr 1fr"
-            },
-            gap: 1.1
-          }}
-        >
-          <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
-            <Typography variant="overline" color="text.secondary">
-              Detalle de la reunion
-            </Typography>
-            <Stack spacing={0.8} sx={{ mt: 0.2 }}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Dia y hora
-                </Typography>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  {formatZoomDate(item.inicioProgramadoAt)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {formatZoomTime(item.inicioProgramadoAt)} a {formatZoomTime(item.finProgramadoAt)} (
-                  {formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
-                </Typography>
-              </Box>
-              <Divider />
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Cuenta streaming asociada
-                </Typography>
-                <Typography variant="body2">
-                  {item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || "-"}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  ID de reunion
-                </Typography>
-                <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                  {meetingId}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Cantidad de reuniones
-                </Typography>
-                <Typography variant="body2">
-                  {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Asistente por reunion
-                </Typography>
-                <MeetingAssistantStatusChip
-                  requiresAssistance
-                  assistantName={currentAssignment?.nombre ?? null}
-                  assistantEmail={currentAssignment?.email ?? null}
-                  pendingLabel="Pendiente"
-                />
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Programa
-                </Typography>
-                <Typography variant="body2">{item.solicitud.programaNombre || "-"}</Typography>
-              </Box>
-              <ZoomAccountPasswordField
-                hostAccount={hostAccount}
-                label="Contrasena cuenta streaming"
-              />
-            </Stack>
-          </Paper>
-
-          <Paper
-            variant="outlined"
-            sx={{
-              p: 1.2,
-              borderRadius: 2,
-              borderColor: currentAssignment ? "info.main" : "warning.main",
-              backgroundColor: currentAssignment ? "rgba(2, 136, 209, 0.05)" : "rgba(237, 108, 2, 0.06)"
-            }}
-          >
-            <Typography variant="overline" color="text.secondary">
-              Asignacion
-            </Typography>
-            <Stack spacing={0.8} sx={{ mt: 0.2 }}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Persona actual
-                </Typography>
-                <Typography variant="body2" sx={{ fontWeight: currentAssignment ? 700 : 400 }}>
-                  {currentAssignment
-                    ? `${currentAssignment.nombre} (${currentAssignment.email})`
-                    : "Sin asignar"}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Interesados
-                </Typography>
-                <Typography variant="body2">{interestedLabel}</Typography>
-              </Box>
-              <Divider />
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Asignar interesado
-                </Typography>
-                <TextField
-                  select
-                  size="small"
-                  fullWidth
-                  disabled={hasNoInterested}
-                  value={selectedAssistantByEvent[item.id] ?? ""}
-                  onChange={(e) => onSelectedAssistantChange(item.id, e.target.value)}
-                  sx={{ mt: 0.4 }}
-                >
-                  <MenuItem value="">Seleccionar</MenuItem>
-                  {options.map((option) => (
-                    <MenuItem key={option.id} value={option.id}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={() => onAssignAssistant(item.id)}
-                  disabled={actionDisabled}
-                  sx={{ mt: 0.8 }}
-                >
-                  {assigningEventId === item.id
-                    ? isReassignment
-                      ? "Reasignando..."
-                      : "Asignando..."
-                    : isReassignment
-                      ? "Confirmar reasignacion"
-                      : "Confirmar asignacion"}
-                </Button>
-                <Typography variant="caption" color={actionDisabled ? "text.secondary" : "success.main"} sx={{ display: "block", mt: 0.5 }}>
-                  {actionHelper}
-                </Typography>
-              </Box>
-
-              <Divider />
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Sugerencia
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 0.35 }}>
-                  {suggestedAssistantLabel}
-                </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => {
-                    if (!suggestedAssignment) return;
-                    onSelectedAssistantChange(item.id, suggestedAssignment.asistenteZoomId);
-                  }}
-                  disabled={!canApplySuggestionToSelector || hasNoInterested}
-                  sx={{ mt: 0.8 }}
-                >
-                  Aplicar sugerencia al selector
-                </Button>
-              </Box>
-
-              <Divider />
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Asistencia de la reunion
-                </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="warning"
-                  startIcon={<CancelScheduleSendOutlinedIcon fontSize="small" />}
-                  onClick={() =>
-                    onRemoveAssistanceForEvent({
-                      eventoId: item.id,
-                      solicitudId: item.solicitud.id,
-                      titulo: item.solicitud.titulo,
-                      inicioProgramadoAt: item.inicioProgramadoAt
-                    })
-                  }
-                  disabled={removingAssistanceEventId === item.id}
-                  sx={{ mt: 0.8 }}
-                >
-                  {removingAssistanceEventId === item.id
-                    ? "Quitando asistencia..."
-                    : "Eliminar asistencia de esta reunion"}
-                </Button>
-              </Box>
-            </Stack>
-          </Paper>
-        </Box>
-      </Paper>
-    );
-  }
-
-  return (
-    <Card variant="outlined" sx={{ borderRadius: 3.5 }}>
-      <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
-        <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.4 }}>
-          Asignacion de personal
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Vista exclusiva para administracion: instancias futuras con y sin monitoreo asignado.
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          La asignacion/reasignacion valida choques de horario y exige un margen minimo de 30 minutos entre reuniones.
-        </Typography>
-
-        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-          Prioriza primero el bloque <strong>Reuniones sin asistencia Zoom</strong>. Las reasignaciones se usan para balancear carga.
-        </Alert>
-
-        <Paper
-          variant="outlined"
-          sx={{
-            p: 1.2,
-            borderRadius: 2.5,
-            mb: 2,
-            borderColor: "primary.main",
-            backgroundColor: "rgba(31, 75, 143, 0.05)"
-          }}
-        >
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1}
-            alignItems={{ xs: "stretch", sm: "center" }}
-            justifyContent="space-between"
-          >
-            <Box sx={{ minWidth: 0 }}>
-              <Stack direction="row" spacing={0.8} alignItems="center">
-                <AutoAwesomeRoundedIcon fontSize="small" color="primary" />
-                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                  Sugerencias automaticas
-                </Typography>
-              </Stack>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
-                Genera una propuesta inicial y luego itera alternativas para comparar equilibrio por mes y tarifa.
+        <CardContent sx={{ p: 2 }}>
+          {/* Header Row */}
+          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }} spacing={2} sx={{ mb: 2 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                {item.solicitud.titulo}
               </Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 1 }} useFlexGap flexWrap="wrap">
+                <Chip size="small" variant="filled" color={isPending ? "warning" : "success"} label={isPending ? "Pendiente" : "Asignada"} />
+                <Chip size="small" variant="outlined" label={formatModalidad(item.modalidadReunion)} />
+                <Chip size="small" variant="outlined" label={formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)} />
+                {recurringCount > 1 && <Chip size="small" variant="outlined" label={`${recurringCount} instancias`} color="secondary" />}
+              </Stack>
             </Box>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-              <Button
-                size="small"
-                variant="contained"
-                onClick={onSuggestMonthly}
-                disabled={isLoadingSuggestion}
-                startIcon={<AutoAwesomeRoundedIcon fontSize="small" />}
-              >
-                {isLoadingSuggestion ? "Calculando..." : "Generar sugerencia"}
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={onSuggestNext}
-                disabled={isLoadingSuggestion || !hasSuggestionSession}
-              >
-                Otra sugerencia
-              </Button>
-            </Stack>
+            
+            {/* Quick Info Box (Date/Time) */}
+            <Paper variant="outlined" sx={{ p: 1, px: 2, borderRadius: 2, bgcolor: "background.paper", minWidth: 200 }}>
+              <Typography variant="caption" color="text.secondary" display="block">Fecha y Hora</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{formatZoomDate(item.inicioProgramadoAt)}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {formatZoomTime(item.inicioProgramadoAt)} - {formatZoomTime(item.finProgramadoAt)} ({formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
+              </Typography>
+            </Paper>
           </Stack>
 
-          {assignmentSuggestion ? (
-            <Box sx={{ mt: 1.2 }}>
-              <Chip
-                size="small"
-                color="success"
-                variant="outlined"
-                label={`Puntaje sugerencia: ${assignmentSuggestion.score.toFixed(2)}`}
-              />
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.6 }}>
-                La sugerencia queda disponible para revisarla y aplicarla por reunion, separada de tu seleccion manual.
-              </Typography>
-            </Box>
-          ) : null}
-        </Paper>
+          <Divider sx={{ my: 2 }} />
 
-        {isLoadingAssignmentBoard ? (
-          <Typography variant="body2" color="text.secondary">
-            Cargando panel de asignacion...
-          </Typography>
-        ) : assignmentBoardEvents.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            No hay instancias futuras pendientes de asignacion/reasignacion.
-          </Typography>
-        ) : (
-          <Stack spacing={1.8}>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: {
-                  xs: "repeat(2, minmax(0, 1fr))",
-                  md: "repeat(4, minmax(0, 1fr))"
-                },
-                gap: 1
-              }}
-            >
-              {[
-                {
-                  key: "total",
-                  label: "Total reuniones",
-                  value: sortedEvents.length,
-                  icon: <EventNoteRoundedIcon fontSize="small" color="primary" />,
-                  tone: "text.primary"
-                },
-                {
-                  key: "pending",
-                  label: "Sin asistencia Zoom",
-                  value: pendingEvents.length,
-                  icon: <AssignmentLateRoundedIcon fontSize="small" color="warning" />,
-                  tone: "warning.main"
-                },
-                {
-                  key: "assigned",
-                  label: "Ya asignadas",
-                  value: assignedEvents.length,
-                  icon: <AssignmentTurnedInRoundedIcon fontSize="small" color="info" />,
-                  tone: "info.main"
-                },
-                {
-                  key: "people",
-                  label: "Personas asignadas",
-                  value: assignedByAssistant.length,
-                  icon: <GroupRoundedIcon fontSize="small" color="action" />,
-                  tone: "text.primary"
-                }
-              ].map((metric) => (
-                <Paper
-                  key={metric.key}
-                  variant="outlined"
-                  sx={{ p: 1.2, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.75)" }}
-                >
-                  <Stack direction="row" spacing={0.8} alignItems="center">
-                    {metric.icon}
-                    <Typography variant="caption" color="text.secondary">
-                      {metric.label}
-                    </Typography>
+          {/* Details & Actions Row */}
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1.5fr" }, gap: 3 }}>
+            
+            {/* Left: Meeting Details */}
+            <Stack spacing={1.5}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Cuenta Streaming</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>{hostAccount}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">ID Reunión Zoom</Typography>
+                <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{meetingId}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Programa</Typography>
+                <Typography variant="body2">{item.solicitud.programaNombre || "-"}</Typography>
+              </Box>
+            </Stack>
+
+            {/* Right: Assignment Actions */}
+            {isPending ? (
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "background.paper" }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
+                  Gestión de Asignación
+                </Typography>
+                
+                {hasNoInterested ? (
+                  <Alert severity="warning" sx={{ py: 0, mb: 1 }}>
+                    No hay postulantes para esta reunión.
+                  </Alert>
+                ) : (
+                  <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
+                    <Typography variant="body2" sx={{ alignSelf: "center", mr: 1 }}>Interesados:</Typography>
+                    {item.interesados.map(int => (
+                      <Chip key={int.asistenteZoomId} size="small" avatar={<Avatar>{int.nombre[0]}</Avatar>} label={int.nombre} />
+                    ))}
                   </Stack>
-                  <Typography variant="h6" sx={{ lineHeight: 1.1, color: metric.tone, mt: 0.4 }}>
-                    {metric.value}
-                  </Typography>
-                </Paper>
-              ))}
-            </Box>
+                )}
 
-            <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 2.5 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.8 }}>
-                Resumen por persona
-              </Typography>
-              {assignedByAssistant.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  Todavia no hay reuniones asignadas.
-                </Typography>
-              ) : (
-                <Box
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: {
-                      xs: "1fr",
-                      sm: "repeat(2, minmax(0, 1fr))",
-                      lg: "repeat(3, minmax(0, 1fr))"
-                    },
-                    gap: 1
-                  }}
-                >
-                  {assignedByAssistant.map((assistant) => (
-                    <Paper
-                      key={assistant.asistenteZoomId}
-                      variant="outlined"
-                      sx={{ p: 1, borderRadius: 1.8 }}
-                    >
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                        {assistant.nombre}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {assistant.email}
-                      </Typography>
-                      <Chip
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                        sx={{ mt: 0.8 }}
-                        label={`${assistant.events.length} reunion(es)`}
-                      />
-                    </Paper>
-                  ))}
-                </Box>
-              )}
-            </Paper>
-
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 1.2,
-                borderRadius: 2.5,
-                mb: 1.5,
-                borderColor: "primary.main"
-              }}
-            >
-              <Stack direction="row" spacing={1}>
-                <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
-                  Selecciona la vista:
-                </Typography>
-                <ToggleButtonGroup
-                  size="small"
-                  exclusive
-                  value={viewMode}
-                  onChange={(_event, value: "pending" | "assigned" | null) => {
-                    if (value) setViewMode(value);
-                  }}
-                >
-                  <ToggleButton value="pending">
-                    Sin asignar ({pendingEvents.length})
-                  </ToggleButton>
-                  <ToggleButton value="assigned">
-                    Asignadas ({assignedEvents.length})
-                  </ToggleButton>
-                </ToggleButtonGroup>
-              </Stack>
-            </Paper>
-
-            {viewMode === "pending" ? (
-              <Paper
-                variant="outlined"
-                sx={{
-                  p: 1.2,
-                  borderRadius: 2.5,
-                  borderColor: "warning.main",
-                  backgroundColor: "rgba(237, 108, 2, 0.03)"
-                }}
-              >
-                <Stack
-                  direction={{ xs: "column", sm: "row" }}
-                  spacing={0.8}
-                  alignItems={{ xs: "flex-start", sm: "center" }}
-                  justifyContent="space-between"
-                >
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                      Reuniones sin asistencia Zoom ({pendingEvents.length})
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Prioridad operativa: estas reuniones requieren asignacion.
-                    </Typography>
-                  </Box>
-                  <Chip color="warning" label={`Pendientes: ${pendingEvents.length}`} />
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="center">
+                  <TextField
+                    select
+                    size="small"
+                    fullWidth
+                    disabled={hasNoInterested}
+                    value={selectedAssistantId}
+                    onChange={(e) => onSelectedAssistantChange(item.id, e.target.value)}
+                    label="Seleccionar Asistente"
+                  >
+                    <MenuItem value=""><em>Ninguno</em></MenuItem>
+                    {options.map((option) => (
+                      <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>
+                    ))}
+                  </TextField>
+                  <Button
+                    variant="contained"
+                    onClick={() => onAssignAssistant(item.id)}
+                    disabled={actionDisabled}
+                    sx={{ minWidth: 120, height: 40 }}
+                    disableElevation
+                  >
+                    {assigningEventId === item.id ? "Guardando..." : "Asignar"}
+                  </Button>
                 </Stack>
 
-                {pendingEvents.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    No hay reuniones pendientes de asignacion.
-                  </Typography>
-                ) : (
-                  <Stack spacing={1} sx={{ mt: 1 }}>
-                    {pendingEvents.map((item) => renderEventCard(item, "pending"))}
+                {suggestedAssignment && (
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2, p: 1, bgcolor: "info.lighter", borderRadius: 1 }}>
+                    <AutoAwesomeRoundedIcon fontSize="small" color="info" />
+                    <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                      Sugerencia: <strong>{suggestedAssignment.asistenteNombre}</strong>
+                    </Typography>
+                    <Button 
+                      size="small" 
+                      onClick={() => onSelectedAssistantChange(item.id, suggestedAssignment.asistenteZoomId)}
+                      disabled={!canApplySuggestionToSelector}
+                    >
+                      Aplicar
+                    </Button>
                   </Stack>
                 )}
               </Paper>
             ) : (
-              <Paper
-                variant="outlined"
-                sx={{
-                  p: 1.2,
-                  borderRadius: 2.5,
-                  borderColor: "info.main",
-                  backgroundColor: "rgba(2, 136, 209, 0.03)"
-                }}
-              >
-                <Stack
-                  direction={{ xs: "column", sm: "row" }}
-                  spacing={0.8}
-                  alignItems={{ xs: "flex-start", sm: "center" }}
-                  justifyContent="space-between"
-                >
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "background.paper", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
+                  Personal Asignado
+                </Typography>
+                <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+                  <Avatar sx={{ bgcolor: "success.main" }}>{currentAssignment?.nombre[0]}</Avatar>
                   <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                      Reuniones asignadas ({assignedEvents.length})
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Mantenimiento: presiona "Cambiar asistencia" para reasignar.
-                    </Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{currentAssignment?.nombre}</Typography>
+                    <Typography variant="body2" color="text.secondary">{currentAssignment?.email}</Typography>
                   </Box>
-                  <Chip color="info" label={`Asignadas: ${assignedEvents.length}`} />
                 </Stack>
-
-                {assignedEvents.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    No hay reuniones asignadas actualmente.
-                  </Typography>
-                ) : (
-                  <Stack spacing={1} sx={{ mt: 1 }}>
-                    {assignedEvents.map((item) => renderEventCard(item, "assigned"))}
-                  </Stack>
-                )}
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="warning"
+                    onClick={() => setViewMode("pending")}
+                  >
+                    Modificar
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="text"
+                    color="error"
+                    onClick={() => onRemoveAssistanceForEvent({
+                      eventoId: item.id,
+                      solicitudId: item.solicitud.id,
+                      titulo: item.solicitud.titulo,
+                      inicioProgramadoAt: item.inicioProgramadoAt
+                    })}
+                    disabled={removingAssistanceEventId === item.id}
+                  >
+                    {removingAssistanceEventId === item.id ? "Removiendo..." : "Quitar asistencia"}
+                  </Button>
+                </Stack>
               </Paper>
             )}
+
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Box sx={{ width: "100%" }}>
+      {/* Top Metrics Row */}
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", md: "repeat(4, 1fr)" }, gap: 2, mb: 3 }}>
+        {[
+          { key: "total", label: "Total reuniones", value: sortedEvents.length, icon: <EventNoteRoundedIcon color="primary" />, tone: "primary.main" },
+          { key: "pending", label: "Sin asistencia", value: pendingEvents.length, icon: <AssignmentLateRoundedIcon color="warning" />, tone: "warning.main" },
+          { key: "assigned", label: "Ya asignadas", value: assignedEvents.length, icon: <AssignmentTurnedInRoundedIcon color="success" />, tone: "success.main" },
+          { key: "people", label: "Personal activo", value: assignedByAssistant.length, icon: <GroupRoundedIcon color="info" />, tone: "info.main" }
+        ].map((metric) => (
+          <Paper key={metric.key} variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Box sx={{ p: 1, borderRadius: 2, bgcolor: `${metric.tone}1A` }}>
+                {metric.icon}
+              </Box>
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 900, color: metric.tone, lineHeight: 1 }}>{metric.value}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>{metric.label}</Typography>
+              </Box>
+            </Stack>
+          </Paper>
+        ))}
+      </Box>
+
+      {/* Auto-suggest Action Bar */}
+      <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 3, bgcolor: "primary.lighter", borderColor: "primary.light", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 2 }}>
+        <Box>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.dark", display: "flex", alignItems: "center", gap: 1 }}>
+            <AutoAwesomeRoundedIcon fontSize="small" /> Asignación Inteligente
+          </Typography>
+          <Typography variant="body2" color="primary.main" sx={{ mt: 0.5 }}>
+            Genera una propuesta equilibrada automáticamente basándose en las tarifas y la carga mensual.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1}>
+          <Button variant="contained" onClick={onSuggestMonthly} disabled={isLoadingSuggestion} disableElevation>
+            {isLoadingSuggestion ? "Calculando..." : "Generar Sugerencia"}
+          </Button>
+          {hasSuggestionSession && (
+            <Button variant="outlined" onClick={onSuggestNext} disabled={isLoadingSuggestion}>
+              Buscar otra opción
+            </Button>
+          )}
+        </Stack>
+      </Paper>
+
+      {/* Main Content Area */}
+      <Card variant="outlined" sx={{ borderRadius: 3 }}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: "grey.50" }}>
+          <Stack direction="row" sx={{ px: 2, pt: 2 }}>
+            <ToggleButtonGroup
+              size="medium"
+              exclusive
+              value={viewMode}
+              onChange={(_event, value: "pending" | "assigned" | null) => {
+                if (value) setViewMode(value);
+              }}
+              sx={{ mb: 2 }}
+            >
+              <ToggleButton value="pending" sx={{ px: 3, fontWeight: 700 }}>
+                Pendientes <Chip size="small" label={pendingEvents.length} color="warning" sx={{ ml: 1, height: 20 }} />
+              </ToggleButton>
+              <ToggleButton value="assigned" sx={{ px: 3, fontWeight: 700 }}>
+                Asignadas <Chip size="small" label={assignedEvents.length} color="success" sx={{ ml: 1, height: 20 }} />
+              </ToggleButton>
+            </ToggleButtonGroup>
           </Stack>
-        )}
-      </CardContent>
-    </Card>
+        </Box>
+        
+        <CardContent sx={{ p: { xs: 2, md: 3 }, bgcolor: "grey.50" }}>
+          {isLoadingAssignmentBoard ? (
+            <Stack spacing={2}>
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} variant="rectangular" height={160} sx={{ borderRadius: 3 }} />
+              ))}
+            </Stack>
+          ) : viewMode === "pending" ? (
+            pendingEvents.length === 0 ? (
+              <Alert severity="success" sx={{ borderRadius: 2 }}>¡Excelente! No hay reuniones pendientes de asignación.</Alert>
+            ) : (
+              <Stack spacing={0}>{pendingEvents.map((item) => renderEventCard(item, "pending"))}</Stack>
+            )
+          ) : (
+            assignedEvents.length === 0 ? (
+              <Alert severity="info" sx={{ borderRadius: 2 }}>Todavía no hay reuniones asignadas.</Alert>
+            ) : (
+              <Stack spacing={0}>{assignedEvents.map((item) => renderEventCard(item, "assigned"))}</Stack>
+            )
+          )}
+        </CardContent>
+      </Card>
+    </Box>
   );
 }

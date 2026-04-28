@@ -30,7 +30,8 @@ import {
   Paper,
   Stack,
   TextField,
-  Typography
+  Typography,
+  Skeleton
 } from "@mui/material";
 import { ToggleButtons } from "@/components/toggle-buttons";
 import {
@@ -114,6 +115,7 @@ interface SpaTabSolicitudesProps {
   docenteSolicitudesView: "form" | "list";
   setDocenteSolicitudesView: (view: "form" | "list") => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  isLoading?: boolean;
 }
 
 const CREATE_PROGRAMA_VALUE = "__create_programa__";
@@ -467,7 +469,8 @@ export function SpaTabSolicitudes({
   onCreatePrograma,
   docenteSolicitudesView,
   setDocenteSolicitudesView,
-  onSubmit
+  onSubmit,
+  isLoading
 }: SpaTabSolicitudesProps) {
   const [expandedSolicitudId, setExpandedSolicitudId] = useState<string | null>(null);
   const [showCancelledBySolicitudId, setShowCancelledBySolicitudId] = useState<Record<string, boolean>>({});
@@ -2109,19 +2112,51 @@ export function SpaTabSolicitudes({
               </Button>
             </Stack>
           </Stack>
-          {solicitudes.length === 0 && (
+          {isLoading ? (
+            <Stack spacing={2}>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Paper
+                  key={i}
+                  variant="outlined"
+                  sx={{
+                    borderRadius: 2.2,
+                    overflow: "hidden",
+                    borderLeft: "6px solid",
+                    borderLeftColor: "divider",
+                    p: 2
+                  }}
+                >
+                  <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Skeleton variant="text" width="40%" height={28} />
+                      <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                        <Skeleton variant="rounded" width={80} height={24} />
+                        <Skeleton variant="rounded" width={100} height={24} />
+                      </Stack>
+                    </Box>
+                    <Stack direction="row" spacing={1}>
+                      <Skeleton variant="rectangular" width={70} height={32} sx={{ borderRadius: 1.5 }} />
+                      <Skeleton variant="rectangular" width={100} height={32} sx={{ borderRadius: 1.5 }} />
+                    </Stack>
+                  </Stack>
+                  <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>
+                    <Skeleton variant="text" width="60%" />
+                  </Box>
+                </Paper>
+              ))}
+            </Stack>
+          ) : solicitudes.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
               No hay solicitudes registradas.
             </Typography>
-          )}
-          {solicitudes.length > 0 && visibleSolicitudes.length === 0 && (
+          ) : visibleSolicitudes.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
               {solicitudesListScope === "ACTIVAS"
                 ? "No hay solicitudes activas o pendientes de ocurrir."
                 : "No hay solicitudes con todas sus instancias finalizadas."}
             </Typography>
-          )}
-          {visibleSolicitudes.length > 0 && (
+          ) : null}
+          {visibleSolicitudes.length > 0 && !isLoading && (
             <Stack spacing={2}>
               <Box
                 sx={{
