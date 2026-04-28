@@ -9,102 +9,25 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Divider,
-  LinearProgress,
   Skeleton,
   Stack,
-  Typography
+  Typography,
+  useTheme,
+  alpha,
+  Paper,
+  Divider
 } from "@mui/material";
+import EventIcon from "@mui/icons-material/Event";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import AccessTimeFilledIcon from "@mui/icons-material/AccessTimeFilled";
+import PaidIcon from "@mui/icons-material/Paid";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+
 import { loadPersonHours, type PersonHoursMeeting } from "@/src/services/tarifasApi";
-import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
-import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
 
 interface SpaTabMisAsistenciasProps {
   userId: string;
-}
-
-type MonthlyMeetingGroup = {
-  monthKey: string;
-  meetings: PersonHoursMeeting[];
-};
-
-function formatDateOnly(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("es-UY", {
-    dateStyle: "short"
-  });
-}
-
-function formatTimeOnly(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString("es-UY", {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-function formatTimeRange(startValue: string, endValue: string): string {
-  const start = new Date(startValue);
-  const end = new Date(endValue);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return `${startValue} - ${endValue}`;
-  }
-
-  const sameDay =
-    start.getFullYear() === end.getFullYear() &&
-    start.getMonth() === end.getMonth() &&
-    start.getDate() === end.getDate();
-
-  if (sameDay) {
-    return `${formatTimeOnly(startValue)} - ${formatTimeOnly(endValue)}`;
-  }
-
-  return `${formatDateOnly(startValue)} ${formatTimeOnly(startValue)} - ${formatDateOnly(endValue)} ${formatTimeOnly(endValue)}`;
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("es-UY", {
-    dateStyle: "short",
-    timeStyle: "short"
-  });
-}
-
-function formatMonthKey(monthKey: string): string {
-  const [yearRaw = "0", monthRaw = "1"] = monthKey.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey;
-  const date = new Date(Date.UTC(year, Math.max(0, month - 1), 1));
-  return date.toLocaleDateString("es-UY", { month: "long", year: "numeric", timeZone: "UTC" });
-}
-
-function getMonthKeyFromIso(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
-
-function buildMonthKeyFromUtcDate(value: Date): string {
-  const year = value.getUTCFullYear();
-  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
-
-function getSettlementMonthKeys(): Set<string> {
-  const now = new Date();
-  const currentMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const previousMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-
-  return new Set<string>([
-    buildMonthKeyFromUtcDate(currentMonthDate),
-    buildMonthKeyFromUtcDate(previousMonthDate)
-  ]);
 }
 
 function formatMinutesAsHHMM(totalMinutes: number): string {
@@ -114,34 +37,28 @@ function formatMinutesAsHHMM(totalMinutes: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-function compareByStartDesc(left: PersonHoursMeeting, right: PersonHoursMeeting): number {
-  return new Date(right.inicioAt).getTime() - new Date(left.inicioAt).getTime();
+function getCurrentMonthLabel(): string {
+  const now = new Date();
+  const month = now.toLocaleDateString("es-UY", { month: "long" });
+  return month.charAt(0).toUpperCase() + month.slice(1);
 }
 
-function getMeetingKey(meeting: PersonHoursMeeting): string {
-  return `${meeting.assignmentId}:${meeting.eventId}:${meeting.inicioAt}`;
-}
-
-function normalizeZoomMeetingId(value?: string | null): string | null {
-  const digits = (value ?? "").replace(/\D/g, "");
-  if (!digits) return null;
-  return /^\d{9,13}$/.test(digits) ? digits : null;
-}
-
-function resolveHostAccountLabel(meeting: PersonHoursMeeting): string | null {
-  const candidates = [meeting.zoomHostAccount, meeting.zoomAccountEmail, meeting.zoomAccountName];
-  for (const candidate of candidates) {
-    const normalized = (candidate ?? "").trim();
-    if (normalized) return normalized;
-  }
-  return null;
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("es-UY", { 
+    style: "currency", 
+    currency: "UYU",
+    minimumFractionDigits: 2 
+  }).format(amount);
 }
 
 export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
+  const theme = useTheme();
   const [meetings, setMeetings] = useState<PersonHoursMeeting[]>([]);
+  const [rates, setRates] = useState<Record<string, { valorHora: number; moneda: string }>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const settlementMonthKeys = useMemo(() => getSettlementMonthKeys(), []);
+
+  const currentMonthLabel = useMemo(() => getCurrentMonthLabel(), []);
 
   async function refresh() {
     if (!userId) return;
@@ -149,12 +66,28 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
     setError("");
     try {
       const payload = await loadPersonHours(userId);
+
       if (!payload) {
-        setError("No se pudo cargar tus reuniones asistidas.");
-        setMeetings([]);
+        setError("No se pudo cargar tus reuniones.");
         return;
       }
-      setMeetings(payload.meetings.filter((meeting) => meeting.isCompleted));
+      
+      if (payload.rates) {
+        setRates(payload.rates);
+      }
+
+      const now = new Date();
+      const localYear = now.getFullYear();
+      const localMonth = String(now.getMonth() + 1).padStart(2, "0");
+      const currentMonthKey = `${localYear}-${localMonth}`;
+
+      const currentMonthMeetings = payload.meetings
+        .filter((m) => m.inicioAt.substring(0, 7) === currentMonthKey)
+        .sort((a, b) => new Date(a.inicioAt).getTime() - new Date(b.inicioAt).getTime());
+      
+      setMeetings(currentMonthMeetings);
+    } catch {
+      setError("Error al cargar los datos.");
     } finally {
       setIsLoading(false);
     }
@@ -164,416 +97,142 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
     void refresh();
   }, [userId]);
 
-  const monthlyGroups = useMemo<MonthlyMeetingGroup[]>(() => {
-    const grouped = new Map<string, PersonHoursMeeting[]>();
-    for (const meeting of meetings) {
-      const monthKey = getMonthKeyFromIso(meeting.inicioAt);
-      if (!monthKey) continue;
-      if (!settlementMonthKeys.has(monthKey)) continue;
+  const stats = useMemo(() => {
+    const virtualMins = meetings.reduce((acc, m) => acc + (m.modalidadReunion === "VIRTUAL" ? m.minutos : 0), 0);
+    const hibridaMins = meetings.reduce((acc, m) => acc + (m.modalidadReunion === "HIBRIDA" ? m.minutos : 0), 0);
+    
+    const virtualRate = rates["VIRTUAL"]?.valorHora ?? 0;
+    const hibridaRate = rates["HIBRIDA"]?.valorHora ?? 0;
 
-      const monthMeetings = grouped.get(monthKey);
-      if (monthMeetings) {
-        monthMeetings.push(meeting);
-      } else {
-        grouped.set(monthKey, [meeting]);
-      }
-    }
+    const virtualAmount = (virtualMins / 60) * virtualRate;
+    const hibridaAmount = (hibridaMins / 60) * hibridaRate;
 
-    return Array.from(grouped.entries())
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([monthKey, monthMeetings]) => ({
-        monthKey,
-        meetings: [...monthMeetings].sort(compareByStartDesc)
-      }));
-  }, [meetings, settlementMonthKeys]);
+    return {
+      virtualMins,
+      hibridaMins,
+      virtualAmount,
+      hibridaAmount,
+      totalAmount: virtualAmount + hibridaAmount
+    };
+  }, [meetings, rates]);
 
-  const meetingsOrdered = useMemo(
-    () => monthlyGroups.flatMap((group) => group.meetings),
-    [monthlyGroups]
-  );
-  const recurrenceCountByMeetingId = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const meeting of meetingsOrdered) {
-      const meetingId = normalizeZoomMeetingId(meeting.zoomMeetingId);
-      if (!meetingId) continue;
-      map.set(meetingId, (map.get(meetingId) ?? 0) + 1);
-    }
-    return map;
-  }, [meetingsOrdered]);
-
-  const totalMinutesVirtual = useMemo(
-    () =>
-      meetingsOrdered.reduce(
-        (acc, meeting) => acc + (meeting.modalidadReunion === "VIRTUAL" ? meeting.minutos : 0),
-        0
-      ),
-    [meetingsOrdered]
-  );
-  const totalMinutesHibrida = useMemo(
-    () =>
-      meetingsOrdered.reduce(
-        (acc, meeting) => acc + (meeting.modalidadReunion === "HIBRIDA" ? meeting.minutos : 0),
-        0
-      ),
-    [meetingsOrdered]
-  );
-  const isInitialLoading = isLoading && meetings.length === 0;
-  const hasNoSettlementMeetings = !isInitialLoading && !isLoading && meetings.length > 0 && monthlyGroups.length === 0;
+  const now = Date.now();
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3 }}>
-      <CardContent>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          alignItems={{ xs: "flex-start", sm: "center" }}
-          justifyContent="space-between"
-          sx={{ mb: 1.2 }}
-        >
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 700 }}>
-              Mis reuniones asistidas
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Solo se muestran el mes actual y el mes anterior (base para liquidacion).
-            </Typography>
-          </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-            <Stack direction="row" spacing={0.8} alignItems="center">
-              <Button variant="outlined" onClick={() => void refresh()} disabled={isLoading}>
-                Actualizar
-              </Button>
-              {isLoading ? <CircularProgress size={18} /> : null}
-            </Stack>
+    <Box>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="space-between" alignItems="flex-start" sx={{ mb: 4 }}>
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 800, mb: 1, background: "linear-gradient(45deg, #2e7d32, #4caf50)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+            Reuniones de {currentMonthLabel}
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Control de horas y cotización proyectada para el mes en curso.
+          </Typography>
+        </Box>
+        <Button variant="outlined" onClick={() => void refresh()} disabled={isLoading} sx={{ borderRadius: 2, fontWeight: 700 }}>
+          Actualizar
+        </Button>
+      </Stack>
+
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mb: 4 }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 4, bgcolor: alpha(theme.palette.success.main, 0.05), borderColor: alpha(theme.palette.success.main, 0.2) }}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <AccessTimeFilledIcon color="success" sx={{ fontSize: 40 }} />
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="overline" sx={{ fontWeight: 800, color: "success.dark" }}>VIRTUALES</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 900 }}>{formatMinutesAsHHMM(stats.virtualMins)}</Typography>
+              <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
+                <PaidIcon fontSize="small" color="success" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "success.dark" }}>{formatCurrency(stats.virtualAmount)}</Typography>
+              </Stack>
+            </Box>
           </Stack>
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 4, bgcolor: alpha(theme.palette.info.main, 0.05), borderColor: alpha(theme.palette.info.main, 0.2) }}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <AccessTimeFilledIcon color="info" sx={{ fontSize: 40 }} />
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="overline" sx={{ fontWeight: 800, color: "info.dark" }}>HÍBRIDAS</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 900 }}>{formatMinutesAsHHMM(stats.hibridaMins)}</Typography>
+              <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
+                <PaidIcon fontSize="small" color="info" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "info.dark" }}>{formatCurrency(stats.hibridaAmount)}</Typography>
+              </Stack>
+            </Box>
+          </Stack>
+        </Paper>
+      </Box>
+
+      <Paper sx={{ p: 2, mb: 4, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.05), textAlign: "center" }}>
+        <Typography variant="h6" sx={{ fontWeight: 800, color: "primary.dark" }}>
+          Cotización Total Estimada: {formatCurrency(stats.totalAmount)}
+        </Typography>
+      </Paper>
+
+      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+
+      {isLoading && meetings.length === 0 ? (
+        <Stack spacing={2}>
+          {[1, 2, 3].map(i => <Skeleton key={i} variant="rounded" height={80} sx={{ borderRadius: 3 }} />)}
         </Stack>
-
-        {error ? <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert> : null}
-
-        {isLoading ? (
-          <Box sx={{ mb: 1.5 }}>
-            <LinearProgress
-              sx={{
-                height: 8,
-                borderRadius: 999,
-                mb: 0.6
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              Cargando datos de tus asistencias...
-            </Typography>
-          </Box>
-        ) : null}
-
-        {isInitialLoading ? (
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
-            <Skeleton variant="rounded" width={100} height={32} sx={{ borderRadius: 1.5 }} />
-            <Skeleton variant="rounded" width={140} height={32} sx={{ borderRadius: 1.5 }} />
-          </Stack>
-        ) : (
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
-            <Chip variant="outlined" label={`${monthlyGroups.length} mes(es)`} />
-            <Chip variant="outlined" label={`${meetingsOrdered.length} reunion(es)`} />
-          </Stack>
-        )}
-
-        {isInitialLoading ? (
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
-              gap: 2,
-              mb: 3
-            }}
-          >
-            <Skeleton variant="rectangular" height={142} sx={{ borderRadius: 3 }} />
-            <Skeleton variant="rectangular" height={142} sx={{ borderRadius: 3 }} />
-          </Box>
-        ) : (
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
-              gap: 1.2,
-              mb: 1.5
-            }}
-          >
-            <Card
-              variant="outlined"
-              sx={{
-                borderRadius: 2.4,
-                minHeight: { xs: 132, md: 142 },
-                borderColor: "success.light",
-                background: "linear-gradient(135deg, rgba(25,118,56,0.05) 0%, rgba(46,125,50,0.10) 100%)"
-              }}
-            >
-              <CardContent sx={{ p: 1.8 }}>
-                <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
-                  Virtual total
-                </Typography>
-                <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>
-                  {formatMinutesAsHHMM(totalMinutesVirtual)}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Formato HH:MM
-                </Typography>
-              </CardContent>
-            </Card>
-            <Card
-              variant="outlined"
-              sx={{
-                borderRadius: 2.4,
-                minHeight: { xs: 132, md: 142 },
-                borderColor: "info.light",
-                background: "linear-gradient(135deg, rgba(2,136,209,0.05) 0%, rgba(2,136,209,0.11) 100%)"
-              }}
-            >
-              <CardContent sx={{ p: 1.8 }}>
-                <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
-                  Hibrida total
-                </Typography>
-                <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>
-                  {formatMinutesAsHHMM(totalMinutesHibrida)}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Formato HH:MM
-                </Typography>
-              </CardContent>
-            </Card>
-          </Box>
-        )}
-
-        {!isInitialLoading && !isLoading && meetings.length === 0 ? (
-          <Alert severity="info">Todavia no tienes reuniones pasadas asistidas.</Alert>
-        ) : null}
-        {hasNoSettlementMeetings ? (
-          <Alert severity="info">No tienes reuniones asistidas en el mes actual ni en el mes anterior.</Alert>
-        ) : null}
-
-        <Stack spacing={1}>
-          {isInitialLoading
-            ? Array.from({ length: 3 }).map((_, index) => (
-                <Card key={`loading-${index}`} variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: 1.5 }}>
-                    <Stack
-                      direction={{ xs: "column", md: "row" }}
-                      spacing={1}
-                      alignItems={{ xs: "flex-start", md: "center" }}
-                      justifyContent="space-between"
-                    >
-                      <Box sx={{ width: "100%" }}>
-                        <Skeleton variant="text" width="65%" height={34} />
-                        <Skeleton variant="text" width="42%" height={24} />
+      ) : meetings.length === 0 ? (
+        <Paper sx={{ p: 8, textAlign: "center", borderRadius: 4, bgcolor: alpha(theme.palette.primary.main, 0.03), border: "2px dashed", borderColor: alpha(theme.palette.primary.main, 0.1) }}>
+          <Typography variant="h6" color="text.secondary" fontWeight={700}>
+            No se encontraron reuniones para este mes.
+          </Typography>
+        </Paper>
+      ) : (
+        <Stack spacing={1.5}>
+          {meetings.map((m) => {
+            const meetingDate = new Date(m.inicioAt);
+            const isCompleted = m.isCompleted || meetingDate.getTime() < now;
+            const isPresencial = m.modalidadReunion === "HIBRIDA";
+            return (
+              <Card
+                key={`${m.assignmentId}-${m.eventId}`}
+                variant="outlined"
+                sx={{
+                  borderRadius: 2,
+                  borderLeft: "4px solid",
+                  borderLeftColor: isPresencial ? "error.main" : "primary.main",
+                  bgcolor: isCompleted ? alpha(theme.palette.action.disabledBackground, 0.1) : "background.paper",
+                  opacity: isCompleted ? 0.8 : 1
+                }}
+              >
+                <CardContent sx={{ py: 1.5, px: 2, "&:last-child": { pb: 1.5 } }}>
+                  <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+                    <Stack direction="row" spacing={2} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+                      <Box sx={{ minWidth: 50, textAlign: "center" }}>
+                        <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1 }}>{new Date(m.inicioAt).getDate()}</Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 800, textTransform: "uppercase" }}>{new Date(m.inicioAt).toLocaleDateString("es-UY", { month: "short" })}</Typography>
                       </Box>
-                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                        <Skeleton variant="rounded" width={90} height={28} />
-                        <Skeleton variant="rounded" width={90} height={28} />
-                        <Skeleton variant="rounded" width={70} height={28} />
-                      </Stack>
+                      <Divider orientation="vertical" flexItem />
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2, mb: 0.5 }} noWrap>{m.titulo}</Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Chip size="small" label={isPresencial ? "Presencial" : "Virtual"} color={isPresencial ? "error" : "primary"} sx={{ fontWeight: 800, height: 20, fontSize: "0.7rem" }} />
+                          <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <ScheduleIcon sx={{ fontSize: 14 }} /> {new Date(m.inicioAt).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })} ({formatMinutesAsHHMM(m.minutos)})
+                          </Typography>
+                        </Stack>
+                      </Box>
                     </Stack>
 
-                    <Box
-                      sx={{
-                        mt: 1,
-                        display: "grid",
-                        gridTemplateColumns: {
-                          xs: "1fr",
-                          md: "repeat(3, minmax(0, 1fr))"
-                        },
-                        gap: 1
-                      }}
-                    >
-                      <Box>
-                        <Skeleton variant="text" width="35%" height={20} />
-                        <Skeleton variant="text" width="70%" height={24} />
-                      </Box>
-                      <Box>
-                        <Skeleton variant="text" width="25%" height={20} />
-                        <Skeleton variant="text" width="70%" height={24} />
-                      </Box>
-                      <Box>
-                        <Skeleton variant="text" width="35%" height={20} />
-                        <Skeleton variant="text" width="55%" height={24} />
-                      </Box>
-                    </Box>
-                  </CardContent>
-                </Card>
-              ))
-            : monthlyGroups.map((group) => (
-                <Stack key={group.monthKey} spacing={1}>
-                  <Divider textAlign="left">
-                    <Chip size="small" variant="outlined" label={formatMonthKey(group.monthKey)} />
-                  </Divider>
-                  {group.meetings.map((meeting) => {
-                    const meetingId = normalizeZoomMeetingId(meeting.zoomMeetingId) ?? "-";
-                    const recurringCount = meetingId === "-"
-                      ? 1
-                      : recurrenceCountByMeetingId.get(meetingId) ?? 1;
-                    const hostAccount = resolveHostAccountLabel(meeting);
-                    const hasAssignedAssistant = ["ASIGNADO", "ACEPTADO"].includes(meeting.estadoAsignacion);
-
-                    return (
-                      <Card key={getMeetingKey(meeting)} variant="outlined" sx={{ borderRadius: 2 }}>
-                        <CardContent sx={{ p: 1.5 }}>
-                        <Stack
-                          direction={{ xs: "column", md: "row" }}
-                          spacing={1}
-                          alignItems={{ xs: "flex-start", md: "center" }}
-                          justifyContent="space-between"
-                        >
-                          <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                              {meeting.titulo}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {meeting.programaNombre || "Sin programa"}
-                            </Typography>
-                          </Box>
-                          <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                            <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
-                            <Chip size="small" variant="outlined" label={`Liquidable ${meeting.minutos} min`} />
-                            <Chip size="small" variant="outlined" label={`Planificada ${meeting.minutosProgramados} min`} />
-                            <Chip
-                              size="small"
-                              color={recurringCount > 1 ? "primary" : "default"}
-                              variant="outlined"
-                              label={
-                                recurringCount > 1
-                                  ? `${recurringCount} reuniones`
-                                  : "Reunion unica"
-                              }
-                            />
-                            {meeting.minutosReales !== null ? (
-                              <Chip size="small" variant="outlined" label={`Real ${meeting.minutosReales} min`} />
-                            ) : null}
-                            <Chip
-                              size="small"
-                              color={
-                                meeting.huboGrabacion === true
-                                  ? "warning"
-                                  : meeting.huboGrabacion === false
-                                    ? "default"
-                                    : "info"
-                              }
-                              variant="outlined"
-                              label={
-                                meeting.huboGrabacion === true
-                                  ? "Grabacion SI"
-                                  : meeting.huboGrabacion === false
-                                    ? "Grabacion NO"
-                                    : "Grabacion s/confirmar"
-                              }
-                            />
-                            {meeting.zoomJoinUrl ? (
-                              <Button
-                                size="small"
-                                variant="contained"
-                                color="secondary"
-                                href={meeting.zoomJoinUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Abrir
-                              </Button>
-                            ) : null}
-                          </Stack>
-                        </Stack>
-
-                        <Box
-                          sx={{
-                            mt: 1,
-                            display: "grid",
-                            gridTemplateColumns: {
-                              xs: "1fr",
-                              md: "repeat(3, minmax(0, 1fr))"
-                            },
-                            gap: 1
-                          }}
-                        >
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">Dia</Typography>
-                            <Typography variant="body2">{formatDateOnly(meeting.inicioProgramadoAt)}</Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">Horario</Typography>
-                            <Typography variant="body2">
-                              {formatTimeRange(meeting.inicioProgramadoAt, meeting.finProgramadoAt)}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">Meeting ID</Typography>
-                            <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                              {meetingId}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              Cuenta streaming asociada
-                            </Typography>
-                            <Typography variant="body2">{hostAccount || "-"}</Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              Asistente por reunion
-                            </Typography>
-                            <MeetingAssistantStatusChip
-                              requiresAssistance
-                              assistantName={hasAssignedAssistant ? "Tu asistencia" : null}
-                              pendingLabel="Pendiente"
-                            />
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              Cantidad de reuniones
-                            </Typography>
-                            <Typography variant="body2">
-                              {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
-                            </Typography>
-                          </Box>
-                          <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
-                            <Typography variant="caption" color="text.secondary">
-                              Control interno (inicio/fin real)
-                            </Typography>
-                            <Typography variant="body2">
-                              {meeting.inicioRealAt || meeting.finRealAt
-                                ? `${meeting.inicioRealAt ? formatDateTime(meeting.inicioRealAt) : "-"} a ${meeting.finRealAt ? formatDateTime(meeting.finRealAt) : "-"}`
-                                : "Sin datos reales registrados."}
-                            </Typography>
-                          </Box>
-                          <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
-                            <ZoomAccountPasswordField
-                              hostAccount={hostAccount}
-                              label="Contrasena cuenta streaming"
-                            />
-                          </Box>
-                        </Box>
-
-                        {meeting.minutosReales !== null && meeting.minutosExtraNoLiquidados > 0 ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                            Duracion real con {meeting.minutosExtraNoLiquidados} min extra. Ese excedente no se liquida automaticamente.
-                            {meeting.requiereRevisionAdminPorExceso
-                              ? " Se marca para revision administrativa (+60 min o mas)."
-                              : ""}
-                          </Typography>
-                        ) : null}
-
-                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.8 }}>
-                          {meeting.huboGrabacion === true
-                            ? "Hubo grabacion. Debe descargarse manualmente (fuera de la app)."
-                            : meeting.huboGrabacion === false
-                              ? "No hubo grabacion para esta reunion."
-                              : meeting.requiereGrabacion
-                                ? "Grabacion solicitada, sin confirmacion automatica en sistema."
-                                : "Sin confirmacion de grabacion en sistema."}
-                        </Typography>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </Stack>
-              ))}
+                    <Chip
+                      size="small"
+                      icon={isCompleted ? <CheckCircleIcon /> : <PendingActionsIcon />}
+                      label={isCompleted ? "Completada" : "Pendiente"}
+                      color={isCompleted ? "success" : "warning"}
+                      variant="outlined"
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </Stack>
+                </CardContent>
+              </Card>
+            );
+          })}
         </Stack>
-      </CardContent>
-    </Card>
+      )}
+    </Box>
   );
 }

@@ -26,6 +26,7 @@ export const tabs = [
   "agenda_libre",
   "mis_reuniones_asignadas",
   "mis_asistencias",
+  "historico_asistencias",
   "asistentes_asignacion",
   "asistentes_perfiles",
   "asistentes_estadisticas",
@@ -91,13 +92,19 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     group: "OPERACION"
   },
   mis_reuniones_asignadas: {
-    label: "Mis reuniones asignadas",
+    label: "Próximas reuniones",
     visibleInNavigation: true,
     roles: ["ASISTENTE_ZOOM"],
     group: "OPERACION"
   },
   mis_asistencias: {
-    label: "Mis asistencias",
+    label: "Reuniones del Mes",
+    visibleInNavigation: true,
+    roles: ["ASISTENTE_ZOOM"],
+    group: "OPERACION"
+  },
+  historico_asistencias: {
+    label: "Histórico de reuniones",
     visibleInNavigation: true,
     roles: ["ASISTENTE_ZOOM"],
     group: "OPERACION"
@@ -231,6 +238,8 @@ export function getTabIcon(tab: Tab): ReactNode {
       return <UpcomingOutlinedIcon fontSize="small" />;
     case "mis_asistencias":
       return <HistoryOutlinedIcon fontSize="small" />;
+    case "historico_asistencias":
+      return <HistoryToggleOffOutlinedIcon fontSize="small" />;
     case "asistentes_asignacion":
       return <AssignmentIndOutlinedIcon fontSize="small" />;
     case "asistentes_perfiles":

@@ -47,6 +47,14 @@ export async function loadAgendaLibre(): Promise<AgendaEvent[] | null> {
   return json.agenda;
 }
 
+export async function markAgendaViewed(): Promise<void> {
+  try {
+    await fetch("/api/v1/agenda-soporte/abierta/view", { method: "POST" });
+  } catch {
+    // Ignore errors for analytics
+  }
+}
+
 export async function setInterest(
   eventoId: string,
   estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA" | "RETIRADO"

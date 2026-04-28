@@ -84,17 +84,26 @@ export function SpaNavbar({
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [mobileExpanded, setMobileExpanded] = useState(false);
 
+  const currentMonthLabel = useMemo(() => {
+    const month = new Date().toLocaleDateString("es-UY", { month: "long" });
+    return month.charAt(0).toUpperCase() + month.slice(1);
+  }, []);
+
   const adminGroups = useMemo(
     () =>
       NAVIGATION_GROUP_ORDER.map((group) => {
         const groupTabs = adminNavigationGroups.find((item) => item.group === group)?.tabs ?? [];
+        let label = NAVIGATION_GROUP_LABEL[group];
+        if (group === "OPERACION" && user?.role === "ASISTENTE_ZOOM") {
+          label = "Asistencias";
+        }
         return {
           group,
-          label: NAVIGATION_GROUP_LABEL[group],
+          label,
           tabs: groupTabs
         };
       }).filter((item) => item.tabs.length > 0),
-    [adminNavigationGroups]
+    [adminNavigationGroups, user?.role]
   );
 
   function openMenu(group: NavigationGroup, currentAnchor: HTMLElement) {
@@ -107,7 +116,16 @@ export function SpaNavbar({
     setAnchorEl(null);
   }
 
-  const activeLabel = TAB_CONFIG[activeTab as keyof typeof TAB_CONFIG]?.label ?? title;
+  function getTabDisplayLabel(tabKey: string): string {
+    const config = TAB_CONFIG[tabKey as keyof typeof TAB_CONFIG];
+    if (!config) return tabKey;
+    if (tabKey === "mis_asistencias") {
+      return `Reuniones de ${currentMonthLabel}`;
+    }
+    return config.label;
+  }
+
+  const activeLabel = getTabDisplayLabel(activeTab) || title;
 
   return (
     <Box
@@ -202,7 +220,7 @@ export function SpaNavbar({
                   const activeTabInGroup = groupItem.tabs.find((candidateTab) => candidateTab === activeTab) ?? null;
                   const hasSingleTab = groupItem.tabs.length === 1;
                   const singleTab = hasSingleTab ? groupItem.tabs[0] : null;
-                  const currentLabel = activeTabInGroup ? TAB_CONFIG[activeTabInGroup].label : "Elegir sección";
+                  const currentLabel = activeTabInGroup ? getTabDisplayLabel(activeTabInGroup) : "Elegir sección";
 
                   return (
                     <Box key={groupItem.group} sx={{ flexShrink: 0, width: { xs: "100%", sm: "auto" } }}>
@@ -328,7 +346,7 @@ export function SpaNavbar({
                                   fontSize: "0.875rem"
                                 }}
                               >
-                                {TAB_CONFIG[groupTab].label}
+                                {getTabDisplayLabel(groupTab)}
                               </Typography>
                             </MenuItem>
                           ))}

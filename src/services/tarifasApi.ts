@@ -95,6 +95,7 @@ export type PersonHoursResponse = {
     totalOverrunAlerts: number;
     months: PersonHoursMonthSummary[];
   }>;
+  rates?: Record<string, { valorHora: number; moneda: string }>;
 };
 
 export async function loadTarifas(): Promise<Tarifa[] | null> {

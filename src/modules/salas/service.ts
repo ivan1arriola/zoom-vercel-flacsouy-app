@@ -9553,7 +9553,8 @@ export class SalasService {
       monthSummaries,
       meetings: meetings.map(({ timezone: _timezone, ...meeting }) => meeting),
       availableMonthKeys,
-      assistantSummaries
+      assistantSummaries,
+      rates: ratesByModalidad
     };
   }
 

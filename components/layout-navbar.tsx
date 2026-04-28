@@ -125,14 +125,32 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
     () =>
       NAVIGATION_GROUP_ORDER.map((group) => {
         const groupTabs = visibleNavigationTabs.filter((candidateTab) => TAB_CONFIG[candidateTab].group === group);
+        let label = NAVIGATION_GROUP_LABEL[group];
+        if (group === "OPERACION" && effectiveRole === "ASISTENTE_ZOOM") {
+          label = "Asistencias";
+        }
         return {
           group,
-          label: NAVIGATION_GROUP_LABEL[group],
+          label,
           tabs: groupTabs
         };
       }).filter((item) => item.tabs.length > 0),
-    [visibleNavigationTabs]
+    [visibleNavigationTabs, effectiveRole]
   );
+
+  const currentMonthLabel = useMemo(() => {
+    const month = new Date().toLocaleDateString("es-UY", { month: "long" });
+    return month.charAt(0).toUpperCase() + month.slice(1);
+  }, []);
+
+  function getTabDisplayLabel(tabId: string): string {
+    const config = TAB_CONFIG[tabId as keyof typeof TAB_CONFIG];
+    if (!config) return tabId;
+    if (tabId === "mis_asistencias") {
+      return `Reuniones de ${currentMonthLabel}`;
+    }
+    return config.label;
+  }
 
   function navigateToTab(tab: Tab) {
     const params = new URLSearchParams(searchParams.toString());
@@ -232,7 +250,7 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
                             }} />
                           )}
                           <ListItemText 
-                            primary={TAB_CONFIG[tabId].label} 
+                            primary={getTabDisplayLabel(tabId)} 
                             primaryTypographyProps={{ 
                               fontSize: "0.8rem", 
                               fontWeight: isActive ? 700 : 500 

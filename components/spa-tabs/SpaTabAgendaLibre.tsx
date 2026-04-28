@@ -8,26 +8,31 @@ import {
   Chip,
   Paper,
   Stack,
-  Typography
+  Typography,
+  Tabs,
+  Tab,
+  Divider,
+  useTheme,
+  alpha
 } from "@mui/material";
-import type { ReactElement } from "react";
+import { useEffect, useState, useMemo, type ReactElement } from "react";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import HighlightOffIcon from "@mui/icons-material/HighlightOff";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import EventIcon from "@mui/icons-material/Event";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import PersonIcon from "@mui/icons-material/Person";
+import LayersIcon from "@mui/icons-material/Layers";
+import BusinessIcon from "@mui/icons-material/Business";
+
 import {
   formatModalidad,
   isMeetingStartingSoon,
-  getPreparacionDisplay,
   getEncargado,
-  normalizeZoomMeetingId,
-  resolveZoomJoinUrl,
   formatZoomDate,
-  formatZoomTime,
-  formatDurationHuman
+  formatZoomTime
 } from "./spa-tabs-utils";
-import type { AgendaEvent } from "@/src/services/agendaApi";
-import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
-import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
+import { markAgendaViewed, type AgendaEvent } from "@/src/services/agendaApi";
 
 interface SpaTabAgendaLibreProps {
   agendaLibre: AgendaEvent[];
@@ -37,18 +42,6 @@ interface SpaTabAgendaLibreProps {
 
 type InterestState = "ME_INTERESA" | "NO_ME_INTERESA" | "RETIRADO" | "SIN_RESPUESTA";
 
-function mapInterestChip(
-  currentInterest: InterestState
-): { color: "success" | "error" | "warning"; label: string; icon: ReactElement } {
-  if (currentInterest === "ME_INTERESA") {
-    return { color: "success", label: "Me postulo", icon: <CheckCircleOutlineIcon fontSize="small" /> };
-  }
-  if (currentInterest === "NO_ME_INTERESA" || currentInterest === "RETIRADO") {
-    return { color: "error", label: "No voy a postular", icon: <HighlightOffIcon fontSize="small" /> };
-  }
-  return { color: "warning", label: "Sin respuesta", icon: <HelpOutlineIcon fontSize="small" /> };
-}
-
 function resolveInterestState(value?: string | null): InterestState {
   if (value === "ME_INTERESA") return "ME_INTERESA";
   if (value === "RETIRADO") return "RETIRADO";
@@ -56,37 +49,22 @@ function resolveInterestState(value?: string | null): InterestState {
   return "SIN_RESPUESTA";
 }
 
-function formatInterestAnsweredAt(value?: string | null): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("es-UY", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
+function formatDuration(start: string, end: string): string {
+  const s = new Date(start);
+  const e = new Date(end);
+  const diffMs = e.getTime() - s.getTime();
+  const totalMinutes = Math.floor(diffMs / (1000 * 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  
+  if (hours === 0) return `${minutes} min`;
+  if (minutes === 0) return `${hours} h`;
+  return `${hours} h ${minutes} min`;
 }
 
-function resolveRecurringCount(item: AgendaEvent): number | null {
-  const recurrence = item.solicitud.patronRecurrencia;
-  if (!recurrence || typeof recurrence !== "object") return null;
-  const totalInstancias = recurrence["totalInstancias"];
-  if (typeof totalInstancias !== "number" || !Number.isFinite(totalInstancias)) return null;
-  const normalized = Math.max(0, Math.floor(totalInstancias));
-  return normalized > 1 ? normalized : null;
-}
-
-function resolveAssignedAssistantLabel(item: AgendaEvent): string {
-  const assigned = item.asignaciones?.[0]?.asistente?.usuario;
-  if (!assigned) return "";
-  return (
-    assigned.name ||
-    [assigned.firstName, assigned.lastName].filter(Boolean).join(" ").trim() ||
-    assigned.email ||
-    ""
-  );
+function getMonthYear(dateIso: string): string {
+  const date = new Date(dateIso);
+  return date.toLocaleDateString("es-UY", { month: "long", year: "numeric" });
 }
 
 export function SpaTabAgendaLibre({
@@ -94,179 +72,246 @@ export function SpaTabAgendaLibre({
   updatingInterestId,
   onSetInterest
 }: SpaTabAgendaLibreProps) {
+  const theme = useTheme();
+  const [subTab, setSubTab] = useState(0);
+
+  useEffect(() => {
+    void markAgendaViewed();
+  }, []);
+
+  const filteredEvents = useMemo(() => {
+    return agendaLibre.filter((item) => {
+      const state = resolveInterestState(item.intereses[0]?.estadoInteres);
+      if (subTab === 0) return state === "SIN_RESPUESTA";
+      return state !== "SIN_RESPUESTA";
+    });
+  }, [agendaLibre, subTab]);
+
+  const groupedEvents = useMemo(() => {
+    const groups: Record<string, AgendaEvent[]> = {};
+    filteredEvents.forEach((event) => {
+      const key = getMonthYear(event.inicioProgramadoAt);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(event);
+    });
+    
+    // Sort keys chronologically
+    return Object.entries(groups).sort((a, b) => {
+      const dateA = new Date(a[1][0].inicioProgramadoAt);
+      const dateB = new Date(b[1][0].inicioProgramadoAt);
+      return dateA.getTime() - dateB.getTime();
+    });
+  }, [filteredEvents]);
+
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3 }}>
-      <CardContent>
-        <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-          Reuniones disponibles
+    <Box>
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h4" sx={{ fontWeight: 800, mb: 1, background: "linear-gradient(45deg, #1f4b8f, #4dabf5)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          Reuniones Disponibles
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Vista para asistentes Zoom. Aqui solo se muestran instancias sin persona asignada y listas para tomar.
+        <Typography variant="body1" color="text.secondary">
+          Postulate a las reuniones que puedas cubrir. Las reuniones presenciales requieren tu asistencia física en FLACSO.
         </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-          Puedes indicar si te postulas o si no vas a postular, y cambiar tu respuesta cuando quieras.
-        </Typography>
+      </Box>
 
-        {agendaLibre.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            No hay eventos abiertos para interes.
+      <Tabs 
+        value={subTab} 
+        onChange={(_, newValue) => setSubTab(newValue)}
+        sx={{ 
+          mb: 3,
+          borderBottom: 1, 
+          borderColor: "divider",
+          "& .MuiTab-root": {
+            textTransform: "none",
+            fontWeight: 700,
+            fontSize: "1rem",
+            minWidth: 160
+          }
+        }}
+      >
+        <Tab label={`Pendientes (${agendaLibre.filter(i => resolveInterestState(i.intereses[0]?.estadoInteres) === "SIN_RESPUESTA").length})`} />
+        <Tab label={`Respondidas (${agendaLibre.filter(i => resolveInterestState(i.intereses[0]?.estadoInteres) !== "SIN_RESPUESTA").length})`} />
+      </Tabs>
+
+      {filteredEvents.length === 0 ? (
+        <Paper sx={{ p: 8, textAlign: "center", borderRadius: 4, bgcolor: alpha(theme.palette.primary.main, 0.03), border: "2px dashed", borderColor: alpha(theme.palette.primary.main, 0.1) }}>
+          <HelpOutlineIcon sx={{ fontSize: 64, color: "text.disabled", mb: 2 }} />
+          <Typography variant="h6" color="text.secondary" fontWeight={700}>
+            {subTab === 0 ? "No hay reuniones pendientes de respuesta." : "Aún no has respondido a ninguna reunión."}
           </Typography>
-        ) : (
-          <Stack spacing={1.2}>
-            {agendaLibre.map((item) => {
-              const joinUrl = resolveZoomJoinUrl(item.zoomJoinUrl, item.zoomMeetingId);
-              const meetingId = normalizeZoomMeetingId(item.zoomMeetingId) ?? "-";
-              const currentInterest = resolveInterestState(item.intereses[0]?.estadoInteres);
-              const interestChip = mapInterestChip(currentInterest);
-              const startsSoon = isMeetingStartingSoon(item.inicioProgramadoAt);
-              const answeredAt = formatInterestAnsweredAt(item.intereses[0]?.fechaRespuestaAt);
-              const recurringCount = resolveRecurringCount(item);
-              const hostAccount =
-                item.cuentaZoom?.ownerEmail?.trim() ||
-                item.cuentaZoom?.nombreCuenta?.trim() ||
-                null;
-              const assignedPersonLabel = resolveAssignedAssistantLabel(item);
+        </Paper>
+      ) : (
+        <Stack spacing={4}>
+          {groupedEvents.map(([monthYear, events]) => (
+            <Box key={monthYear}>
+              <Divider textAlign="left" sx={{ mb: 3, "&::before, &::after": { borderColor: alpha(theme.palette.primary.main, 0.1) } }}>
+                <Chip 
+                  label={monthYear.toUpperCase()} 
+                  sx={{ 
+                    fontWeight: 900, 
+                    px: 2, 
+                    bgcolor: alpha(theme.palette.primary.main, 0.08),
+                    color: "primary.dark",
+                    borderRadius: 2
+                  }} 
+                />
+              </Divider>
 
-              return (
-                <Paper
-                  key={item.id}
-                  variant="outlined"
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 2,
-                    borderLeft: "5px solid",
-                    borderLeftColor: startsSoon ? "warning.main" : "divider",
-                    backgroundColor: startsSoon ? "warning.50" : undefined
-                  }}
-                >
-                  <Stack
-                    direction={{ xs: "column", md: "row" }}
-                    spacing={1}
-                    alignItems={{ xs: "flex-start", md: "center" }}
-                    justifyContent="space-between"
-                  >
-                    <Box>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                        {item.solicitud.titulo}
-                      </Typography>
-                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>
-                        <Chip size="small" variant="outlined" label={formatModalidad(item.solicitud.modalidadReunion)} />
-                        <Chip size="small" color={interestChip.color} icon={interestChip.icon} label={interestChip.label} />
-                        {recurringCount ? (
-                          <Chip size="small" color="primary" variant="outlined" label={`${recurringCount} reuniones`} />
-                        ) : (
-                          <Chip size="small" variant="outlined" label="Reunion unica" />
-                        )}
-                        {startsSoon ? <Chip size="small" color="warning" label="Comienza en menos de 24h" /> : null}
+              <Stack spacing={2}>
+                {events.map((item) => {
+                  const state = resolveInterestState(item.intereses[0]?.estadoInteres);
+                  const isInterested = state === "ME_INTERESA";
+                  const isNotInterested = state === "NO_ME_INTERESA" || state === "RETIRADO";
+                  const isPresencial = item.solicitud.modalidadReunion === "PRESENCIAL" || item.solicitud.modalidadReunion === "HIBRIDA";
+                  const isRecurrent = !!item.solicitud.patronRecurrencia;
+                  
+                  return (
+                    <Paper
+                      key={item.id}
+                      variant="outlined"
+                      sx={{
+                        p: 3,
+                        borderRadius: 4,
+                        position: "relative",
+                        overflow: "hidden",
+                        transition: "all 0.2s ease-in-out",
+                        borderLeft: "8px solid",
+                        borderLeftColor: isInterested ? "success.main" : isPresencial ? "error.main" : "primary.main",
+                        "&:hover": {
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                          transform: "translateY(-2px)"
+                        },
+                        bgcolor: isInterested ? alpha(theme.palette.success.main, 0.02) : "background.paper"
+                      }}
+                    >
+                      {isPresencial && (
+                        <Box sx={{ 
+                          position: "absolute", 
+                          top: 0, 
+                          right: 32, 
+                          bgcolor: "error.main", 
+                          color: "white", 
+                          px: 1.5, 
+                          pt: 1, 
+                          pb: 1.5,
+                          fontWeight: 900,
+                          fontSize: "0.6rem",
+                          clipPath: "polygon(0 0, 100% 0, 100% 100%, 50% 85%, 0 100%)",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          zIndex: 10,
+                          boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+                          textTransform: "uppercase"
+                        }}>
+                          <BusinessIcon sx={{ fontSize: 14, mb: 0.2 }} />
+                          Presencial
+                        </Box>
+                      )}
+
+                      <Stack direction={{ xs: "column", md: "row" }} spacing={3} alignItems="flex-start">
+                        <Box sx={{ flex: 1 }}>
+                          <Stack direction="row" spacing={1} sx={{ mb: 2 }} useFlexGap flexWrap="wrap">
+                            <Chip 
+                              icon={<EventIcon fontSize="small" />}
+                              label={formatZoomDate(item.inicioProgramadoAt)}
+                              sx={{ fontWeight: 700, bgcolor: alpha(theme.palette.primary.main, 0.08) }}
+                            />
+                            <Chip 
+                              icon={<ScheduleIcon fontSize="small" />}
+                              label={`${formatZoomTime(item.inicioProgramadoAt)} - ${formatZoomTime(item.finProgramadoAt)} (${formatDuration(item.inicioProgramadoAt, item.finProgramadoAt)})`}
+                              variant="outlined"
+                              sx={{ fontWeight: 700 }}
+                            />
+                            <Chip 
+                              label={formatModalidad(item.solicitud.modalidadReunion)}
+                              color={isPresencial ? "error" : "primary"}
+                              variant={isPresencial ? "contained" : "outlined"}
+                              sx={{ fontWeight: 800 }}
+                            />
+                            <Chip 
+                              icon={<LayersIcon fontSize="small" />}
+                              label={isRecurrent ? "Serie Recurrente" : "Reunión Única"}
+                              sx={{ fontWeight: 700, fontStyle: isRecurrent ? "italic" : "normal" }}
+                            />
+                          </Stack>
+
+                          <Typography variant="h5" sx={{ fontWeight: 900, mb: 0.5, color: "text.primary" }}>
+                            {item.solicitud.titulo}
+                          </Typography>
+                          <Typography variant="subtitle1" sx={{ color: "primary.main", fontWeight: 700, mb: 2.5 }}>
+                            {item.solicitud.programaNombre || "Sin programa"}
+                          </Typography>
+
+                          <Stack direction={{ xs: "column", sm: "row" }} spacing={4}>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontWeight: 700, mb: 0.5 }}>
+                                <PersonIcon fontSize="inherit" /> PERSONA A CARGO
+                              </Typography>
+                              <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                {getEncargado(item) || item.solicitud.responsableNombre || "No definido"}
+                              </Typography>
+                            </Box>
+                          </Stack>
+                        </Box>
+
+                        <Box sx={{ 
+                          width: { xs: "100%", md: 240 }, 
+                          display: "flex", 
+                          flexDirection: "column", 
+                          gap: 1.5,
+                          pt: { xs: 2, md: 0 },
+                          borderTop: { xs: 1, md: 0 },
+                          borderColor: "divider"
+                        }}>
+                          {subTab === 1 && (
+                            <Box sx={{ mb: 1, p: 1.5, borderRadius: 2, bgcolor: alpha(isInterested ? theme.palette.success.main : theme.palette.error.main, 0.08), textAlign: "center" }}>
+                              <Typography variant="caption" sx={{ fontWeight: 800, color: isInterested ? "success.dark" : "error.dark", display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5 }}>
+                                {isInterested ? <CheckCircleOutlineIcon fontSize="inherit" /> : <HighlightOffIcon fontSize="inherit" />}
+                                {isInterested ? "ESTÁS POSTULADO" : "NO POSTULADO"}
+                              </Typography>
+                            </Box>
+                          )}
+
+                          <Button
+                            fullWidth
+                            variant={isInterested ? "outlined" : "contained"}
+                            color="success"
+                            size="large"
+                            onClick={() => onSetInterest(item.id, "ME_INTERESA")}
+                            disabled={updatingInterestId === item.id || isInterested}
+                            sx={{ 
+                              fontWeight: 900, 
+                              py: 1.5,
+                              borderRadius: 3,
+                              boxShadow: isInterested ? "none" : theme.shadows[4]
+                            }}
+                          >
+                            {isInterested ? "YA POSTULADO" : "¡ME POSTULO!"}
+                          </Button>
+
+                          <Button
+                            fullWidth
+                            variant="text"
+                            color="error"
+                            size="small"
+                            onClick={() => onSetInterest(item.id, "RETIRADO")}
+                            disabled={updatingInterestId === item.id || isNotInterested}
+                            sx={{ fontWeight: 700, borderRadius: 2 }}
+                          >
+                            {isInterested ? "RETIRAR MI POSTULACIÓN" : "NO PUEDO ASISTIR"}
+                          </Button>
+                        </Box>
                       </Stack>
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.6, display: "block" }}>
-                        {answeredAt ? `Respuesta registrada: ${answeredAt}` : "Todavia no respondiste esta instancia."}
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                      {joinUrl ? (
-                        <Button size="small" variant="contained" color="secondary" href={joinUrl} target="_blank" rel="noreferrer">
-                          Abrir
-                        </Button>
-                      ) : null}
-                      <Button
-                        size="small"
-                        variant={currentInterest === "ME_INTERESA" ? "contained" : "outlined"}
-                        onClick={() => onSetInterest(item.id, "ME_INTERESA")}
-                        disabled={updatingInterestId === item.id || currentInterest === "ME_INTERESA"}
-                        color="success"
-                      >
-                        {currentInterest === "NO_ME_INTERESA" || currentInterest === "RETIRADO"
-                          ? "Cambiar a me postulo"
-                          : "Me postulo"}
-                      </Button>
-                      <Button
-                        size="small"
-                        variant={currentInterest === "NO_ME_INTERESA" || currentInterest === "RETIRADO" ? "contained" : "outlined"}
-                        onClick={() => onSetInterest(item.id, "RETIRADO")}
-                        disabled={updatingInterestId === item.id || currentInterest === "NO_ME_INTERESA" || currentInterest === "RETIRADO"}
-                        color="error"
-                      >
-                        {currentInterest === "ME_INTERESA" ? "Cambiar a no voy a postular" : "No voy a postular"}
-                      </Button>
-                    </Stack>
-                  </Stack>
-
-                  <Box
-                    sx={{
-                      mt: 1.2,
-                      display: "grid",
-                      gridTemplateColumns: {
-                        xs: "1fr",
-                        sm: "repeat(2, minmax(0, 1fr))",
-                        lg: "repeat(4, minmax(0, 1fr))"
-                      },
-                      gap: 1
-                    }}
-                  >
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Dia y hora
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {formatZoomDate(item.inicioProgramadoAt)}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {formatZoomTime(item.inicioProgramadoAt)} a {formatZoomTime(item.finProgramadoAt)} (
-                        {formatDurationHuman(item.inicioProgramadoAt, item.finProgramadoAt)})
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Preparacion
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                        {getPreparacionDisplay(item) || "-"}
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Cuenta streaming asociada
-                      </Typography>
-                      <Typography variant="body2">{item.cuentaZoom?.ownerEmail || item.cuentaZoom?.nombreCuenta || "-"}</Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        ID de reunion
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                        {meetingId}
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Asistente por reunion
-                      </Typography>
-                      <MeetingAssistantStatusChip
-                        requiresAssistance
-                        assistantName={assignedPersonLabel}
-                        pendingLabel="Pendiente"
-                      />
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Programa
-                      </Typography>
-                      <Typography variant="body2">{item.solicitud.programaNombre || "-"}</Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Encargado
-                      </Typography>
-                      <Typography variant="body2">{getEncargado(item) || item.solicitud.responsableNombre || "-"}</Typography>
-                    </Box>
-                  </Box>
-                </Paper>
-              );
-            })}
-          </Stack>
-        )}
-      </CardContent>
-    </Card>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </Box>
   );
 }
+

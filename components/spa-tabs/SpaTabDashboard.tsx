@@ -14,7 +14,8 @@ import {
   TextField,
   Typography,
   Skeleton,
-  Grid
+  Grid,
+  useTheme
 } from "@mui/material";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
@@ -586,6 +587,7 @@ export function SpaTabDashboard({
   onGoToAgendaAvailable,
   onGoToMyAssignedMeetings
 }: SpaTabDashboardProps) {
+  const theme = useTheme();
   const isAccountingRole = role === "CONTADURIA";
   const isAssistantRole = role === "ASISTENTE_ZOOM";
   const [assistantCards, setAssistantCards] = useState<Array<{
@@ -602,6 +604,7 @@ export function SpaTabDashboard({
     HIBRIDA: null
   });
   const [assistantUpcomingMeetings, setAssistantUpcomingMeetings] = useState<PersonHoursMeeting[]>([]);
+  const [allAssistantMeetings, setAllAssistantMeetings] = useState<PersonHoursMeeting[]>([]);
   const [isLoadingAssistantPanel, setIsLoadingAssistantPanel] = useState(false);
   const [assistantPanelError, setAssistantPanelError] = useState("");
   const [assistantNowMs, setAssistantNowMs] = useState(() => Date.now());
@@ -678,6 +681,7 @@ export function SpaTabDashboard({
         .filter((meeting) => isFutureAssignedMeeting(meeting, nowMs))
         .sort(compareMeetingByStartAsc);
       setAssistantUpcomingMeetings(nextMeetings);
+      setAllAssistantMeetings(payload.meetings);
     } finally {
       setIsLoadingAssistantPanel(false);
     }
@@ -703,6 +707,46 @@ export function SpaTabDashboard({
         .sort((left, right) => new Date(left.inicioProgramadoAt).getTime() - new Date(right.inicioProgramadoAt).getTime()),
     [agendaLibre]
   );
+  
+  const assistantStats = useMemo(() => {
+    const now = new Date(assistantNowMs);
+    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}`;
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    const stats = {
+      prevMonthVirtual: 0,
+      prevMonthHibrida: 0,
+      currentMonthPastVirtual: 0,
+      currentMonthPastHibrida: 0,
+      currentMonthFutureVirtual: 0,
+      currentMonthFutureHibrida: 0,
+    };
+
+    allAssistantMeetings.forEach(m => {
+      const time = new Date(m.inicioAt).getTime();
+      const monthKey = `${new Date(m.inicioAt).getFullYear()}-${String(new Date(m.inicioAt).getMonth() + 1).padStart(2, "0")}`;
+      const isVirtual = m.modalidadReunion === "VIRTUAL";
+      const isHibrida = m.modalidadReunion === "HIBRIDA";
+      const hours = m.minutos / 60;
+
+      if (monthKey === prevMonthKey) {
+        if (isVirtual) stats.prevMonthVirtual += hours;
+        if (isHibrida) stats.prevMonthHibrida += hours;
+      } else if (monthKey === currentMonthKey) {
+        if (time < assistantNowMs) {
+          if (isVirtual) stats.currentMonthPastVirtual += hours;
+          if (isHibrida) stats.currentMonthPastHibrida += hours;
+        } else {
+          if (isVirtual) stats.currentMonthFutureVirtual += hours;
+          if (isHibrida) stats.currentMonthFutureHibrida += hours;
+        }
+      }
+    });
+
+    return stats;
+  }, [allAssistantMeetings, assistantNowMs]);
+
   const agendaToAssignCount = assistantAgendaOpen.length;
   const assistantAgendaPreview = assistantAgendaOpen.slice(0, 3);
   const nextMeeting = assistantUpcomingMeetings[0] ?? null;
@@ -1139,78 +1183,80 @@ export function SpaTabDashboard({
   const config = buildRoleConfig(role, summary);
   return (
     <Stack spacing={2.2}>
-      <Card variant="outlined" sx={{ borderRadius: 3, background: config.background }}>
-        <CardContent>
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            spacing={2}
-            alignItems={{ xs: "flex-start", md: "center" }}
-            justifyContent="space-between"
-          >
-            <Box>
-              <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mb: 0.5 }}>
-                <Box sx={{ display: "grid", placeItems: "center", color: "text.secondary" }}>
-                  {config.headerIcon}
-                </Box>
-                <Typography variant="h5" sx={{ fontWeight: 800 }}>
-                  {config.title}
+      {role !== "ASISTENTE_ZOOM" && (
+        <Card variant="outlined" sx={{ borderRadius: 3, background: config.background }}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={2}
+              alignItems={{ xs: "flex-start", md: "center" }}
+              justifyContent="space-between"
+            >
+              <Box>
+                <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mb: 0.5 }}>
+                  <Box sx={{ display: "grid", placeItems: "center", color: "text.secondary" }}>
+                    {config.headerIcon}
+                  </Box>
+                  <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                    {config.title}
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" color="text.secondary">
+                  {config.subtitle}
+                </Typography>
+              </Box>
+              <Chip
+                size="medium"
+                color={config.status.color}
+                label={config.status.label}
+                icon={config.status.color === "success" ? <CheckCircleIcon /> : <WarningAmberIcon />}
+                sx={{ fontWeight: 700, px: 0.8 }}
+              />
+            </Stack>
+            <Alert severity={config.status.color} sx={{ mt: 1.5 }}>
+              {config.status.message}
+            </Alert>
+            {role === "DOCENTE" ? (
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1}
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                sx={{ mt: 1.2 }}
+              >
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={onGoToCreateMeeting}
+                  disabled={!onGoToCreateMeeting}
+                >
+                  Crear sala Zoom ahora
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  Esta es la accion principal del espacio docente.
                 </Typography>
               </Stack>
-              <Typography variant="body2" color="text.secondary">
-                {config.subtitle}
-              </Typography>
-            </Box>
-            <Chip
-              size="medium"
-              color={config.status.color}
-              label={config.status.label}
-              icon={config.status.color === "success" ? <CheckCircleIcon /> : <WarningAmberIcon />}
-              sx={{ fontWeight: 700, px: 0.8 }}
-            />
-          </Stack>
-          <Alert severity={config.status.color} sx={{ mt: 1.5 }}>
-            {config.status.message}
-          </Alert>
-          {role === "DOCENTE" ? (
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1}
-              alignItems={{ xs: "flex-start", sm: "center" }}
-              sx={{ mt: 1.2 }}
-            >
-              <Button
-                variant="contained"
-                size="large"
-                onClick={onGoToCreateMeeting}
-                disabled={!onGoToCreateMeeting}
-              >
-                Crear sala Zoom ahora
-              </Button>
-              <Typography variant="caption" color="text.secondary">
-                Esta es la accion principal del espacio docente.
-              </Typography>
-            </Stack>
-          ) : null}
-          {role === "ADMINISTRADOR" ? (
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
-              <Button
-                variant="contained"
-                onClick={onGoToCreateMeeting}
-                disabled={!onGoToCreateMeeting}
-              >
-                Crear reuniones
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={onGoToAssignAssistants}
-                disabled={!onGoToAssignAssistants}
-              >
-                Asignar asistentes
-              </Button>
-            </Stack>
-          ) : null}
-        </CardContent>
-      </Card>
+            ) : null}
+            {role === "ADMINISTRADOR" ? (
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
+                <Button
+                  variant="contained"
+                  onClick={onGoToCreateMeeting}
+                  disabled={!onGoToCreateMeeting}
+                >
+                  Crear reuniones
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={onGoToAssignAssistants}
+                  disabled={!onGoToAssignAssistants}
+                >
+                  Asignar asistentes
+                </Button>
+              </Stack>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
 
       {role === "ADMINISTRADOR" && (
         <Box sx={{ mb: 4 }}>
@@ -1287,320 +1333,277 @@ export function SpaTabDashboard({
         </Box>
       )}
 
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: 1.6
-        }}
-      >
-        {config.metrics.map((metric) => {
-          const value = metricValue(summary, metric.key);
-          const formattedValue = metric.formatValue ? metric.formatValue(value) : String(value);
-          const resolvedSemanticColor = resolveMetricSemanticColor(metric, value);
-          const metricColor = SEMANTIC_METRIC_COLORS[resolvedSemanticColor];
+      {role !== "ASISTENTE_ZOOM" && (
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: 1.6
+          }}
+        >
+          {config.metrics.map((metric) => {
+            const value = metricValue(summary, metric.key);
+            const formattedValue = metric.formatValue ? metric.formatValue(value) : String(value);
+            const resolvedSemanticColor = resolveMetricSemanticColor(metric, value);
+            const metricColor = SEMANTIC_METRIC_COLORS[resolvedSemanticColor];
 
-          return (
-            <Card
-              key={metric.key}
-              variant="outlined"
-              sx={{
-                borderRadius: 3,
-                position: "relative",
-                overflow: "hidden",
-                borderColor: `${metricColor}55`,
-                background: `linear-gradient(180deg, ${metricColor}14 0%, #ffffff 38%)`
-              }}
-            >
-              <CardContent sx={{ p: 1.5 }}>
-                <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 1.1 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.25, pr: 1 }}>
-                    {metric.title}
-                  </Typography>
-                  <Box
+            return (
+              <Card
+                key={metric.key}
+                variant="outlined"
+                sx={{
+                  borderRadius: 3,
+                  position: "relative",
+                  overflow: "hidden",
+                  borderColor: `${metricColor}55`,
+                  background: `linear-gradient(180deg, ${metricColor}14 0%, #ffffff 38%)`
+                }}
+              >
+                <CardContent sx={{ p: 1.5 }}>
+                  <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 1.1 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.25, pr: 1 }}>
+                      {metric.title}
+                    </Typography>
+                    <Box
+                      sx={{
+                        minWidth: 34,
+                        height: 34,
+                        borderRadius: 1.4,
+                        display: "grid",
+                        placeItems: "center",
+                        bgcolor: `${metricColor}22`,
+                        color: metricColor,
+                        border: "1px solid",
+                        borderColor: `${metricColor}44`
+                      }}
+                    >
+                      {metric.icon}
+                    </Box>
+                  </Stack>
+                  <Typography
+                    variant="h3"
                     sx={{
-                      minWidth: 34,
-                      height: 34,
-                      borderRadius: 1.4,
-                      display: "grid",
-                      placeItems: "center",
-                      bgcolor: `${metricColor}22`,
+                      fontWeight: 900,
+                      lineHeight: 1,
+                      letterSpacing: "-0.03em",
                       color: metricColor,
-                      border: "1px solid",
-                      borderColor: `${metricColor}44`
+                      mb: 0.7
                     }}
                   >
-                    {metric.icon}
-                  </Box>
-                </Stack>
-                <Typography
-                  variant="h3"
-                  sx={{
-                    fontWeight: 900,
-                    lineHeight: 1,
-                    letterSpacing: "-0.03em",
-                    color: metricColor,
-                    mb: 0.7
-                  }}
-                >
-                  {formattedValue}
+                    {formattedValue}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.45 }}>
+                    {metric.description}
+                  </Typography>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </Box>
+      )}
+
+      {role === "ASISTENTE_ZOOM" ? (
+        <Stack spacing={3}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(5, 1fr)" },
+              gap: 2
+            }}
+          >
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "warning.main", bgcolor: alpha(theme.palette.warning.main, 0.05) }}>
+              <CardContent sx={{ p: 2 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "warning.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <PendingActionsIcon fontSize="small" /> Sin respuesta
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.45 }}>
-                  {metric.description}
+                <Typography variant="h3" sx={{ fontWeight: 900, color: "warning.main", mt: 1 }}>
+                  {agendaLibre.filter(i => !i.intereses?.length || i.intereses[0].estadoInteres === "SIN_RESPUESTA").length}
+                </Typography>
+                <Typography variant="body2" sx={{ color: "warning.dark", mt: 0.5, lineHeight: 1.1, fontSize: "0.75rem" }}>
+                  Esperando por tu acción.
                 </Typography>
               </CardContent>
             </Card>
-          );
-        })}
-      </Box>
 
-      {role === "ASISTENTE_ZOOM" ? (
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={1}
-              alignItems={{ xs: "flex-start", md: "center" }}
-              justifyContent="space-between"
-              sx={{ mb: 1.2 }}
-            >
-              <Box>
-                <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                  Operacion inmediata
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "success.main", bgcolor: alpha(theme.palette.success.main, 0.05) }}>
+              <CardContent sx={{ p: 2 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "success.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <CheckCircleIcon fontSize="small" /> Ya respondidas
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Lo proximo que tienes y lo disponible para tomar sin cambiar de pantalla.
+                <Typography variant="h3" sx={{ fontWeight: 900, color: "success.main", mt: 1 }}>
+                  {agendaLibre.filter(i => i.intereses?.length > 0 && i.intereses[0].estadoInteres !== "SIN_RESPUESTA").length}
                 </Typography>
-              </Box>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                <Button
-                  variant="outlined"
-                  onClick={() => {
-                    void refreshAssistantPanelData();
-                  }}
-                  disabled={isLoadingAssistantPanel}
-                >
-                  {isLoadingAssistantPanel ? "Actualizando..." : "Actualizar panel"}
-                </Button>
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  onClick={onGoToAgendaAvailable}
-                  disabled={!onGoToAgendaAvailable}
-                >
-                  Reuniones disponibles
-                </Button>
-              </Stack>
-            </Stack>
+                <Typography variant="body2" sx={{ color: "success.dark", mt: 0.5, lineHeight: 1.1, fontSize: "0.75rem" }}>
+                  Postulaciones o rechazos.
+                </Typography>
+              </CardContent>
+            </Card>
 
-            {assistantPanelError ? (
-              <Alert severity="error" sx={{ mb: 1.2 }}>
-                {assistantPanelError}
-              </Alert>
-            ) : null}
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "info.main", bgcolor: "info.lighter" }}>
+              <CardContent sx={{ p: 2 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "info.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <ScheduleIcon fontSize="small" /> Próximas reuniones
+                </Typography>
+                <Typography variant="h3" sx={{ fontWeight: 900, color: "info.main", mt: 1 }}>
+                  {assistantUpcomingMeetings.length}
+                </Typography>
+                <Typography variant="body2" sx={{ color: "info.dark", mt: 0.5, lineHeight: 1.2 }}>
+                  Reuniones futuras en tu perfil.
+                </Typography>
+              </CardContent>
+            </Card>
 
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
-                gap: 1.2,
-                mb: 1.2
-              }}
-            >
-              <Card variant="outlined" sx={{ borderRadius: 2.2 }}>
-                <CardContent sx={{ p: 1.4 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Reuniones para asignar
-                  </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 900 }}>
-                    {agendaToAssignCount}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Instancias sin asistencia asignada en este momento.
-                  </Typography>
-                </CardContent>
-              </Card>
-              <Card variant="outlined" sx={{ borderRadius: 2.2 }}>
-                <CardContent sx={{ p: 1.4 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Proxima reunion
-                  </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 900 }}>
-                    {nextMeetingCountdown}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {nextMeeting ? formatDateTime24(nextMeeting.inicioProgramadoAt) : "Sin reuniones futuras asignadas."}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Box>
-
-            {nextMeeting ? (
-              <Box
-                sx={{
-                  border: "1px solid",
-                  borderColor: "divider",
-                  borderRadius: 2.2,
-                  p: 1.2,
-                  mb: 1.2,
-                  bgcolor: "grey.50"
-                }}
-              >
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={1}
-                  alignItems={{ xs: "flex-start", md: "center" }}
-                  justifyContent="space-between"
-                >
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "primary.main", bgcolor: "primary.lighter" }}>
+              <CardContent sx={{ p: 2 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "primary.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <EventNoteIcon fontSize="small" /> Mes Anterior
+                </Typography>
+                <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
                   <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                      {nextMeeting.titulo || "Sin titulo"}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {nextMeeting.programaNombre || "Sin programa"}
-                    </Typography>
-                  </Box>
-                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                    {nextMeetingJoinUrl ? (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="secondary"
-                        href={nextMeetingJoinUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Abrir Zoom
-                      </Button>
-                    ) : null}
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<ContentCopyIcon fontSize="small" />}
-                      onClick={() => {
-                        void copyNextMeetingLink();
-                      }}
-                      disabled={!nextMeetingJoinUrl}
-                    >
-                      Copiar link
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={onGoToMyAssignedMeetings}
-                      disabled={!onGoToMyAssignedMeetings}
-                    >
-                      Ver todas mis asignadas
-                    </Button>
-                  </Stack>
-                </Stack>
-
-                <Box
-                  sx={{
-                    mt: 1,
-                    display: "grid",
-                    gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
-                    gap: 1
-                  }}
-                >
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Inicio
-                    </Typography>
-                    <Typography variant="body2">{formatDateTime24(nextMeeting.inicioProgramadoAt)}</Typography>
+                    <Typography variant="h5" sx={{ fontWeight: 900, color: "primary.main" }}>{formatHours(assistantStats.prevMonthVirtual)}</Typography>
+                    <Typography variant="caption" sx={{ color: "primary.dark", fontWeight: 600 }}>Virtual</Typography>
                   </Box>
                   <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Meeting ID
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                      {nextMeetingId || "-"}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Cuenta Zoom
-                    </Typography>
-                    <Typography variant="body2">{nextMeetingAccount || "-"}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Cantidad de reuniones
-                    </Typography>
-                    <Typography variant="body2">
-                      {nextMeetingRecurrenceCount} {nextMeetingRecurrenceCount === 1 ? "instancia" : "instancias"}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Asistente por reunion
-                    </Typography>
-                    <MeetingAssistantStatusChip
-                      requiresAssistance
-                      assistantName="Tu asistencia"
-                      pendingLabel="Pendiente"
-                    />
-                  </Box>
-                  <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Link de acceso
-                    </Typography>
-                    <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
-                      {nextMeetingJoinUrl || "Sin link de acceso"}
-                    </Typography>
-                    {copyLinkFeedback ? (
-                      <Typography variant="caption" color="text.secondary">
-                        {copyLinkFeedback}
-                      </Typography>
-                    ) : null}
-                  </Box>
-                  <Box sx={{ gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
-                    <ZoomAccountPasswordField
-                      hostAccount={nextMeetingAccount}
-                      label="Contrasena cuenta streaming"
-                    />
+                    <Typography variant="h5" sx={{ fontWeight: 900, color: "primary.main" }}>{formatHours(assistantStats.prevMonthHibrida)}</Typography>
+                    <Typography variant="caption" sx={{ color: "primary.dark", fontWeight: 600 }}>Híbrida</Typography>
                   </Box>
                 </Box>
-              </Box>
-            ) : (
-              <Alert severity="info" sx={{ mb: 1.2 }}>
-                Aun no tienes reuniones futuras asignadas.
-              </Alert>
-            )}
+                <Typography variant="body2" sx={{ color: "primary.dark", mt: 0.5, fontWeight: 500, fontSize: "0.75rem" }}>
+                  Total completadas: {formatHours(assistantStats.prevMonthVirtual + assistantStats.prevMonthHibrida)}
+                </Typography>
+              </CardContent>
+            </Card>
 
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.8 }}>
-              Reuniones disponibles para tomar
-            </Typography>
-            {assistantAgendaPreview.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                No hay reuniones sin asignar en este momento.
-              </Typography>
-            ) : (
-              <Stack spacing={0.8}>
-                {assistantAgendaPreview.map((event) => (
-                  <Box
-                    key={event.id}
-                    sx={{
-                      px: 1.1,
-                      py: 0.9,
-                      borderRadius: 1.6,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      bgcolor: "background.paper"
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                      {event.solicitud.titulo}
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "secondary.main", bgcolor: "secondary.lighter" }}>
+              <CardContent sx={{ p: 2 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "secondary.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <PendingActionsIcon fontSize="small" /> Este Mes (Proyectado)
+                </Typography>
+                <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
+                  <Box>
+                    <Typography variant="h5" sx={{ fontWeight: 900, color: "secondary.main" }}>
+                      {formatHours(assistantStats.currentMonthPastVirtual + assistantStats.currentMonthFutureVirtual)}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {formatDateTime24(event.inicioProgramadoAt)} | {event.solicitud.programaNombre || "Sin programa"} | {event.solicitud.modalidadReunion}
-                    </Typography>
+                    <Typography variant="caption" sx={{ color: "secondary.dark", fontWeight: 600 }}>Virtual</Typography>
                   </Box>
-                ))}
+                  <Box>
+                    <Typography variant="h5" sx={{ fontWeight: 900, color: "secondary.main" }}>
+                      {formatHours(assistantStats.currentMonthPastHibrida + assistantStats.currentMonthFutureHibrida)}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "secondary.dark", fontWeight: 600 }}>Híbrida</Typography>
+                  </Box>
+                </Box>
+                <Typography variant="body2" sx={{ color: "secondary.dark", mt: 0.5, fontWeight: 500, fontSize: "0.7rem", lineHeight: 1.1 }}>
+                  Cumplidas hasta hoy: {formatHours(assistantStats.currentMonthPastVirtual)} (V) / {formatHours(assistantStats.currentMonthPastHibrida)} (H)
+                </Typography>
+              </CardContent>
+            </Card>
+          </Box>
+
+          <Card variant="outlined" sx={{ borderRadius: 3, borderLeft: "8px solid", borderLeftColor: "primary.main" }}>
+            <CardContent>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  Tu Próxima Reunión
+                </Typography>
+                <Stack direction="row" spacing={1}>
+                  <Button variant="outlined" size="small" onClick={refreshAssistantPanelData} disabled={isLoadingAssistantPanel}>
+                    {isLoadingAssistantPanel ? "Actualizando..." : "Actualizar panel"}
+                  </Button>
+                  <Button variant="contained" color="secondary" size="small" onClick={onGoToAgendaAvailable} disabled={!onGoToAgendaAvailable}>
+                    Ver Disponibles
+                  </Button>
+                </Stack>
               </Stack>
-            )}
-          </CardContent>
-        </Card>
+
+              {assistantPanelError ? (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {assistantPanelError}
+                </Alert>
+              ) : null}
+
+              {nextMeeting ? (
+                <Box>
+                  <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ xs: "flex-start", md: "center" }} justifyContent="space-between" sx={{ mb: 2 }}>
+                    <Box>
+                      <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                        {nextMeeting.titulo || "Sin titulo"}
+                      </Typography>
+                      <Typography variant="body1" color="text.secondary">
+                        {nextMeeting.programaNombre || "Sin programa"}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1}>
+                      {nextMeetingJoinUrl && (
+                        <Button variant="contained" color="primary" href={nextMeetingJoinUrl} target="_blank" rel="noreferrer">
+                          Abrir Zoom
+                        </Button>
+                      )}
+                      <Button variant="outlined" startIcon={<ContentCopyIcon fontSize="small" />} onClick={() => { void copyNextMeetingLink(); }} disabled={!nextMeetingJoinUrl}>
+                        Copiar link
+                      </Button>
+                    </Stack>
+                  </Stack>
+
+                  <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2, bgcolor: "grey.50" }}>
+                    <Grid container spacing={2}>
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>Modalidad</Typography>
+                        <Typography variant="body2" fontWeight={600}>{nextMeeting.modalidadReunion}</Typography>
+                      </Grid>
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>Duración</Typography>
+                        <Typography variant="body2" fontWeight={600}>{Math.round(nextMeeting.minutosProgramados || nextMeeting.minutos)} minutos</Typography>
+                      </Grid>
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>Hora de Inicio</Typography>
+                        <Typography variant="body2" fontWeight={600}>{formatDateTime24(nextMeeting.inicioProgramadoAt)}</Typography>
+                      </Grid>
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>Hora de Fin</Typography>
+                        <Typography variant="body2" fontWeight={600}>{formatDateTime24(nextMeeting.finProgramadoAt)}</Typography>
+                      </Grid>
+                      
+                      <Grid size={{ xs: 12 }}><Divider sx={{ my: 0.5 }} /></Grid>
+                      
+                      <Grid size={{ xs: 12, sm: 3 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>Meeting ID</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{nextMeetingId || "Pendiente"}</Typography>
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 3 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>Tipo de Instancia</Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {nextMeetingRecurrenceCount > 1 ? "Serie recurrente" : "Instancia única"}
+                        </Typography>
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 3 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>Cuenta Host</Typography>
+                        <Typography variant="body2" fontWeight={600}>{nextMeetingAccount || "Pendiente"}</Typography>
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 3 }}>
+                        <ZoomAccountPasswordField hostAccount={nextMeetingAccount} label="Contraseña Host" />
+                      </Grid>
+                      
+                      <Grid size={{ xs: 12 }}><Divider sx={{ my: 0.5 }} /></Grid>
+
+                      <Grid size={{ xs: 12 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>Link de Zoom</Typography>
+                        <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
+                          {nextMeetingJoinUrl || "No disponible"}
+                        </Typography>
+                        {copyLinkFeedback && (
+                          <Typography variant="caption" color="success.main" fontWeight={700}>{copyLinkFeedback}</Typography>
+                        )}
+                      </Grid>
+                    </Grid>
+                  </Box>
+                </Box>
+              ) : (
+                <Alert severity="info">No tienes reuniones futuras asignadas. Revisa las reuniones disponibles para postular.</Alert>
+              )}
+            </CardContent>
+          </Card>
+        </Stack>
       ) : null}
 
     </Stack>

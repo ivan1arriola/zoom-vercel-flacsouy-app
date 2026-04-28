@@ -104,6 +104,7 @@ import { SpaTabProgramas } from "@/components/spa-tabs/SpaTabProgramas";
 import { SpaTabAgendaLibre } from "@/components/spa-tabs/SpaTabAgendaLibre";
 import { SpaTabMisReunionesAsignadas } from "@/components/spa-tabs/SpaTabMisReunionesAsignadas";
 import { SpaTabMisAsistencias } from "@/components/spa-tabs/SpaTabMisAsistencias";
+import { SpaTabHistoricoAsistencias } from "@/components/spa-tabs/SpaTabHistoricoAsistencias";
 import { SpaTabAsignacion } from "@/components/spa-tabs/SpaTabAsignacion";
 import {
   SpaTabManual,
@@ -438,6 +439,7 @@ export function SpaHomeScreen() {
   const canSeeAgendaLibre = canAccessTabForRole("agenda_libre", effectiveRole);
   const canSeeMisReunionesAsignadas = canAccessTabForRole("mis_reuniones_asignadas", effectiveRole);
   const canSeeMisAsistencias = canAccessTabForRole("mis_asistencias", effectiveRole);
+  const canSeeHistoricoAsistencias = canAccessTabForRole("historico_asistencias", effectiveRole);
   const canSeeAsistentesAsignacion = canAccessTabForRole("asistentes_asignacion", effectiveRole);
   const canSeeAsistentesPerfiles = canAccessTabForRole("asistentes_perfiles", effectiveRole);
   const canSeeAsistentesEstadisticas = canAccessTabForRole("asistentes_estadisticas", effectiveRole);
@@ -2322,6 +2324,10 @@ export function SpaHomeScreen() {
 
       {tab === "mis_asistencias" && canSeeMisAsistencias && user?.id && (
         <SpaTabMisAsistencias userId={user.id} />
+      )}
+
+      {tab === "historico_asistencias" && canSeeHistoricoAsistencias && user?.id && (
+        <SpaTabHistoricoAsistencias userId={user.id} />
       )}
 
       {tab === "mis_reuniones_asignadas" && canSeeMisReunionesAsignadas && user?.id && (
