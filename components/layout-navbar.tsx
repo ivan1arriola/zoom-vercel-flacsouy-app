@@ -304,25 +304,30 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
               zIndex: theme.zIndex.drawer + 1
             }}
           >
-            <Toolbar sx={{ justifyContent: "space-between", minHeight: 64 }}>
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <IconButton
-                  color="inherit"
-                  edge="start"
-                  onClick={handleDrawerToggle}
-                  sx={{ color: "primary.main" }}
-                >
-                  <MenuRoundedIcon />
-                </IconButton>
-                <FlacsoBrandLogo height={32} />
-              </Stack>
-              <UserMenu
-                firstName={user.firstName}
-                lastName={user.lastName}
-                email={user.email}
-                image={user.image}
-                role={user.role ?? "ADMINISTRADOR"}
-              />
+            <Toolbar sx={{ justifyContent: "space-between", minHeight: 64, px: 2 }}>
+              <IconButton
+                color="inherit"
+                edge="start"
+                onClick={handleDrawerToggle}
+                sx={{ color: "primary.main" }}
+              >
+                <MenuRoundedIcon />
+              </IconButton>
+              
+              <Box sx={{ flexGrow: 1, display: "flex", justifyContent: "center" }}>
+                <img src="/flacso-logo.png" alt="FLACSO" height={32} style={{ objectFit: "contain" }} />
+              </Box>
+
+              <Box sx={{ minWidth: 40, display: "flex", justifyContent: "flex-end" }}>
+                <UserMenu
+                  firstName={user.firstName}
+                  lastName={user.lastName}
+                  email={user.email}
+                  image={user.image}
+                  role={user.role ?? "ADMINISTRADOR"}
+                  iconOnly={true}
+                />
+              </Box>
             </Toolbar>
           </AppBar>
           <Drawer

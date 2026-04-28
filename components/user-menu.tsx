@@ -14,7 +14,8 @@ import {
   Stack,
   ToggleButton,
   ToggleButtonGroup,
-  Typography
+  Typography,
+  IconButton
 } from "@mui/material";
 import LogoutIcon from "@mui/icons-material/Logout";
 import PersonIcon from "@mui/icons-material/Person";
@@ -59,9 +60,10 @@ interface UserMenuProps {
   image?: string | null;
   role: string;
   vertical?: boolean;
+  iconOnly?: boolean;
 }
 
-export function UserMenu({ firstName, lastName, email, image, role, vertical = false }: UserMenuProps) {
+export function UserMenu({ firstName, lastName, email, image, role, vertical = false, iconOnly = false }: UserMenuProps) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [pendingView, setPendingView] = useState<string | null>(null);
   const router = useRouter();
@@ -105,47 +107,53 @@ export function UserMenu({ firstName, lastName, email, image, role, vertical = f
 
   return (
     <>
-      <Button
-        variant="outlined"
-        onClick={(event: MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget)}
-        startIcon={<UserAvatar firstName={firstName} lastName={lastName} image={image} size={vertical ? 36 : 32} />}
-        sx={{
-          textTransform: "none",
-          borderRadius: 3,
-          px: vertical ? 1.5 : 1.5,
-          py: vertical ? 1 : 0.6,
-          width: "100%",
-          minWidth: vertical ? 0 : { xs: 0, sm: 240 },
-          justifyContent: vertical ? "flex-start" : "space-between",
-          borderColor: "divider",
-          backgroundColor: "rgba(0,0,0,0.01)",
-          "&:hover": {
-            backgroundColor: "rgba(0,0,0,0.03)",
-            borderColor: "primary.main"
-          },
-          ...(vertical && {
-            border: "none",
-            backgroundColor: "transparent",
+      {iconOnly ? (
+        <IconButton onClick={(event: MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget)} size="small" sx={{ p: 0.5 }}>
+          <UserAvatar firstName={firstName} lastName={lastName} image={image} size={36} />
+        </IconButton>
+      ) : (
+        <Button
+          variant="outlined"
+          onClick={(event: MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget)}
+          startIcon={<UserAvatar firstName={firstName} lastName={lastName} image={image} size={vertical ? 36 : 32} />}
+          sx={{
+            textTransform: "none",
+            borderRadius: 3,
+            px: vertical ? 1.5 : 1.5,
+            py: vertical ? 1 : 0.6,
+            width: "100%",
+            minWidth: vertical ? 0 : { xs: 0, sm: 240 },
+            justifyContent: vertical ? "flex-start" : "space-between",
+            borderColor: "divider",
+            backgroundColor: "rgba(0,0,0,0.01)",
             "&:hover": {
-              backgroundColor: "rgba(31, 75, 143, 0.04)"
-            }
-          })
-        }}
-      >
-        <Box sx={{ textAlign: "left", minWidth: 0, ml: 1, flexGrow: 1 }}>
-          <Typography noWrap variant="body2" sx={{ fontWeight: 700, color: "text.primary", fontSize: vertical ? "0.875rem" : "0.875rem" }}>
-            {displayName}
-          </Typography>
-          <Typography noWrap variant="caption" color="primary.main" sx={{ fontWeight: 600, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: "0.05em" }}>
-            {secondaryLabel}
-          </Typography>
-        </Box>
-        {vertical ? (
-          Boolean(anchorEl) ? <ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary", ml: "auto" }} /> : <ArrowDropUpIcon fontSize="small" sx={{ color: "text.secondary", ml: "auto" }} />
-        ) : (
-          <ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary" }} />
-        )}
-      </Button>
+              backgroundColor: "rgba(0,0,0,0.03)",
+              borderColor: "primary.main"
+            },
+            ...(vertical && {
+              border: "none",
+              backgroundColor: "transparent",
+              "&:hover": {
+                backgroundColor: "rgba(31, 75, 143, 0.04)"
+              }
+            })
+          }}
+        >
+          <Box sx={{ textAlign: "left", minWidth: 0, ml: 1, flexGrow: 1 }}>
+            <Typography noWrap variant="body2" sx={{ fontWeight: 700, color: "text.primary", fontSize: vertical ? "0.875rem" : "0.875rem" }}>
+              {displayName}
+            </Typography>
+            <Typography noWrap variant="caption" color="primary.main" sx={{ fontWeight: 600, textTransform: "uppercase", fontSize: "0.65rem", letterSpacing: "0.05em" }}>
+              {secondaryLabel}
+            </Typography>
+          </Box>
+          {vertical ? (
+            Boolean(anchorEl) ? <ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary", ml: "auto" }} /> : <ArrowDropUpIcon fontSize="small" sx={{ color: "text.secondary", ml: "auto" }} />
+          ) : (
+            <ArrowDropDownIcon fontSize="small" sx={{ color: "text.secondary" }} />
+          )}
+        </Button>
+      )}
 
       <Menu
         anchorEl={anchorEl}
