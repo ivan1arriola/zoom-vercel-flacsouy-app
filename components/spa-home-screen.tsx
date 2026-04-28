@@ -419,7 +419,7 @@ export function SpaHomeScreen() {
   
   const adminViewRole = useMemo<ViewRole>(() => {
     const rawRole = normalizeAssistantRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
-    if (rawRole === "DOCENTE" || rawRole === "CONTADURIA") return rawRole;
+    if (rawRole === "DOCENTE" || rawRole === "CONTADURIA" || rawRole === "ASISTENTE_ZOOM") return rawRole;
     return "ADMINISTRADOR";
   }, [searchParams]);
 
@@ -754,7 +754,7 @@ export function SpaHomeScreen() {
       return;
     }
 
-    const allowedViewAs = ["DOCENTE", "CONTADURIA"];
+    const allowedViewAs = ["DOCENTE", "CONTADURIA", "ASISTENTE_ZOOM"];
     if (!allowedViewAs.includes(rawViewAs)) {
       document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
       return;

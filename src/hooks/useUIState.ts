@@ -14,6 +14,7 @@ const tabs = [
   "asignacion",
   "manual",
   "historico",
+  "historico_asistencias",
   "cuentas",
   "proximas_zoom",
   "pasadas_zoom",
@@ -40,6 +41,7 @@ export function useUIState() {
     if (rawTab === "pasadas") return "pasadas_zoom" as Tab;
     if (rawTab === "grabaciones") return "zoom_drive_sync" as Tab;
     if (rawTab === "programa") return "programas" as Tab;
+    if (rawTab === "historico") return "historico_asistencias" as Tab;
     return tabs.includes(rawTab as Tab) ? (rawTab as Tab) : null;
   }, [searchParams]);
 

@@ -94,9 +94,13 @@ export function SpaTabHistoricoAsistencias({ userId }: SpaTabHistoricoAsistencia
       const localMonth = String(now.getMonth() + 1).padStart(2, "0");
       const currentMonthKey = `${localYear}-${localMonth}`;
 
-      // Filter: Show all meetings that are NOT in the current month
+      // Filter: Show only meetings from PREVIOUS months (strictly < currentMonthKey)
       const historical = meetingsList
-        .filter(m => m && m.inicioAt && m.inicioAt.substring(0, 7) !== currentMonthKey)
+        .filter(m => {
+          if (!m || !m.inicioAt) return false;
+          const meetingMonthKey = m.inicioAt.substring(0, 7);
+          return meetingMonthKey < currentMonthKey;
+        })
         .sort((a, b) => new Date(b.inicioAt).getTime() - new Date(a.inicioAt).getTime());
       
       setMeetings(historical);

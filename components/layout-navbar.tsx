@@ -149,6 +149,9 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
     if (tabId === "mis_asistencias") {
       return `Reuniones de ${currentMonthLabel}`;
     }
+    if (tabId === "solicitudes" && isAdminRole) {
+      return "Todas las reuniones";
+    }
     return config.label;
   }
 
@@ -164,7 +167,7 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.paper" }}>
       {/* Sidebar Header */}
       <Box sx={{ px: 3, pt: 3, pb: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
-        <FlacsoBrandLogo height={40} color="primary" />
+        <FlacsoBrandLogo height={64} color="primary" />
         <Box>
           <Typography variant="subtitle2" sx={{ fontWeight: 900, lineHeight: 1.1, color: "primary.main", fontSize: "0.95rem" }}>
             FLACSO
@@ -333,7 +336,7 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
               </IconButton>
               
               <Box sx={{ flexGrow: 1, display: "flex", justifyContent: "center" }}>
-                <img src="/flacso-logo.png" alt="FLACSO" height={32} style={{ objectFit: "contain" }} />
+                <img src="/flacso-logo.png" alt="FLACSO" height={48} style={{ objectFit: "contain" }} />
               </Box>
 
               <Box sx={{ minWidth: 40, display: "flex", justifyContent: "flex-end" }}>

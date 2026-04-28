@@ -385,7 +385,7 @@ export function InlineLogin({
       <Box sx={{ width: "100%", maxWidth: 450 }}>
         <Box sx={{ textAlign: "center", mb: 4 }}>
           <Stack direction="row" justifyContent="center" sx={{ mb: 2.5 }}>
-            <FlacsoBrandLogo height={52} />
+            <FlacsoBrandLogo height={140} />
           </Stack>
           <Typography variant="h5" sx={{ fontWeight: 800, mb: 1, color: "primary.main", letterSpacing: "-0.5px" }}>
             Plataforma Zoom

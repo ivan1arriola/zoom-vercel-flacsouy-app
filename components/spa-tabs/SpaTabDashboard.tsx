@@ -15,7 +15,8 @@ import {
   Typography,
   Skeleton,
   Grid,
-  useTheme
+  useTheme,
+  alpha
 } from "@mui/material";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
@@ -1407,7 +1408,7 @@ export function SpaTabDashboard({
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(5, 1fr)" },
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)", lg: "repeat(5, 1fr)" },
               gap: 2
             }}
           >
@@ -1547,40 +1548,43 @@ export function SpaTabDashboard({
 
                   <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2, bgcolor: "grey.50" }}>
                     <Grid container spacing={2}>
-                      <Grid size={{ xs: 6, sm: 3 }}>
+                      <Grid size={{ xs: 6, sm: 6, md: 3 }}>
                         <Typography variant="caption" color="text.secondary" fontWeight={700}>Modalidad</Typography>
                         <Typography variant="body2" fontWeight={600}>{nextMeeting.modalidadReunion}</Typography>
                       </Grid>
-                      <Grid size={{ xs: 6, sm: 3 }}>
+                      <Grid size={{ xs: 6, sm: 6, md: 3 }}>
                         <Typography variant="caption" color="text.secondary" fontWeight={700}>Duración</Typography>
                         <Typography variant="body2" fontWeight={600}>{Math.round(nextMeeting.minutosProgramados || nextMeeting.minutos)} minutos</Typography>
                       </Grid>
-                      <Grid size={{ xs: 6, sm: 3 }}>
+                      <Grid size={{ xs: 6, sm: 6, md: 3 }}>
                         <Typography variant="caption" color="text.secondary" fontWeight={700}>Hora de Inicio</Typography>
                         <Typography variant="body2" fontWeight={600}>{formatDateTime24(nextMeeting.inicioProgramadoAt)}</Typography>
                       </Grid>
-                      <Grid size={{ xs: 6, sm: 3 }}>
+                      <Grid size={{ xs: 6, sm: 6, md: 3 }}>
                         <Typography variant="caption" color="text.secondary" fontWeight={700}>Hora de Fin</Typography>
                         <Typography variant="body2" fontWeight={600}>{formatDateTime24(nextMeeting.finProgramadoAt)}</Typography>
                       </Grid>
                       
                       <Grid size={{ xs: 12 }}><Divider sx={{ my: 0.5 }} /></Grid>
                       
-                      <Grid size={{ xs: 12, sm: 3 }}>
+                      <Grid size={{ xs: 12, sm: 6, md: 6 }}>
                         <Typography variant="caption" color="text.secondary" fontWeight={700}>Meeting ID</Typography>
                         <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{nextMeetingId || "Pendiente"}</Typography>
                       </Grid>
-                      <Grid size={{ xs: 12, sm: 3 }}>
+                      <Grid size={{ xs: 12, sm: 6, md: 6 }}>
                         <Typography variant="caption" color="text.secondary" fontWeight={700}>Tipo de Instancia</Typography>
                         <Typography variant="body2" fontWeight={600}>
                           {nextMeetingRecurrenceCount > 1 ? "Serie recurrente" : "Instancia única"}
                         </Typography>
                       </Grid>
-                      <Grid size={{ xs: 12, sm: 3 }}>
+
+                      <Grid size={{ xs: 12 }}><Divider sx={{ my: 0.5 }} /></Grid>
+
+                      <Grid size={{ xs: 12, sm: 6, md: 6 }}>
                         <Typography variant="caption" color="text.secondary" fontWeight={700}>Cuenta Host</Typography>
                         <Typography variant="body2" fontWeight={600}>{nextMeetingAccount || "Pendiente"}</Typography>
                       </Grid>
-                      <Grid size={{ xs: 12, sm: 3 }}>
+                      <Grid size={{ xs: 12, sm: 6, md: 6 }}>
                         <ZoomAccountPasswordField hostAccount={nextMeetingAccount} label="Contraseña Host" />
                       </Grid>
                       
