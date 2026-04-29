@@ -25,17 +25,20 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import ArrowDropUpIcon from "@mui/icons-material/ArrowDropUp";
 import { UserAvatar } from "./user-avatar";
+import { isViewRole, normalizeAssistantRole } from "@/src/lib/spa-home/navigation";
 
 const VIEW_ROLE_COOKIE = "zoom_view_as";
 
 const viewOptions = [
   { value: "ADMINISTRADOR", label: "Administrador" },
+  { value: "ASISTENTE_ZOOM", label: "Asistente Zoom" },
   { value: "DOCENTE", label: "Docente" },
   { value: "CONTADURIA", label: "Contaduria" }
 ] as const;
 
 function normalizeViewRole(raw: string): string {
-  return raw;
+  const normalized = normalizeAssistantRole(raw.toUpperCase());
+  return isViewRole(normalized) ? normalized : "ADMINISTRADOR";
 }
 
 function formatRoleLabel(role: string): string {

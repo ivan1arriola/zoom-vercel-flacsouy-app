@@ -24,16 +24,19 @@ import {
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import ExpandLess from "@mui/icons-material/ExpandLess";
 import ExpandMore from "@mui/icons-material/ExpandMore";
+import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
+import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import { FlacsoBrandLogo } from "@/components/flacso-brand-logo";
+import { useThemeMode } from "@/components/mui-provider";
 import { UserMenu } from "@/components/user-menu";
 import {
   canAccessTabForRole,
+  getDefaultTabForRole,
   getNavigationGroupIcon,
   getTabIcon,
-  isViewRole,
   NAVIGATION_GROUP_LABEL,
   NAVIGATION_GROUP_ORDER,
-  normalizeAssistantRole,
+  resolveEffectiveRoleForUser,
   TAB_CONFIG,
   tabs,
   type NavigationGroup,
@@ -71,6 +74,7 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const theme = useTheme();
+  const { mode, toggleMode } = useThemeMode();
   
   // Use state for mounted to avoid hydration mismatch with useMediaQuery
   const [mounted, setMounted] = useState(false);
@@ -94,20 +98,11 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
     }));
   };
 
-  const normalizedUserRole = normalizeAssistantRole((user.role ?? "ADMINISTRADOR").toUpperCase());
-  const isAdminRole = normalizedUserRole === "ADMINISTRADOR";
-
-  const adminViewRole = useMemo<ViewRole>(() => {
-    const rawViewAs = normalizeAssistantRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
-    if (rawViewAs === "DOCENTE" || rawViewAs === "CONTADURIA") return rawViewAs;
-    return "ADMINISTRADOR";
-  }, [searchParams]);
-
-  const effectiveRole = useMemo<ViewRole | "">(() => {
-    if (!isViewRole(normalizedUserRole)) return "";
-    if (!isAdminRole) return normalizedUserRole;
-    return adminViewRole;
-  }, [normalizedUserRole, isAdminRole, adminViewRole]);
+  const effectiveRole = useMemo<ViewRole | "">(
+    () => resolveEffectiveRoleForUser(user.role, searchParams.get("viewAs")),
+    [user.role, searchParams]
+  );
+  const isAdminRole = effectiveRole === "ADMINISTRADOR";
 
   const currentTab = useMemo(() => resolveTabFromSearchParams(searchParams), [searchParams]);
   const normalizedRoleLabel = (effectiveRole || "ADMINISTRADOR").replace(/_/g, " ");
@@ -156,6 +151,10 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
   }
 
   function navigateToTab(tab: Tab) {
+    if (!canAccessTabForRole(tab, effectiveRole)) {
+      const fallbackTab = getDefaultTabForRole(effectiveRole || "ADMINISTRADOR");
+      tab = fallbackTab;
+    }
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
     const query = params.toString();
@@ -206,7 +205,7 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
                   }}
                 >
                   <ListItemIcon sx={{ minWidth: 32, color: "inherit" }}>
-                    {getNavigationGroupIcon(groupItem.group, "small")}
+                    {getNavigationGroupIcon(groupItem.group)}
                   </ListItemIcon>
                   <ListItemText 
                     primary={groupItem.label} 
@@ -276,11 +275,18 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
           <Divider sx={{ opacity: 0.4 }} />
           <Box sx={{ p: 2 }}>
             <Stack spacing={1}>
+              <IconButton
+                onClick={toggleMode}
+                aria-label={mode === "light" ? "Activar modo oscuro" : "Activar modo claro"}
+                sx={{ alignSelf: "flex-start", color: "text.primary", border: "1px solid", borderColor: "divider" }}
+              >
+                {mode === "light" ? <DarkModeRoundedIcon fontSize="small" /> : <LightModeRoundedIcon fontSize="small" />}
+              </IconButton>
               {isAdminRole && (
                 <Box sx={{ px: 1 }}>
                   <Chip
                     size="small"
-                    variant="soft"
+                    variant="outlined"
                     label={normalizedRoleLabel}
                     sx={{ 
                       fontWeight: 800,
@@ -339,7 +345,15 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
                 <img src="/flacso-logo.png" alt="FLACSO" height={48} style={{ objectFit: "contain" }} />
               </Box>
 
-              <Box sx={{ minWidth: 40, display: "flex", justifyContent: "flex-end" }}>
+              <Box sx={{ minWidth: 84, display: "flex", justifyContent: "flex-end", gap: 0.5 }}>
+                <IconButton
+                  color="inherit"
+                  onClick={toggleMode}
+                  aria-label={mode === "light" ? "Activar modo oscuro" : "Activar modo claro"}
+                  sx={{ color: "text.primary" }}
+                >
+                  {mode === "light" ? <DarkModeRoundedIcon fontSize="small" /> : <LightModeRoundedIcon fontSize="small" />}
+                </IconButton>
                 <UserMenu
                   firstName={user.firstName}
                   lastName={user.lastName}

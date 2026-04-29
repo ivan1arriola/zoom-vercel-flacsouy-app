@@ -4,6 +4,7 @@ import { signIn } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  alpha,
   Box,
   Button,
   Card,
@@ -15,7 +16,8 @@ import {
   Tab,
   Tabs,
   TextField,
-  Typography
+  Typography,
+  useTheme
 } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
@@ -53,6 +55,8 @@ export function InlineLogin({
   resetToken,
   resetMode
 }: InlineLoginProps) {
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === "dark";
   const googleDomainNotice = "Google solo para @flacso.edu.uy; el resto por correo y contrasena.";
   const [activePanel, setActivePanel] = useState<AuthPanel>("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -80,6 +84,49 @@ export function InlineLogin({
 
   const passwordFlowMode = useMemo<PasswordFlowMode>(() => normalizeResetMode(resetMode), [resetMode]);
   const isActivationFlow = hasResetPayload && passwordFlowMode === "activation";
+  const autofillBackground = isDarkMode
+    ? "rgba(15, 23, 42, 0.6)" // Deeper, more integrated dark color for autofill
+    : alpha(theme.palette.primary.main, 0.05);
+
+  const authTextFieldSx = {
+    "& .MuiInputLabel-root": {
+      color: "text.secondary",
+      fontWeight: 500
+    },
+    "& .MuiInputLabel-root.Mui-focused": {
+      color: isDarkMode ? "primary.light" : "primary.main"
+    },
+    "& .MuiOutlinedInput-root": {
+      borderRadius: "12px",
+      backgroundColor: isDarkMode ? "rgba(2, 6, 23, 0.5)" : theme.palette.background.paper,
+      color: "text.primary",
+      "& .MuiOutlinedInput-notchedOutline": {
+        borderColor: isDarkMode ? alpha(theme.palette.primary.main, 0.2) : alpha(theme.palette.common.black, 0.1)
+      },
+      "&:hover .MuiOutlinedInput-notchedOutline": {
+        borderColor: isDarkMode ? alpha(theme.palette.primary.main, 0.4) : alpha(theme.palette.primary.main, 0.4)
+      },
+      "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+        borderColor: isDarkMode ? theme.palette.primary.main : theme.palette.primary.main
+      },
+      "& .MuiInputBase-input": {
+        color: "text.primary"
+      },
+      "& .MuiIconButton-root": {
+        color: "text.secondary"
+      },
+      "& input:-webkit-autofill, & .MuiInputBase-input:-webkit-autofill, & input:-webkit-autofill:hover, & input:-webkit-autofill:focus, & input:-webkit-autofill:active": {
+        WebkitBoxShadow: `0 0 0 1000px ${autofillBackground} inset !important`,
+        boxShadow: `0 0 0 1000px ${autofillBackground} inset !important`,
+        WebkitTextFillColor: `${theme.palette.text.primary} !important`,
+        color: `${theme.palette.text.primary} !important`,
+        caretColor: `${theme.palette.text.primary} !important`,
+        borderRadius: "12px",
+        transition: "background-color 9999s ease-in-out 0s, color 9999s ease-in-out 0s",
+        filter: "none !important"
+      }
+    }
+  };
 
   useEffect(() => {
     if (!canAutoVerify) return;
@@ -333,6 +380,7 @@ export function InlineLogin({
                 required
                 autoComplete="new-password"
                 inputProps={{ minLength: 8 }}
+                sx={authTextFieldSx}
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
@@ -350,6 +398,7 @@ export function InlineLogin({
                 required
                 autoComplete="new-password"
                 inputProps={{ minLength: 8 }}
+                sx={authTextFieldSx}
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
@@ -360,7 +409,13 @@ export function InlineLogin({
                   )
                 }}
               />
-              <Button type="submit" variant="contained" color="secondary" disabled={isResetSubmitting}>
+              <Button
+                type="submit"
+                variant="contained"
+                color="secondary"
+                disabled={isResetSubmitting}
+                sx={{ color: theme.palette.getContrastText(theme.palette.secondary.main) }}
+              >
                 {isResetSubmitting ? "Actualizando contrasena..." : options.submitLabel}
               </Button>
             </Stack>
@@ -379,7 +434,9 @@ export function InlineLogin({
         justifyContent: "center",
         py: 4,
         px: 2,
-        background: "radial-gradient(circle at 50% 50%, rgba(31, 75, 143, 0.05) 0%, rgba(246, 248, 252, 1) 100%)",
+        background: isDarkMode
+          ? `radial-gradient(circle at 50% 0%, ${alpha(theme.palette.primary.main, 0.12)} 0%, transparent 50%), radial-gradient(circle at 100% 100%, ${alpha(theme.palette.primary.main, 0.05)} 0%, transparent 50%), ${theme.palette.background.default}`
+          : "radial-gradient(circle at 50% 50%, rgba(31, 75, 143, 0.04) 0%, rgba(246, 248, 252, 1) 100%)",
       }}
     >
       <Box sx={{ width: "100%", maxWidth: 450 }}>
@@ -402,11 +459,11 @@ export function InlineLogin({
           variant="outlined" 
           sx={{ 
             borderRadius: "24px", 
-            boxShadow: "0 20px 60px rgba(15, 26, 45, 0.08)",
+            boxShadow: isDarkMode ? "0 24px 60px rgba(2, 8, 23, 0.65)" : "0 20px 60px rgba(15, 26, 45, 0.08)",
             border: "1px solid",
-            borderColor: "rgba(0, 0, 0, 0.06)",
+            borderColor: isDarkMode ? alpha(theme.palette.primary.main, 0.15) : "rgba(0, 0, 0, 0.06)",
             overflow: "visible",
-            backgroundColor: "background.paper",
+            backgroundColor: isDarkMode ? alpha(theme.palette.background.paper, 0.8) : "background.paper",
             position: "relative"
           }}
         >
@@ -422,7 +479,7 @@ export function InlineLogin({
                       type="email" 
                       required 
                       autoComplete="email"
-                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      sx={authTextFieldSx}
                     />
                     <TextField
                       fullWidth
@@ -431,7 +488,7 @@ export function InlineLogin({
                       type={showLoginPassword ? "text" : "password"}
                       required
                       autoComplete="current-password"
-                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      sx={authTextFieldSx}
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
@@ -447,7 +504,7 @@ export function InlineLogin({
                         size="small" 
                         variant="text" 
                         onClick={() => setActivePanel("recovery")}
-                        sx={{ textTransform: "none", fontWeight: 600 }}
+                        sx={{ textTransform: "none", fontWeight: 600, color: isDarkMode ? "primary.light" : "primary.main" }}
                       >
                         ¿Olvidaste tu contraseña?
                       </Button>
@@ -464,7 +521,8 @@ export function InlineLogin({
                         textTransform: "none", 
                         fontWeight: 700,
                         fontSize: "1rem",
-                        boxShadow: "0 8px 20px rgba(31, 75, 143, 0.25)"
+                        color: theme.palette.getContrastText(theme.palette.primary.main),
+                        boxShadow: isDarkMode ? "0 8px 20px rgba(96, 165, 250, 0.3)" : "0 8px 20px rgba(31, 75, 143, 0.25)"
                       }}
                     >
                       {isSubmitting ? <CircularProgress size={24} color="inherit" /> : "Iniciar Sesión"}
@@ -482,14 +540,14 @@ export function InlineLogin({
                         name="firstName" 
                         label="Nombre" 
                         autoComplete="given-name"
-                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                        sx={authTextFieldSx}
                       />
                       <TextField 
                         fullWidth 
                         name="lastName" 
                         label="Apellido" 
                         autoComplete="family-name"
-                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                        sx={authTextFieldSx}
                       />
                     </Stack>
                     <TextField 
@@ -499,7 +557,7 @@ export function InlineLogin({
                       type="email" 
                       required 
                       autoComplete="email"
-                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      sx={authTextFieldSx}
                     />
                     <TextField
                       fullWidth
@@ -509,7 +567,7 @@ export function InlineLogin({
                       required
                       autoComplete="new-password"
                       inputProps={{ minLength: 8 }}
-                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      sx={authTextFieldSx}
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
@@ -532,7 +590,8 @@ export function InlineLogin({
                         py: 1.5, 
                         textTransform: "none", 
                         fontWeight: 700,
-                        fontSize: "1rem"
+                        fontSize: "1rem",
+                        color: theme.palette.getContrastText(theme.palette.secondary.main)
                       }}
                     >
                       {isRegisterSubmitting ? <CircularProgress size={24} color="inherit" /> : "Crear Cuenta"}
@@ -554,7 +613,7 @@ export function InlineLogin({
                       type="email"
                       required
                       autoComplete="email"
-                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      sx={authTextFieldSx}
                     />
                     <Button 
                       fullWidth
@@ -562,7 +621,13 @@ export function InlineLogin({
                       variant="contained" 
                       size="large"
                       disabled={isRecoverySubmitting}
-                      sx={{ borderRadius: "12px", py: 1.5, textTransform: "none", fontWeight: 700 }}
+                      sx={{
+                        borderRadius: "12px",
+                        py: 1.5,
+                        textTransform: "none",
+                        fontWeight: 700,
+                        color: theme.palette.getContrastText(theme.palette.primary.main)
+                      }}
                     >
                       {isRecoverySubmitting ? <CircularProgress size={24} color="inherit" /> : "Enviar enlace"}
                     </Button>
@@ -592,7 +657,7 @@ export function InlineLogin({
                       required
                       autoComplete="new-password"
                       inputProps={{ minLength: 8 }}
-                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      sx={authTextFieldSx}
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
@@ -611,7 +676,7 @@ export function InlineLogin({
                       required
                       autoComplete="new-password"
                       inputProps={{ minLength: 8 }}
-                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: "12px" } }}
+                      sx={authTextFieldSx}
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
@@ -629,7 +694,13 @@ export function InlineLogin({
                       color="secondary"
                       size="large"
                       disabled={isResetSubmitting}
-                      sx={{ borderRadius: "12px", py: 1.5, textTransform: "none", fontWeight: 700 }}
+                      sx={{
+                        borderRadius: "12px",
+                        py: 1.5,
+                        textTransform: "none",
+                        fontWeight: 700,
+                        color: theme.palette.getContrastText(theme.palette.secondary.main)
+                      }}
                     >
                       {isResetSubmitting ? <CircularProgress size={24} color="inherit" /> : isActivationFlow ? "Activar Cuenta" : "Restablecer Contraseña"}
                     </Button>
@@ -641,7 +712,7 @@ export function InlineLogin({
                 <Box>
                   <Box sx={{ display: "flex", alignItems: "center", my: 2 }}>
                     <Box sx={{ flex: 1, height: "1px", bgcolor: "divider" }} />
-                    <Typography variant="caption" sx={{ px: 2, color: "text.disabled", fontWeight: 700 }}>
+                    <Typography variant="caption" sx={{ px: 2, color: "text.secondary", fontWeight: 700 }}>
                       O CONTINÚA CON
                     </Typography>
                     <Box sx={{ flex: 1, height: "1px", bgcolor: "divider" }} />
@@ -659,11 +730,11 @@ export function InlineLogin({
                       py: 1.2, 
                       textTransform: "none", 
                       fontWeight: 600,
-                      borderColor: "rgba(0, 0, 0, 0.12)",
+                      borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.2) : "rgba(0, 0, 0, 0.12)",
                       color: "text.primary",
                       "&:hover": {
                         borderColor: "primary.main",
-                        backgroundColor: "rgba(31, 75, 143, 0.04)"
+                        backgroundColor: isDarkMode ? alpha(theme.palette.primary.main, 0.16) : "rgba(31, 75, 143, 0.04)"
                       }
                     }}
                   >
@@ -683,7 +754,7 @@ export function InlineLogin({
               px: 4, 
               borderTop: "1px solid", 
               borderColor: "divider", 
-              bgcolor: "rgba(0, 0, 0, 0.01)",
+              bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.03) : "rgba(0, 0, 0, 0.01)",
               borderBottomLeftRadius: "24px",
               borderBottomRightRadius: "24px",
               textAlign: "center"

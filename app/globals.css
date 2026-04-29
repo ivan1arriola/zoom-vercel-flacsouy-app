@@ -10,10 +10,17 @@ body {
 
 body {
   background:
-    radial-gradient(circle at 12% 14%, rgba(31, 75, 143, 0.1), transparent 32%),
-    radial-gradient(circle at 88% 10%, rgba(249, 181, 3, 0.14), transparent 28%),
+    radial-gradient(circle at 12% 14%, rgba(31, 75, 143, 0.08), transparent 32%),
+    radial-gradient(circle at 88% 10%, rgba(249, 181, 3, 0.1), transparent 28%),
     linear-gradient(90deg, #e8edf7 0%, #e8edf7 50%, #f2efdf 50%, #f2efdf 100%);
   min-height: 100vh;
+}
+
+html.dark body {
+  background: 
+    radial-gradient(circle at 12% 14%, rgba(96, 165, 250, 0.05), transparent 32%),
+    radial-gradient(circle at 88% 10%, rgba(249, 181, 3, 0.03), transparent 28%),
+    #020617;
 }
 
 a {

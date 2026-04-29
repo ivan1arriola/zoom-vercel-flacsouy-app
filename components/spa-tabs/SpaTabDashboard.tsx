@@ -16,7 +16,9 @@ import {
   Skeleton,
   Grid,
   useTheme,
-  alpha
+  alpha,
+  Paper,
+  Avatar
 } from "@mui/material";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
@@ -27,13 +29,19 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SchoolIcon from "@mui/icons-material/School";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import TimerIcon from "@mui/icons-material/Timer";
+import LockIcon from "@mui/icons-material/Lock";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import ScheduleIcon from "@mui/icons-material/Schedule";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import LinkIcon from "@mui/icons-material/Link";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import EventNoteIcon from "@mui/icons-material/EventNote";
-import ScheduleIcon from "@mui/icons-material/Schedule";
 import GroupIcon from "@mui/icons-material/Group";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import { formatZoomDateTime } from "./spa-tabs-utils";
 import type { DashboardSummary } from "@/src/services/dashboardApi";
 import {
   downloadMonthlyAccountingReport,
@@ -52,6 +60,8 @@ type DashboardMetricKey = Exclude<keyof DashboardSummary, "scope">;
 
 interface SpaTabDashboardProps {
   summary: DashboardSummary | null;
+  isLoadingSummary?: boolean;
+  onRefresh?: () => void;
   role: DashboardRole;
   agendaLibre?: AgendaEvent[];
   onGoToCreateMeeting?: () => void;
@@ -379,56 +389,36 @@ function deriveDocenteStatus(summary: DashboardSummary): DashboardStatus {
 
 function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): DashboardRoleConfig {
   if (role === "DOCENTE") {
-    const solicitudesTotales = metricValue(summary, "solicitudesTotales");
-    const solicitudesActivas = metricValue(summary, "solicitudesActivas");
-    const proximasReuniones = metricValue(summary, "proximasReuniones");
-    const reunionesConZoom = metricValue(summary, "reunionesConZoom");
-
     return {
-      title: "Mi actividad academica",
-      subtitle: "Seguimiento de tus solicitudes y de las reuniones ya calendarizadas.",
+      title: "Mi actividad académica",
+      subtitle: "Gestión centralizada de tus sesiones y solicitudes de Zoom.",
       headerIcon: <SchoolIcon fontSize="small" />,
       background: "linear-gradient(135deg, rgba(23,95,161,0.10) 0%, rgba(56,132,255,0.12) 100%)",
       metrics: [
         {
           key: "solicitudesTotales",
-          title: "Solicitudes totales",
-          description: "Solicitudes creadas desde tu perfil.",
+          title: "Mis Solicitudes",
+          description: "Total de programas o pedidos creados.",
           semanticColor: "info",
           icon: <AssignmentTurnedInIcon fontSize="small" />
         },
         {
-          key: "solicitudesActivas",
-          title: "Solicitudes activas",
-          description: "Solicitudes aun en curso o vigentes.",
-          semanticColor: "success",
-          icon: <PendingActionsIcon fontSize="small" />
-        },
-        {
           key: "proximasReuniones",
-          title: "Proximas reuniones",
-          description: "Instancias futuras ya registradas.",
-          semanticColor: "warning",
-          icon: <EventNoteIcon fontSize="small" />
-        },
-        {
-          key: "reunionesConZoom",
-          title: "Con link Zoom",
-          description: "Instancias futuras que ya tienen meeting ID asignado.",
-          semanticColor: "info",
-          icon: <LinkIcon fontSize="small" />
+          title: "Próximas Sesiones",
+          description: "Cantidad de encuentros sincrónicos.",
+          semanticColor: "success",
+          icon: <ScheduleIcon fontSize="small" />
         }
       ],
       status: deriveDocenteStatus(summary),
-      priorityItems: solicitudesTotales > 0
+      priorityItems: metricValue(summary, "solicitudesTotales") > 0
         ? [
-            `${solicitudesActivas} solicitud(es) activa(s) para seguimiento.`,
-            `${proximasReuniones} reunion(es) futura(s) registradas.`,
-            `${reunionesConZoom} reunion(es) futura(s) con Zoom asignado.`
+            `${metricValue(summary, "proximasReuniones")} sesión(es) futura(s) calendarizada(s).`,
+            `${metricValue(summary, "reunionesConZoom")} sesión(es) con link de Zoom generado.`
           ]
         : [
             "No hay solicitudes registradas en tu perfil.",
-            "Crea una nueva solicitud para iniciar la gestion de tu reunion."
+            "Crea una nueva solicitud para iniciar la gestión de tu reunión."
           ]
     };
   }
@@ -574,9 +564,47 @@ function buildRoleConfig(role: DashboardRole, summary: DashboardSummary): Dashbo
         icon: <Groups2Icon fontSize="small" />
       }
     ],
-    status: deriveAdminStatus(summary),
+status: deriveAdminStatus(summary),
     priorityItems: []
   };
+}
+
+function useCountdown(targetDate: string | null) {
+  const [timeLeft, setTimeLeft] = useState<string>("");
+
+  useEffect(() => {
+    if (!targetDate) return;
+    const target = new Date(targetDate).getTime();
+
+    const update = () => {
+      const now = new Date().getTime();
+      const diff = target - now;
+
+      if (diff <= 0) {
+        setTimeLeft("Iniciada");
+        return;
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      const parts = [];
+      if (days > 0) parts.push(`${days}d`);
+      if (hours > 0) parts.push(`${hours}h`);
+      if (minutes > 0) parts.push(`${minutes}m`);
+      if (seconds > 0 && days === 0) parts.push(`${seconds}s`);
+
+      setTimeLeft(parts.join(" "));
+    };
+
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [targetDate]);
+
+  return timeLeft;
 }
 
 export function SpaTabDashboard({
@@ -586,11 +614,17 @@ export function SpaTabDashboard({
   onGoToCreateMeeting,
   onGoToAssignAssistants,
   onGoToAgendaAvailable,
-  onGoToMyAssignedMeetings
+  onGoToMyAssignedMeetings,
+  onRefresh
 }: SpaTabDashboardProps) {
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === "dark";
+  const toneColor = (color: "error" | "warning" | "success" | "info" | "primary" | "secondary") =>
+    isDarkMode ? `${color}.light` : `${color}.dark`;
+  const countdown = useCountdown(summary?.nextMeeting?.startTime ?? null);
   const isAccountingRole = role === "CONTADURIA";
   const isAssistantRole = role === "ASISTENTE_ZOOM";
+  const isDocenteRole = role === "DOCENTE";
   const [assistantCards, setAssistantCards] = useState<Array<{
     person: PersonHoursPerson;
     meetings: PersonHoursMeeting[];
@@ -748,7 +782,7 @@ export function SpaTabDashboard({
     return stats;
   }, [allAssistantMeetings, assistantNowMs]);
 
-  const agendaToAssignCount = assistantAgendaOpen.length;
+  const assistantAgendaToAssignCount = assistantAgendaOpen.length;
   const assistantAgendaPreview = assistantAgendaOpen.slice(0, 3);
   const nextMeeting = assistantUpcomingMeetings[0] ?? null;
   const nextMeetingId = nextMeeting ? resolveMeetingId(nextMeeting) : null;
@@ -1084,7 +1118,7 @@ export function SpaTabDashboard({
                     borderRadius: 1.8,
                     border: "1px solid",
                     borderColor: "divider",
-                    bgcolor: "grey.50"
+                    bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.04) : "grey.50"
                   }}
                 >
                   <Typography variant="caption" color="text.secondary">
@@ -1184,8 +1218,8 @@ export function SpaTabDashboard({
   const config = buildRoleConfig(role, summary);
   return (
     <Stack spacing={2.2}>
-      {role !== "ASISTENTE_ZOOM" && (
-        <Card variant="outlined" sx={{ borderRadius: 3, background: config.background }}>
+      {!isAssistantRole && !isDocenteRole && (
+        <Card variant="outlined" sx={{ borderRadius: 3, background: config.background, mb: 3 }}>
           <CardContent>
             <Stack
               direction={{ xs: "column", md: "row" }}
@@ -1217,26 +1251,6 @@ export function SpaTabDashboard({
             <Alert severity={config.status.color} sx={{ mt: 1.5 }}>
               {config.status.message}
             </Alert>
-            {role === "DOCENTE" ? (
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                spacing={1}
-                alignItems={{ xs: "flex-start", sm: "center" }}
-                sx={{ mt: 1.2 }}
-              >
-                <Button
-                  variant="contained"
-                  size="large"
-                  onClick={onGoToCreateMeeting}
-                  disabled={!onGoToCreateMeeting}
-                >
-                  Crear sala Zoom ahora
-                </Button>
-                <Typography variant="caption" color="text.secondary">
-                  Esta es la accion principal del espacio docente.
-                </Typography>
-              </Stack>
-            ) : null}
             {role === "ADMINISTRADOR" ? (
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
                 <Button
@@ -1267,18 +1281,28 @@ export function SpaTabDashboard({
           <Grid container spacing={2}>
             {summary.colisionesZoom7d && summary.colisionesZoom7d > 0 ? (
               <Grid size={{ xs: 12, md: 4 }}>
-                <Card variant="outlined" sx={{ height: "100%", borderColor: "error.main", bgcolor: "error.lighter", borderRadius: 3, borderLeft: "8px solid", borderLeftColor: "error.main" }}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    height: "100%",
+                    borderColor: "error.main",
+                    bgcolor: isDarkMode ? alpha(theme.palette.error.main, 0.14) : alpha(theme.palette.error.main, 0.08),
+                    borderRadius: 3,
+                    borderLeft: "8px solid",
+                    borderLeftColor: "error.main"
+                  }}
+                >
                   <CardContent>
                     <Stack direction="row" spacing={2} alignItems="center">
                       <Box sx={{ p: 1, borderRadius: 2, bgcolor: "error.main", color: "white" }}>
                         <WarningAmberIcon />
                       </Box>
                       <Box>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "error.dark" }}>Conflictos Detectados</Typography>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: toneColor("error") }}>Conflictos Detectados</Typography>
                         <Typography variant="h3" sx={{ fontWeight: 900, color: "error.main" }}>{summary.colisionesZoom7d}</Typography>
                       </Box>
                     </Stack>
-                    <Typography variant="body2" sx={{ mt: 1.5, color: "error.dark", fontWeight: 500 }}>
+                    <Typography variant="body2" sx={{ mt: 1.5, color: toneColor("error"), fontWeight: 500 }}>
                       Colisiones de horario en Zoom detectadas para los próximos 7 días.
                     </Typography>
                   </CardContent>
@@ -1288,18 +1312,28 @@ export function SpaTabDashboard({
 
             {summary.eventosSinAsistencia7d && summary.eventosSinAsistencia7d > 0 ? (
               <Grid size={{ xs: 12, md: 4 }}>
-                <Card variant="outlined" sx={{ height: "100%", borderColor: "warning.main", bgcolor: "warning.lighter", borderRadius: 3, borderLeft: "8px solid", borderLeftColor: "warning.main" }}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    height: "100%",
+                    borderColor: "warning.main",
+                    bgcolor: isDarkMode ? alpha(theme.palette.warning.main, 0.14) : alpha(theme.palette.warning.main, 0.08),
+                    borderRadius: 3,
+                    borderLeft: "8px solid",
+                    borderLeftColor: "warning.main"
+                  }}
+                >
                   <CardContent>
                     <Stack direction="row" spacing={2} alignItems="center">
                       <Box sx={{ p: 1, borderRadius: 2, bgcolor: "warning.main", color: "white" }}>
                         <Groups2Icon />
                       </Box>
                       <Box>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "warning.dark" }}>Asistencia Pendiente</Typography>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: toneColor("warning") }}>Asistencia Pendiente</Typography>
                         <Typography variant="h3" sx={{ fontWeight: 900, color: "warning.main" }}>{summary.eventosSinAsistencia7d}</Typography>
                       </Box>
                     </Stack>
-                    <Typography variant="body2" sx={{ mt: 1.5, color: "warning.dark", fontWeight: 500 }}>
+                    <Typography variant="body2" sx={{ mt: 1.5, color: toneColor("warning"), fontWeight: 500 }}>
                       Reuniones con asistencia requerida sin personal asignado (&lt; 7d).
                     </Typography>
                   </CardContent>
@@ -1310,20 +1344,30 @@ export function SpaTabDashboard({
             {((summary.manualPendings || 0) + (summary.solicitudesNoResueltas || 0)) !== 1 && 
              ((summary.manualPendings || 0) + (summary.solicitudesNoResueltas || 0)) > 0 ? (
               <Grid size={{ xs: 12, md: 4 }}>
-                <Card variant="outlined" sx={{ height: "100%", borderColor: "info.main", bgcolor: "info.lighter", borderRadius: 3, borderLeft: "8px solid", borderLeftColor: "info.main" }}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    height: "100%",
+                    borderColor: "info.main",
+                    bgcolor: isDarkMode ? alpha(theme.palette.info.main, 0.14) : alpha(theme.palette.info.main, 0.08),
+                    borderRadius: 3,
+                    borderLeft: "8px solid",
+                    borderLeftColor: "info.main"
+                  }}
+                >
                   <CardContent>
                     <Stack direction="row" spacing={2} alignItems="center">
                       <Box sx={{ p: 1, borderRadius: 2, bgcolor: "info.main", color: "white" }}>
                         <BuildCircleIcon />
                       </Box>
                       <Box>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "info.dark" }}>Gestión Manual</Typography>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: toneColor("info") }}>Gestión Manual</Typography>
                         <Typography variant="h3" sx={{ fontWeight: 900, color: "info.main" }}>
                           {(summary.manualPendings || 0) + (summary.solicitudesNoResueltas || 0)}
                         </Typography>
                       </Box>
                     </Stack>
-                    <Typography variant="body2" sx={{ mt: 1.5, color: "info.dark", fontWeight: 500 }}>
+                    <Typography variant="body2" sx={{ mt: 1.5, color: toneColor("info"), fontWeight: 500 }}>
                       Solicitudes pendientes o no resueltas que requieren tu intervención.
                     </Typography>
                   </CardContent>
@@ -1334,7 +1378,401 @@ export function SpaTabDashboard({
         </Box>
       )}
 
-      {role !== "ASISTENTE_ZOOM" && (
+      {isDocenteRole ? (
+        <Stack spacing={4} sx={{ mt: 2 }}>
+          {/* Hero Section for Docente */}
+          <Box
+            sx={{
+              p: 4,
+              borderRadius: 5,
+              background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+              color: "white",
+              position: "relative",
+              overflow: "hidden",
+              boxShadow: "0 20px 40px rgba(31, 75, 143, 0.25)"
+            }}
+          >
+            <Box
+              sx={{
+                position: "absolute",
+                top: -50,
+                right: -50,
+                width: 200,
+                height: 200,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.1)",
+                filter: "blur(40px)"
+              }}
+            />
+            
+            <Grid container spacing={3} alignItems="center">
+              <Grid size={{ xs: 12, md: 8 }}>
+                <Typography variant="h4" sx={{ fontWeight: 900, mb: 1, letterSpacing: "-1px" }}>
+                  ¡Hola de nuevo!
+                </Typography>
+                <Typography variant="body1" sx={{ opacity: 0.9, mb: 3, maxWidth: 500 }}>
+                  Tienes todo listo para tus próximas sesiones. Aquí tienes un resumen rápido de tu actividad académica.
+                </Typography>
+                <Stack direction="row" spacing={2}>
+                  <Button
+                    variant="contained"
+                    onClick={() => onGoToMyAssignedMeetings?.()}
+                    sx={{ 
+                      bgcolor: "white", 
+                      color: "primary.main", 
+                      fontWeight: 800,
+                      px: 3,
+                      borderRadius: 3,
+                      "&:hover": { bgcolor: alpha("#fff", 0.9) }
+                    }}
+                  >
+                    Ver mis reuniones
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => onGoToCreateMeeting?.()}
+                    sx={{ 
+                      borderColor: "white", 
+                      color: "white", 
+                      fontWeight: 800,
+                      px: 3,
+                      borderRadius: 3,
+                      "&:hover": { borderColor: "white", bgcolor: "rgba(255,255,255,0.1)" }
+                    }}
+                  >
+                    Nueva solicitud
+                  </Button>
+                </Stack>
+              </Grid>
+              {summary?.nextMeeting && (
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <Paper
+                    sx={{
+                      p: 2.5,
+                      borderRadius: 4,
+                      bgcolor: "rgba(255,255,255,0.12)",
+                      backdropFilter: "blur(10px)",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      color: "white"
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ fontWeight: 800, opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                      Tu próxima sesión
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 800, mt: 1, mb: 0.5, lineHeight: 1.2 }}>
+                      {summary.nextMeeting.titulo}
+                    </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+                      <CalendarMonthIcon sx={{ fontSize: 16, opacity: 0.8 }} />
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {formatZoomDateTime(summary.nextMeeting.startTime)}
+                      </Typography>
+                    </Stack>
+                    <Chip 
+                      label={summary.nextMeeting.modalidad} 
+                      size="small" 
+                      sx={{ bgcolor: "white", color: "primary.main", fontWeight: 800, height: 24 }} 
+                    />
+                  </Paper>
+                </Grid>
+              )}
+            </Grid>
+          </Box>
+
+          {/* Detailed Metrics Grid for Docente */}
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, 1fr)",
+                md: "repeat(4, 1fr)"
+              },
+              gap: 2.5
+            }}
+          >
+            {config.metrics.map((metric) => {
+              const value = summary ? metricValue(summary, metric.key) : 0;
+              const formattedValue = metric.formatValue ? metric.formatValue(value) : String(value);
+              const resolvedSemanticColor = metric.semanticColor || "primary";
+              const metricColor = theme.palette[resolvedSemanticColor as "primary"]?.main || theme.palette.primary.main;
+              
+              return (
+                <Card
+                  key={metric.key}
+                  variant="outlined"
+                  sx={{
+                    borderRadius: 4,
+                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                    border: "1px solid",
+                    borderColor: alpha(metricColor, 0.1),
+                    "&:hover": {
+                      transform: "translateY(-5px)",
+                      boxShadow: `0 12px 24px ${alpha(metricColor, 0.12)}`,
+                      borderColor: metricColor
+                    }
+                  }}
+                >
+                  <CardContent sx={{ p: 3 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
+                      <Box
+                        sx={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 3,
+                          display: "grid",
+                          placeItems: "center",
+                          bgcolor: alpha(metricColor, 0.08),
+                          color: metricColor
+                        }}
+                      >
+                        {metric.icon}
+                      </Box>
+                    </Stack>
+                    <Typography variant="h3" sx={{ fontWeight: 900, mb: 0.5, color: "text.primary", letterSpacing: "-1px" }}>
+                      {formattedValue}
+                    </Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "text.primary", mb: 0.5 }}>
+                      {metric.title}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500, lineHeight: 1.3, display: "block" }}>
+                      {metric.description}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Box>
+
+          {/* Warning: sessions without Zoom link */}
+          {summary && (metricValue(summary, "proximasReuniones") - metricValue(summary, "reunionesConZoom")) > 0 && (
+            <Alert 
+              severity="warning" 
+              variant="outlined"
+              sx={{ borderRadius: 3 }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {metricValue(summary, "proximasReuniones") - metricValue(summary, "reunionesConZoom")} sesión(es) aún sin link de Zoom asignado.
+              </Typography>
+            </Alert>
+          )}
+
+          {/* Next Meeting Card for Docente - REDESIGNED */}
+          {summary?.nextMeeting && (
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 4,
+                overflow: "hidden",
+                border: "1px solid",
+                borderColor: "divider",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
+                mb: 4
+              }}
+            >
+              <Box sx={{ p: 2, bgcolor: alpha(theme.palette.primary.main, 0.04), borderBottom: "1px solid", borderColor: "divider" }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <ScheduleIcon color="primary" sx={{ fontSize: 20 }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      Próxima sesión
+                    </Typography>
+                    {summary.nextMeeting.totalInstances && summary.nextMeeting.totalInstances > 1 && (
+                      <Chip 
+                        label={`Instancia ${summary.nextMeeting.instanceIndex} de ${summary.nextMeeting.totalInstances}`}
+                        size="small"
+                        sx={{ height: 20, fontSize: "0.65rem", fontWeight: 700, bgcolor: "primary.main", color: "white" }}
+                      />
+                    )}
+                  </Stack>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <TimerIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary" }}>
+                      Faltan: {countdown}
+                    </Typography>
+                  </Stack>
+                </Stack>
+              </Box>
+
+              <CardContent sx={{ p: 3 }}>
+                <Grid container spacing={3}>
+                  {/* Title & Program Area */}
+                  <Grid size={{ xs: 12, md: 5 }}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="h5" sx={{ fontWeight: 900, color: "text.primary", mb: 0.5, lineHeight: 1.2 }}>
+                        {summary.nextMeeting.titulo}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+                        {summary.nextMeeting.programaNombre || "Sin programa asignado"}
+                      </Typography>
+                    </Box>
+
+                    <Stack spacing={1.5}>
+                      {/* DateTime row */}
+                      <Stack direction="row" spacing={3}>
+                        <Box>
+                          <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", display: "block", mb: 0.5 }}>FECHA</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {new Date(summary.nextMeeting.startTime).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", display: "block", mb: 0.5 }}>INICIO</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {new Date(summary.nextMeeting.startTime).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })} hs
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", display: "block", mb: 0.5 }}>FIN / DURACIÓN</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {new Date(summary.nextMeeting.endTime).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })} hs ({Math.round((new Date(summary.nextMeeting.endTime).getTime() - new Date(summary.nextMeeting.startTime).getTime()) / 60000)} min)
+                          </Typography>
+                        </Box>
+                      </Stack>
+
+                      {/* Host & Password Row */}
+                      {summary.nextMeeting.hostAccount && (
+                        <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 2, border: "1px dashed", borderColor: "divider" }}>
+                          <Grid container spacing={2} alignItems="center">
+                            <Grid size={{ xs: 6 }}>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <AccountCircleIcon sx={{ fontSize: 16, color: "text.secondary" }} />
+                                <Box>
+                                  <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", display: "block", fontSize: "0.6rem" }}>CUENTA HOST</Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.8rem", wordBreak: "break-all" }}>{summary.nextMeeting.hostAccount}</Typography>
+                                </Box>
+                              </Stack>
+                            </Grid>
+                            <Grid size={{ xs: 6 }}>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <LockIcon sx={{ fontSize: 16, color: "text.secondary" }} />
+                                <Box>
+                                  <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", display: "block", fontSize: "0.6rem" }}>CONTRASEÑA</Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.8rem" }}>{summary.nextMeeting.hostPassword || "******"}</Typography>
+                                </Box>
+                              </Stack>
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Grid>
+
+                  {/* Divider for desktop */}
+                  <Grid size={{ xs: 12, md: 0.5 }} sx={{ display: { xs: "none", md: "flex" }, justifyContent: "center" }}>
+                    <Divider orientation="vertical" flexItem />
+                  </Grid>
+
+                  {/* Zoom Link & Assistant Section */}
+                  <Grid size={{ xs: 12, md: 6.5 }}>
+                    <Stack spacing={3}>
+                      {/* Zoom Link */}
+                      <Box>
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", display: "block", mb: 1 }}>LINK DE ACCESO ZOOM</Typography>
+                        {summary.nextMeeting.zoomJoinUrl ? (
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Box 
+                              sx={{ 
+                                p: 1, 
+                                px: 2, 
+                                bgcolor: alpha(theme.palette.primary.main, 0.05), 
+                                borderRadius: 2, 
+                                border: "1px solid", 
+                                borderColor: alpha(theme.palette.primary.main, 0.2),
+                                flex: 1,
+                                overflow: "hidden"
+                              }}
+                            >
+                              <Typography variant="body2" sx={{ color: "primary.main", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {summary.nextMeeting.zoomJoinUrl}
+                              </Typography>
+                            </Box>
+                            <Button 
+                              variant="outlined" 
+                              size="small" 
+                              onClick={() => {
+                                navigator.clipboard.writeText(summary.nextMeeting?.zoomJoinUrl ?? "");
+                                onRefresh?.();
+                              }}
+                              startIcon={<ContentCopyIcon />}
+                              sx={{ borderRadius: 2, height: 40, minWidth: 100 }}
+                            >
+                              Copiar
+                            </Button>
+                            <Button 
+                              variant="contained" 
+                              size="small" 
+                              href={summary.nextMeeting.zoomJoinUrl}
+                              target="_blank"
+                              sx={{ borderRadius: 2, height: 40, px: 3 }}
+                            >
+                              Entrar
+                            </Button>
+                          </Stack>
+                        ) : (
+                          <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ borderRadius: 2, "& .MuiAlert-message": { fontWeight: 600 } }}>
+                            Link de Zoom pendiente de asignación
+                          </Alert>
+                        )}
+                      </Box>
+
+                      {/* Assistant & Modalidad */}
+                      <Grid container spacing={2}>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", display: "block", mb: 1 }}>ASISTENTE ZOOM</Typography>
+                          {summary.nextMeeting.asistente ? (
+                            <Stack direction="row" spacing={1.5} alignItems="center">
+                              <Avatar sx={{ width: 40, height: 40, bgcolor: "primary.main", fontWeight: 800, fontSize: "1rem" }}>
+                                {summary.nextMeeting.asistente.nombre.charAt(0).toUpperCase()}
+                              </Avatar>
+                              <Box>
+                                <Typography variant="body2" sx={{ fontWeight: 800 }}>{summary.nextMeeting.asistente.nombre}</Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>{summary.nextMeeting.asistente.email}</Typography>
+                              </Box>
+                            </Stack>
+                          ) : (
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              {summary.nextMeeting.requiresAssistance ? (
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: "warning.main" }}>
+                                  <WarningAmberIcon sx={{ fontSize: 20 }} />
+                                  <Typography variant="body2" sx={{ fontWeight: 800 }}>Sin asistente asignado</Typography>
+                                </Box>
+                              ) : (
+                                <Typography variant="body2" sx={{ fontWeight: 600, color: "text.secondary" }}>No requiere asistencia</Typography>
+                              )}
+                            </Stack>
+                          )}
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", display: "block", mb: 1 }}>MODALIDAD Y ESTADO</Typography>
+                          <Stack direction="row" spacing={1}>
+                            <Chip 
+                              label={summary.nextMeeting.modalidad} 
+                              color={summary.nextMeeting.modalidad === "Virtual" ? "primary" : "secondary"} 
+                              size="small" 
+                              sx={{ fontWeight: 800, borderRadius: 1.5 }} 
+                            />
+                            {summary.nextMeeting.requiresAssistance && (
+                              <Chip 
+                                label="Con asistencia" 
+                                variant="outlined" 
+                                size="small" 
+                                color="info"
+                                icon={<SupportAgentIcon sx={{ fontSize: "14px !important" }} />}
+                                sx={{ fontWeight: 800, borderRadius: 1.5 }} 
+                              />
+                            )}
+                          </Stack>
+                        </Grid>
+                      </Grid>
+                    </Stack>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          )}
+        </Stack>
+      ) : role !== "ASISTENTE_ZOOM" && (
         <Box
           sx={{
             display: "grid",
@@ -1343,7 +1781,7 @@ export function SpaTabDashboard({
           }}
         >
           {config.metrics.map((metric) => {
-            const value = metricValue(summary, metric.key);
+            const value = summary ? metricValue(summary, metric.key) : 0;
             const formattedValue = metric.formatValue ? metric.formatValue(value) : String(value);
             const resolvedSemanticColor = resolveMetricSemanticColor(metric, value);
             const metricColor = SEMANTIC_METRIC_COLORS[resolvedSemanticColor];
@@ -1357,7 +1795,9 @@ export function SpaTabDashboard({
                   position: "relative",
                   overflow: "hidden",
                   borderColor: `${metricColor}55`,
-                  background: `linear-gradient(180deg, ${metricColor}14 0%, #ffffff 38%)`
+                  background: isDarkMode
+                    ? `linear-gradient(180deg, ${metricColor}1f 0%, ${theme.palette.background.paper} 40%)`
+                    : `linear-gradient(180deg, ${metricColor}14 0%, #ffffff 38%)`
                 }}
               >
                 <CardContent sx={{ p: 1.5 }}>
@@ -1412,72 +1852,72 @@ export function SpaTabDashboard({
               gap: 2
             }}
           >
-            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "warning.main", bgcolor: alpha(theme.palette.warning.main, 0.05) }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "warning.main", bgcolor: alpha(theme.palette.warning.main, isDarkMode ? 0.14 : 0.05) }}>
               <CardContent sx={{ p: 2 }}>
-                <Typography variant="caption" sx={{ fontWeight: 800, color: "warning.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: toneColor("warning"), display: "flex", alignItems: "center", gap: 0.5 }}>
                   <PendingActionsIcon fontSize="small" /> Sin respuesta
                 </Typography>
                 <Typography variant="h3" sx={{ fontWeight: 900, color: "warning.main", mt: 1 }}>
                   {agendaLibre.filter(i => !i.intereses?.length || i.intereses[0].estadoInteres === "SIN_RESPUESTA").length}
                 </Typography>
-                <Typography variant="body2" sx={{ color: "warning.dark", mt: 0.5, lineHeight: 1.1, fontSize: "0.75rem" }}>
+                <Typography variant="body2" sx={{ color: toneColor("warning"), mt: 0.5, lineHeight: 1.1, fontSize: "0.75rem" }}>
                   Esperando por tu acción.
                 </Typography>
               </CardContent>
             </Card>
 
-            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "success.main", bgcolor: alpha(theme.palette.success.main, 0.05) }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "success.main", bgcolor: alpha(theme.palette.success.main, isDarkMode ? 0.14 : 0.05) }}>
               <CardContent sx={{ p: 2 }}>
-                <Typography variant="caption" sx={{ fontWeight: 800, color: "success.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: toneColor("success"), display: "flex", alignItems: "center", gap: 0.5 }}>
                   <CheckCircleIcon fontSize="small" /> Ya respondidas
                 </Typography>
                 <Typography variant="h3" sx={{ fontWeight: 900, color: "success.main", mt: 1 }}>
                   {agendaLibre.filter(i => i.intereses?.length > 0 && i.intereses[0].estadoInteres !== "SIN_RESPUESTA").length}
                 </Typography>
-                <Typography variant="body2" sx={{ color: "success.dark", mt: 0.5, lineHeight: 1.1, fontSize: "0.75rem" }}>
+                <Typography variant="body2" sx={{ color: toneColor("success"), mt: 0.5, lineHeight: 1.1, fontSize: "0.75rem" }}>
                   Postulaciones o rechazos.
                 </Typography>
               </CardContent>
             </Card>
 
-            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "info.main", bgcolor: "info.lighter" }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "info.main", bgcolor: alpha(theme.palette.info.main, isDarkMode ? 0.14 : 0.08) }}>
               <CardContent sx={{ p: 2 }}>
-                <Typography variant="caption" sx={{ fontWeight: 800, color: "info.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: toneColor("info"), display: "flex", alignItems: "center", gap: 0.5 }}>
                   <ScheduleIcon fontSize="small" /> Próximas reuniones
                 </Typography>
                 <Typography variant="h3" sx={{ fontWeight: 900, color: "info.main", mt: 1 }}>
                   {assistantUpcomingMeetings.length}
                 </Typography>
-                <Typography variant="body2" sx={{ color: "info.dark", mt: 0.5, lineHeight: 1.2 }}>
+                <Typography variant="body2" sx={{ color: toneColor("info"), mt: 0.5, lineHeight: 1.2 }}>
                   Reuniones futuras en tu perfil.
                 </Typography>
               </CardContent>
             </Card>
 
-            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "primary.main", bgcolor: "primary.lighter" }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "primary.main", bgcolor: alpha(theme.palette.primary.main, isDarkMode ? 0.14 : 0.08) }}>
               <CardContent sx={{ p: 2 }}>
-                <Typography variant="caption" sx={{ fontWeight: 800, color: "primary.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: toneColor("primary"), display: "flex", alignItems: "center", gap: 0.5 }}>
                   <EventNoteIcon fontSize="small" /> Mes Anterior
                 </Typography>
                 <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
                   <Box>
                     <Typography variant="h5" sx={{ fontWeight: 900, color: "primary.main" }}>{formatHours(assistantStats.prevMonthVirtual)}</Typography>
-                    <Typography variant="caption" sx={{ color: "primary.dark", fontWeight: 600 }}>Virtual</Typography>
+                    <Typography variant="caption" sx={{ color: toneColor("primary"), fontWeight: 600 }}>Virtual</Typography>
                   </Box>
                   <Box>
                     <Typography variant="h5" sx={{ fontWeight: 900, color: "primary.main" }}>{formatHours(assistantStats.prevMonthHibrida)}</Typography>
-                    <Typography variant="caption" sx={{ color: "primary.dark", fontWeight: 600 }}>Híbrida</Typography>
+                    <Typography variant="caption" sx={{ color: toneColor("primary"), fontWeight: 600 }}>Híbrida</Typography>
                   </Box>
                 </Box>
-                <Typography variant="body2" sx={{ color: "primary.dark", mt: 0.5, fontWeight: 500, fontSize: "0.75rem" }}>
+                <Typography variant="body2" sx={{ color: toneColor("primary"), mt: 0.5, fontWeight: 500, fontSize: "0.75rem" }}>
                   Total completadas: {formatHours(assistantStats.prevMonthVirtual + assistantStats.prevMonthHibrida)}
                 </Typography>
               </CardContent>
             </Card>
 
-            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "secondary.main", bgcolor: "secondary.lighter" }}>
+            <Card variant="outlined" sx={{ borderRadius: 3, borderColor: "secondary.main", bgcolor: alpha(theme.palette.secondary.main, isDarkMode ? 0.14 : 0.08) }}>
               <CardContent sx={{ p: 2 }}>
-                <Typography variant="caption" sx={{ fontWeight: 800, color: "secondary.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: toneColor("secondary"), display: "flex", alignItems: "center", gap: 0.5 }}>
                   <PendingActionsIcon fontSize="small" /> Este Mes (Proyectado)
                 </Typography>
                 <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
@@ -1485,16 +1925,16 @@ export function SpaTabDashboard({
                     <Typography variant="h5" sx={{ fontWeight: 900, color: "secondary.main" }}>
                       {formatHours(assistantStats.currentMonthPastVirtual + assistantStats.currentMonthFutureVirtual)}
                     </Typography>
-                    <Typography variant="caption" sx={{ color: "secondary.dark", fontWeight: 600 }}>Virtual</Typography>
+                    <Typography variant="caption" sx={{ color: toneColor("secondary"), fontWeight: 600 }}>Virtual</Typography>
                   </Box>
                   <Box>
                     <Typography variant="h5" sx={{ fontWeight: 900, color: "secondary.main" }}>
                       {formatHours(assistantStats.currentMonthPastHibrida + assistantStats.currentMonthFutureHibrida)}
                     </Typography>
-                    <Typography variant="caption" sx={{ color: "secondary.dark", fontWeight: 600 }}>Híbrida</Typography>
+                    <Typography variant="caption" sx={{ color: toneColor("secondary"), fontWeight: 600 }}>Híbrida</Typography>
                   </Box>
                 </Box>
-                <Typography variant="body2" sx={{ color: "secondary.dark", mt: 0.5, fontWeight: 500, fontSize: "0.7rem", lineHeight: 1.1 }}>
+                <Typography variant="body2" sx={{ color: toneColor("secondary"), mt: 0.5, fontWeight: 500, fontSize: "0.7rem", lineHeight: 1.1 }}>
                   Cumplidas hasta hoy: {formatHours(assistantStats.currentMonthPastVirtual)} (V) / {formatHours(assistantStats.currentMonthPastHibrida)} (H)
                 </Typography>
               </CardContent>
@@ -1546,7 +1986,7 @@ export function SpaTabDashboard({
                     </Stack>
                   </Stack>
 
-                  <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2, bgcolor: "grey.50" }}>
+                  <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2, bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.04) : "grey.50" }}>
                     <Grid container spacing={2}>
                       <Grid size={{ xs: 6, sm: 6, md: 3 }}>
                         <Typography variant="caption" color="text.secondary" fontWeight={700}>Modalidad</Typography>

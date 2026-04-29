@@ -27,6 +27,7 @@ import { loadPersonHours, type PersonHoursMeeting } from "@/src/services/tarifas
 
 interface SpaTabHistoricoAsistenciasProps {
   userId: string;
+  role?: string;
 }
 
 type MonthlyGroup = {
@@ -63,7 +64,7 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-export function SpaTabHistoricoAsistencias({ userId }: SpaTabHistoricoAsistenciasProps) {
+export function SpaTabHistoricoAsistencias({ userId, role }: SpaTabHistoricoAsistenciasProps) {
   const theme = useTheme();
   const [meetings, setMeetings] = useState<PersonHoursMeeting[]>([]);
   const [rates, setRates] = useState<Record<string, { valorHora: number; moneda: string }>>({});
@@ -162,7 +163,7 @@ export function SpaTabHistoricoAsistencias({ userId }: SpaTabHistoricoAsistencia
             Histórico de Reuniones
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Registro de asistencias de meses anteriores.
+            {role === "DOCENTE" ? "Registro de tus reuniones pasadas." : "Registro de asistencias de meses anteriores."}
           </Typography>
         </Box>
         <Button variant="outlined" onClick={() => void refresh()} disabled={isLoading} sx={{ borderRadius: 2, fontWeight: 700 }}>
@@ -194,33 +195,35 @@ export function SpaTabHistoricoAsistencias({ userId }: SpaTabHistoricoAsistencia
                 />
               </Divider>
 
-              {/* Monthly Stats Cards - Exact same style as Current Month view */}
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mb: 3 }}>
-                <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.success.main, 0.04), borderColor: alpha(theme.palette.success.main, 0.1) }}>
-                  <Stack direction="row" spacing={2} alignItems="center">
-                    <AccessTimeFilledIcon color="success" sx={{ fontSize: 32 }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="caption" sx={{ fontWeight: 800, color: "success.dark" }}>VIRTUALES</Typography>
-                      <Typography variant="h5" sx={{ fontWeight: 900 }}>{formatMinutesAsHHMM(group.stats.virtualMins)}</Typography>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "success.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
-                        <PaidIcon fontSize="inherit" /> {formatCurrency(group.stats.virtualAmount)}
-                      </Typography>
-                    </Box>
-                  </Stack>
-                </Paper>
-                <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.info.main, 0.04), borderColor: alpha(theme.palette.info.main, 0.1) }}>
-                  <Stack direction="row" spacing={2} alignItems="center">
-                    <AccessTimeFilledIcon color="info" sx={{ fontSize: 32 }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="caption" sx={{ fontWeight: 800, color: "info.dark" }}>HÍBRIDAS</Typography>
-                      <Typography variant="h5" sx={{ fontWeight: 900 }}>{formatMinutesAsHHMM(group.stats.hibridaMins)}</Typography>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "info.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
-                        <PaidIcon fontSize="inherit" /> {formatCurrency(group.stats.hibridaAmount)}
-                      </Typography>
-                    </Box>
-                  </Stack>
-                </Paper>
-              </Box>
+              {/* Monthly Stats Cards - Hide for Docentes */}
+              {role !== "DOCENTE" && (
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mb: 3 }}>
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.success.main, 0.04), borderColor: alpha(theme.palette.success.main, 0.1) }}>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <AccessTimeFilledIcon color="success" sx={{ fontSize: 32 }} />
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: "success.dark" }}>VIRTUALES</Typography>
+                        <Typography variant="h5" sx={{ fontWeight: 900 }}>{formatMinutesAsHHMM(group.stats.virtualMins)}</Typography>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "success.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                          <PaidIcon fontSize="inherit" /> {formatCurrency(group.stats.virtualAmount)}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Paper>
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.info.main, 0.04), borderColor: alpha(theme.palette.info.main, 0.1) }}>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <AccessTimeFilledIcon color="info" sx={{ fontSize: 32 }} />
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: "info.dark" }}>HÍBRIDAS</Typography>
+                        <Typography variant="h5" sx={{ fontWeight: 900 }}>{formatMinutesAsHHMM(group.stats.hibridaMins)}</Typography>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "info.dark", display: "flex", alignItems: "center", gap: 0.5 }}>
+                          <PaidIcon fontSize="inherit" /> {formatCurrency(group.stats.hibridaAmount)}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Paper>
+                </Box>
+              )}
 
               <Stack spacing={1.5}>
                 {group.meetings.map((m) => {
@@ -246,6 +249,9 @@ export function SpaTabHistoricoAsistencias({ userId }: SpaTabHistoricoAsistencia
                             <Divider orientation="vertical" flexItem />
                             <Box sx={{ minWidth: 0 }}>
                               <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.2 }} noWrap>{m.titulo}</Typography>
+                              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 0.5, fontWeight: 600 }}>
+                                {role === "DOCENTE" ? `Asistente: ${m.asistenteNombre || "Sin asignar"}` : `Responsable: ${m.responsableNombre || "No definido"}`}
+                              </Typography>
                               <Stack direction="row" spacing={1} alignItems="center">
                                 <Chip size="small" label={isPresencial ? "Presencial" : "Virtual"} color={isPresencial ? "error" : "primary"} sx={{ fontWeight: 800, height: 18, fontSize: "0.65rem" }} />
                                 <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", display: "flex", alignItems: "center", gap: 0.5 }}>

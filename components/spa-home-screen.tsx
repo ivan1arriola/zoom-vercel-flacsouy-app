@@ -20,14 +20,11 @@ import {
   formatDateTime
 } from "@/src/lib/spa-home/recurrence";
 import {
-  NAVIGATION_GROUP_LABEL,
-  TAB_CONFIG,
   canAccessTabForRole,
-  getTabIcon,
-  isViewRole,
+  getDefaultTabForRole,
   normalizeAssistantRole,
+  resolveEffectiveRoleForUser,
   type ViewRole,
-  tabs,
   VIEW_ROLE_COOKIE
 } from "@/src/lib/spa-home/navigation";
 import { normalizeDocentesCorreosByLine } from "@/src/lib/spa-home/validation";
@@ -71,7 +68,8 @@ import {
   submitSendSelfActivationLinkTest as submitSendSelfActivationLinkTestApi,
   loadGoogleAccountStatus,
   unlinkGoogleAccount as unlinkGoogleAccountApi,
-  syncProfileFromGoogle as syncProfileFromGoogleApi
+  syncProfileFromGoogle as syncProfileFromGoogleApi,
+  updatePassword as updatePasswordApi
 } from "@/src/services/userApi";
 import {
   loadTarifas,
@@ -322,7 +320,11 @@ export function SpaHomeScreen() {
   const [addingInstanciaSolicitudId, setAddingInstanciaSolicitudId] = useState<string | null>(null);
   
   // Dashboard
-  const { summary, setSummary, manualPendings, setManualPendings } = useDashboard();
+  const { 
+    summary, setSummary, 
+    isLoadingSummary, setIsLoadingSummary, 
+    manualPendings, setManualPendings 
+  } = useDashboard();
   const [resolvingManualSolicitudId, setResolvingManualSolicitudId] = useState<string | null>(null);
   
   // Agenda Libre
@@ -413,23 +415,21 @@ export function SpaHomeScreen() {
   const [removingAssistanceAssignmentEventId, setRemovingAssistanceAssignmentEventId] = useState<string | null>(null);
   
   // User Profile & Auth
-  const { user, setUser, googleLinked, setGoogleLinked, hasPassword, setHasPassword, isLoadingGoogleStatus, setIsLoadingGoogleStatus, isSyncingGoogleProfile, setIsSyncingGoogleProfile, isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount, isUpdatingProfile, setIsUpdatingProfile, profileForm, setProfileForm, showProfileForm, setShowProfileForm } = useUserProfile();
+  const { 
+    user, setUser, googleLinked, setGoogleLinked, hasPassword, setHasPassword, 
+    isLoadingGoogleStatus, setIsLoadingGoogleStatus, isSyncingGoogleProfile, setIsSyncingGoogleProfile, 
+    isUnlinkingGoogleAccount, setIsUnlinkingGoogleAccount, isUpdatingProfile, setIsUpdatingProfile, 
+    profileForm, setProfileForm, showProfileForm, setShowProfileForm,
+    isUpdatingPassword, setIsUpdatingPassword, passwordForm, setPasswordForm, showPasswordForm, setShowPasswordForm
+  } = useUserProfile();
 
   const { searchParams } = useUIState();
+  const requestedViewAs = searchParams.get("viewAs");
   
-  const adminViewRole = useMemo<ViewRole>(() => {
-    const rawRole = normalizeAssistantRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
-    if (rawRole === "DOCENTE" || rawRole === "CONTADURIA" || rawRole === "ASISTENTE_ZOOM") return rawRole;
-    return "ADMINISTRADOR";
-  }, [searchParams]);
-
-  const effectiveRole = useMemo<ViewRole | "">(() => {
-    if (!user?.role) return "";
-    const normalizedUserRole = normalizeAssistantRole(user.role);
-    if (!isViewRole(normalizedUserRole)) return "";
-    if (normalizedUserRole !== "ADMINISTRADOR") return normalizedUserRole;
-    return adminViewRole;
-  }, [user, adminViewRole]);
+  const effectiveRole = useMemo<ViewRole | "">(
+    () => resolveEffectiveRoleForUser(user?.role, requestedViewAs),
+    [user?.role, requestedViewAs]
+  );
 
   const canSeeManual = canAccessTabForRole("manual", effectiveRole);
   const canSeePastMeetings = canAccessTabForRole("historico", effectiveRole);
@@ -463,14 +463,6 @@ export function SpaHomeScreen() {
   );
   const canDelegateSolicitudResponsable = useMemo(
     () => effectiveRole === "ADMINISTRADOR",
-    [effectiveRole]
-  );
-  const visibleNavigationTabs = useMemo(
-    () =>
-      tabs.filter((candidateTab) => {
-        const config = TAB_CONFIG[candidateTab];
-        return config.visibleInNavigation && canAccessTabForRole(candidateTab, effectiveRole);
-      }),
     [effectiveRole]
   );
   const selectedZoomPastMonthsBack = useMemo(() => {
@@ -765,7 +757,7 @@ export function SpaHomeScreen() {
 
   useEffect(() => {
     void bootstrap();
-  }, []);
+  }, [requestedViewAs]);
 
   async function bootstrap() {
     setLoading(true);
@@ -782,11 +774,11 @@ export function SpaHomeScreen() {
         lastName: meJson.user.lastName ?? "",
         image: meJson.user.image ?? ""
       });
-      if (meJson.user.role === "DOCENTE") {
-        setTab("solicitudes");
+      const presentationRole = resolveEffectiveRoleForUser(meJson.user.role, requestedViewAs);
+      if (!requestedTab) {
+        setTab(getDefaultTabForRole(presentationRole || "ADMINISTRADOR"));
       }
 
-      const normalizedRole = normalizeAssistantRole(meJson.user.role);
       const loaders: Array<Promise<void>> = [
         (async () => {
           const summary = await loadSummary();
@@ -794,7 +786,7 @@ export function SpaHomeScreen() {
         })()
       ];
 
-      if (normalizedRole === "ADMINISTRADOR") {
+      if (presentationRole === "ADMINISTRADOR") {
         loaders.push(
           (async () => {
             const pendings = await loadManualPendings();
@@ -803,7 +795,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (["ADMINISTRADOR", "CONTADURIA"].includes(normalizedRole)) {
+      if (["ADMINISTRADOR", "CONTADURIA"].includes(presentationRole)) {
         loaders.push(
           (async () => {
             const tarifas = await loadTarifas();
@@ -812,7 +804,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (["DOCENTE", "ADMINISTRADOR"].includes(normalizedRole)) {
+      if (["DOCENTE", "ADMINISTRADOR"].includes(presentationRole)) {
         loaders.push(
           (async () => {
             const loadedProgramas = await loadProgramas();
@@ -821,7 +813,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (["DOCENTE", "ADMINISTRADOR"].includes(normalizedRole)) {
+      if (["DOCENTE", "ADMINISTRADOR"].includes(presentationRole)) {
         loaders.push(
           (async () => {
             setIsLoadingSolicitudes(true);
@@ -835,7 +827,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (meJson.user.role === "ADMINISTRADOR") {
+      if (presentationRole === "ADMINISTRADOR") {
         loaders.push(
           (async () => {
             const data = await loadAssignmentBoard();
@@ -865,7 +857,7 @@ export function SpaHomeScreen() {
         );
       }
 
-      if (normalizedRole === "ASISTENTE_ZOOM") {
+      if (presentationRole === "ASISTENTE_ZOOM") {
         loaders.push(
           (async () => {
             const agenda = await loadAgendaLibre();
@@ -883,7 +875,7 @@ export function SpaHomeScreen() {
   useEffect(() => {
     if (!effectiveRole) return;
     if (canAccessTabForRole(tab, effectiveRole)) return;
-    setTab("dashboard");
+    setTab(getDefaultTabForRole(effectiveRole));
   }, [effectiveRole, tab, setTab]);
 
   useEffect(() => {
@@ -1017,6 +1009,16 @@ export function SpaHomeScreen() {
     if (!requestedTab) return;
     setTab(requestedTab);
   }, [requestedTab]);
+
+  async function refreshSummary() {
+    setIsLoadingSummary(true);
+    try {
+      const data = await loadSummary();
+      if (data) setSummary(data);
+    } finally {
+      setIsLoadingSummary(false);
+    }
+  }
 
   async function refreshManualPendings() {
     const pendings = await loadManualPendings();
@@ -2242,11 +2244,12 @@ export function SpaHomeScreen() {
       {tab === "dashboard" && (
         <SpaTabDashboard
           summary={summary}
+          isLoadingSummary={isLoadingSummary}
+          onRefresh={refreshSummary}
           role={effectiveRole || "ADMINISTRADOR"}
           agendaLibre={agendaLibre}
           onGoToCreateMeeting={() => {
-            setDocenteSolicitudesView("form");
-            setTab("solicitudes");
+            setTab("crear_reunion");
           }}
           onGoToAssignAssistants={() => {
             setTab("asistentes_asignacion");
@@ -2257,6 +2260,47 @@ export function SpaHomeScreen() {
           onGoToMyAssignedMeetings={() => {
             setTab("mis_reuniones_asignadas");
           }}
+        />
+      )}
+
+      {tab === "crear_reunion" && canSeeSolicitudes && (
+        <SpaTabSolicitudes
+          solicitudes={solicitudes}
+          form={form}
+          updateForm={updateForm}
+          onDeleteSolicitud={deleteSolicitud}
+          deletingSolicitudId={deletingSolicitudId}
+          onCancelSolicitudSerie={cancelSolicitudSerie}
+          cancellingSerieSolicitudId={cancellingSerieSolicitudId}
+          onCancelSolicitudInstancia={cancelSolicitudInstancia}
+          cancellingInstanciaKey={cancellingInstanciaKey}
+          onRestoreSolicitudInstancia={restoreSolicitudInstancia}
+          restoringInstanciaKey={restoringInstanciaKey}
+          canAddInstances={canEditSolicitudAssistance}
+          addingInstanceSolicitudId={addingInstanciaSolicitudId}
+          onAddInstance={addSolicitudInstancia}
+          canSendReminder={canSendSolicitudReminder}
+          sendingReminderSolicitudId={sendingReminderSolicitudId}
+          onSendReminder={sendSolicitudReminder}
+          canEditAssistance={canEditSolicitudAssistance}
+          updatingAssistanceSolicitudId={updatingAsistenciaSolicitudId}
+          updatingAssistanceInstanceKey={updatingAsistenciaInstanciaKey}
+          onEnableAssistance={enableSolicitudAssistance}
+          onToggleAssistanceForInstance={updateSolicitudAssistanceForInstance}
+          canDeleteSolicitud={canCreateSolicitudShortcut}
+          canRestoreInstances={canEditSolicitudAssistance}
+          isSubmittingSolicitud={isSubmittingSolicitud}
+          canCreateShortcut={canCreateSolicitudShortcut}
+          canDelegateResponsable={canDelegateSolicitudResponsable}
+          responsableOptions={responsableOptions}
+          docenteLinkedEmailOptions={docenteLinkedEmailOptions}
+          programaOptions={programaOptions}
+          isCreatingPrograma={isCreatingPrograma}
+          onCreatePrograma={createProgramaOnDemand}
+          docenteSolicitudesView="form"
+          setDocenteSolicitudesView={() => {}}
+          onSubmit={submitDocenteSolicitud}
+          isLoading={isLoadingSolicitudes}
         />
       )}
 
@@ -2294,8 +2338,8 @@ export function SpaHomeScreen() {
           programaOptions={programaOptions}
           isCreatingPrograma={isCreatingPrograma}
           onCreatePrograma={createProgramaOnDemand}
-          docenteSolicitudesView={docenteSolicitudesView}
-          setDocenteSolicitudesView={setDocenteSolicitudesView}
+          docenteSolicitudesView="list"
+          setDocenteSolicitudesView={() => {}}
           onSubmit={submitDocenteSolicitud}
           isLoading={isLoadingSolicitudes}
         />
@@ -2303,6 +2347,7 @@ export function SpaHomeScreen() {
 
       {tab === "programas" && canSeeProgramas && (
         <SpaTabProgramas
+          role={effectiveRole || "ADMINISTRADOR"}
           programas={programas}
           solicitudes={solicitudes}
           isCreatingPrograma={isCreatingPrograma}
@@ -2327,11 +2372,11 @@ export function SpaHomeScreen() {
       )}
 
       {tab === "historico_asistencias" && canSeeHistoricoAsistencias && user?.id && (
-        <SpaTabHistoricoAsistencias userId={user.id} />
+        <SpaTabHistoricoAsistencias userId={user.id} role={effectiveRole || "ADMINISTRADOR"} />
       )}
 
       {tab === "mis_reuniones_asignadas" && canSeeMisReunionesAsignadas && user?.id && (
-        <SpaTabMisReunionesAsignadas userId={user.id} />
+        <SpaTabMisReunionesAsignadas userId={user.id} role={effectiveRole || "ADMINISTRADOR"} />
       )}
 
 
@@ -2400,7 +2445,7 @@ export function SpaHomeScreen() {
           onDownloadReport={async () => {
             const result = await downloadMonthlyAccountingReport();
             if (!result.success && result.error) {
-              setSnackbarContext({ open: true, message: result.error, severity: "error" });
+              setMessage(result.error);
             }
           }}
         />
@@ -2526,10 +2571,39 @@ export function SpaHomeScreen() {
           isSyncingGoogleProfile={isSyncingGoogleProfile}
           isUnlinkingGoogleAccount={isUnlinkingGoogleAccount}
           isUpdatingProfile={isUpdatingProfile}
+          isUpdatingPassword={isUpdatingPassword}
+          passwordForm={passwordForm}
+          setPasswordForm={setPasswordForm}
+          showPasswordForm={showPasswordForm}
+          setShowPasswordForm={setShowPasswordForm}
           canUseGoogleByEmail={canUseGoogleByEmail}
           onLinkGoogleAccount={linkGoogleAccount}
           onUnlinkGoogleAccount={unlinkGoogleAccount}
           onSyncProfileFromGoogle={syncProfileFromGoogle}
+          onSubmitPassword={async (e) => {
+            e.preventDefault();
+            if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+              setMessage("Las contraseñas no coinciden.");
+              return;
+            }
+            setIsUpdatingPassword(true);
+            setMessage("");
+            try {
+              const result = await updatePasswordApi(passwordForm.newPassword);
+              if (!result.success) {
+                setMessage(result.error ?? "No se pudo actualizar la contraseña.");
+                return;
+              }
+              setHasPassword(true);
+              setMessage("Contraseña establecida correctamente. Ya puedes ingresar con tu email.");
+              setShowPasswordForm(false);
+              setPasswordForm({ newPassword: "", confirmPassword: "" });
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : "Error al actualizar contraseña.");
+            } finally {
+              setIsUpdatingPassword(false);
+            }
+          }}
           onSubmit={async (e) => {
             e.preventDefault();
             setIsUpdatingProfile(true);

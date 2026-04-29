@@ -226,7 +226,7 @@ export function SpaTabAgendaLibre({
                             <Chip 
                               label={formatModalidad(item.solicitud.modalidadReunion)}
                               color={isPresencial ? "error" : "primary"}
-                              variant={isPresencial ? "contained" : "outlined"}
+                              variant={isPresencial ? "filled" : "outlined"}
                               sx={{ fontWeight: 800 }}
                             />
                             <Chip 

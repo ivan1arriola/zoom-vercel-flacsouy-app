@@ -10,17 +10,19 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const isAssistant = user.role === UserRole.ASISTENTE_ZOOM;
+  const isDocente = user.role === UserRole.DOCENTE;
   const canAccess =
     user.role === UserRole.ADMINISTRADOR ||
     user.role === UserRole.CONTADURIA ||
-    isAssistant;
+    isAssistant ||
+    isDocente;
   if (!canAccess) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const url = new URL(request.url);
   const requestedUserId = (url.searchParams.get("userId") ?? "").trim() || undefined;
-  const effectiveUserId = isAssistant ? user.id : requestedUserId;
+  const effectiveUserId = (isAssistant || isDocente) ? user.id : requestedUserId;
 
   const service = new SalasService();
   const payload = await service.listPersonMeetingHours({ userId: effectiveUserId });

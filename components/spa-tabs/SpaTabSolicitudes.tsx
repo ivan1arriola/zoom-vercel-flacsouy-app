@@ -1367,29 +1367,14 @@ export function SpaTabSolicitudes({
           sx={{ mb: 2 }}
         >
           <Typography variant="h5" component="h2" sx={{ fontWeight: 700 }}>
-            Solicitudes de sala
+            {docenteSolicitudesView === "form" ? "Nueva solicitud de sala" : "Solicitudes de sala"}
           </Typography>
-          {canCreateShortcut && (
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              <Button
-                type="button"
-                variant={docenteSolicitudesView === "list" ? "contained" : "outlined"}
-                onClick={() => setDocenteSolicitudesView("list")}
-              >
-                Ver solicitudes
-              </Button>
-              <Button
-                type="button"
-                variant={docenteSolicitudesView === "form" ? "contained" : "outlined"}
-                onClick={() => setDocenteSolicitudesView("form")}
-              >
-                Nueva solicitud
-              </Button>
-            </Stack>
-          )}
+
         </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Listado de solicitudes con estado, solicitante e informacion de reunion.
+          {docenteSolicitudesView === "form" 
+            ? "Completa el formulario para solicitar una nueva sala de Zoom."
+            : "Listado de solicitudes con estado, solicitante e informacion de reunion."}
         </Typography>
 
       {canCreateShortcut && docenteSolicitudesView === "form" ? (

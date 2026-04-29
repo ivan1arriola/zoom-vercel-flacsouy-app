@@ -10,6 +10,26 @@ export type DashboardAccountingAssistantSummary = {
   reunionesTotales: number;
 };
 
+export type DashboardNextMeeting = {
+  id: string;
+  titulo: string;
+  programaNombre: string | null;
+  modalidad: string;
+  startTime: string;
+  endTime: string;
+  zoomJoinUrl: string | null;
+  zoomMeetingId: string | null;
+  requiresAssistance: boolean;
+  hostAccount: string | null;
+  hostPassword: string | null;
+  instanceIndex?: number;
+  totalInstances?: number;
+  asistente: {
+    nombre: string;
+    email: string;
+  } | null;
+};
+
 export type DashboardSummary = {
   scope: "ADMINISTRADOR" | "DOCENTE" | "ASISTENTE_ZOOM" | "CONTADURIA";
   solicitudesTotales?: number;
@@ -39,6 +59,7 @@ export type DashboardSummary = {
   horasVirtualesMes?: number;
   horasPresencialesMes?: number;
   contaduriaHorasPorAsistente?: DashboardAccountingAssistantSummary[];
+  nextMeeting?: DashboardNextMeeting | null;
 };
 
 export async function loadSummary(): Promise<DashboardSummary | null> {

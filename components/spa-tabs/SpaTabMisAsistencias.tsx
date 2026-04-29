@@ -53,6 +53,7 @@ function formatCurrency(amount: number): string {
 
 export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === "dark";
   const [meetings, setMeetings] = useState<PersonHoursMeeting[]>([]);
   const [rates, setRates] = useState<Record<string, { valorHora: number; moneda: string }>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -122,7 +123,18 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
     <Box>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="space-between" alignItems="flex-start" sx={{ mb: 4 }}>
         <Box>
-          <Typography variant="h4" sx={{ fontWeight: 800, mb: 1, background: "linear-gradient(45deg, #2e7d32, #4caf50)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          <Typography
+            variant="h4"
+            sx={{
+              fontWeight: 800,
+              mb: 1,
+              background: isDarkMode
+                ? `linear-gradient(45deg, ${theme.palette.success.light}, ${theme.palette.secondary.light})`
+                : "linear-gradient(45deg, #2e7d32, #4caf50)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent"
+            }}
+          >
             Reuniones de {currentMonthLabel}
           </Typography>
           <Typography variant="body1" color="text.secondary">
@@ -135,36 +147,36 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
       </Stack>
 
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mb: 4 }}>
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 4, bgcolor: alpha(theme.palette.success.main, 0.05), borderColor: alpha(theme.palette.success.main, 0.2) }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 4, bgcolor: alpha(theme.palette.success.main, isDarkMode ? 0.14 : 0.05), borderColor: alpha(theme.palette.success.main, isDarkMode ? 0.42 : 0.2) }}>
           <Stack direction="row" spacing={2} alignItems="center">
             <AccessTimeFilledIcon color="success" sx={{ fontSize: 40 }} />
             <Box sx={{ flex: 1 }}>
-              <Typography variant="overline" sx={{ fontWeight: 800, color: "success.dark" }}>VIRTUALES</Typography>
+              <Typography variant="overline" sx={{ fontWeight: 800, color: isDarkMode ? "success.light" : "success.dark" }}>VIRTUALES</Typography>
               <Typography variant="h4" sx={{ fontWeight: 900 }}>{formatMinutesAsHHMM(stats.virtualMins)}</Typography>
               <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
                 <PaidIcon fontSize="small" color="success" />
-                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "success.dark" }}>{formatCurrency(stats.virtualAmount)}</Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: isDarkMode ? "success.light" : "success.dark" }}>{formatCurrency(stats.virtualAmount)}</Typography>
               </Stack>
             </Box>
           </Stack>
         </Paper>
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 4, bgcolor: alpha(theme.palette.info.main, 0.05), borderColor: alpha(theme.palette.info.main, 0.2) }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 4, bgcolor: alpha(theme.palette.info.main, isDarkMode ? 0.14 : 0.05), borderColor: alpha(theme.palette.info.main, isDarkMode ? 0.42 : 0.2) }}>
           <Stack direction="row" spacing={2} alignItems="center">
             <AccessTimeFilledIcon color="info" sx={{ fontSize: 40 }} />
             <Box sx={{ flex: 1 }}>
-              <Typography variant="overline" sx={{ fontWeight: 800, color: "info.dark" }}>HÍBRIDAS</Typography>
+              <Typography variant="overline" sx={{ fontWeight: 800, color: isDarkMode ? "info.light" : "info.dark" }}>HÍBRIDAS</Typography>
               <Typography variant="h4" sx={{ fontWeight: 900 }}>{formatMinutesAsHHMM(stats.hibridaMins)}</Typography>
               <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
                 <PaidIcon fontSize="small" color="info" />
-                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "info.dark" }}>{formatCurrency(stats.hibridaAmount)}</Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: isDarkMode ? "info.light" : "info.dark" }}>{formatCurrency(stats.hibridaAmount)}</Typography>
               </Stack>
             </Box>
           </Stack>
         </Paper>
       </Box>
 
-      <Paper sx={{ p: 2, mb: 4, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.05), textAlign: "center" }}>
-        <Typography variant="h6" sx={{ fontWeight: 800, color: "primary.dark" }}>
+      <Paper sx={{ p: 2, mb: 4, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, isDarkMode ? 0.14 : 0.05), textAlign: "center" }}>
+        <Typography variant="h6" sx={{ fontWeight: 800, color: isDarkMode ? "primary.light" : "primary.dark" }}>
           Cotización Total Estimada: {formatCurrency(stats.totalAmount)}
         </Typography>
       </Paper>
@@ -196,7 +208,7 @@ export function SpaTabMisAsistencias({ userId }: SpaTabMisAsistenciasProps) {
                   borderLeft: "4px solid",
                   borderLeftColor: isPresencial ? "error.main" : "primary.main",
                   bgcolor: isCompleted ? alpha(theme.palette.action.disabledBackground, 0.1) : "background.paper",
-                  opacity: isCompleted ? 0.8 : 1
+                  opacity: isCompleted ? (isDarkMode ? 0.92 : 0.8) : 1
                 }}
               >
                 <CardContent sx={{ py: 1.5, px: 2, "&:last-child": { pb: 1.5 } }}>

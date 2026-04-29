@@ -55,7 +55,7 @@ export default async function RootLayout({
       <body>
         <MuiProvider>
           <PwaRegister />
-          <Box sx={{ display: "flex", minHeight: "100vh", backgroundColor: "#f8f9fa" }}>
+          <Box sx={{ display: "flex", minHeight: "100vh", backgroundColor: "background.default" }}>
             {session?.user ? <LayoutNavbar user={session.user} /> : null}
 
             <Box

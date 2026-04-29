@@ -39,6 +39,7 @@ import {
 
 interface SpaTabMisReunionesAsignadasProps {
   userId: string;
+  role?: string;
 }
 
 type MonthlyUpcomingGroup = {
@@ -126,8 +127,9 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsignadasProps) {
+export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReunionesAsignadasProps) {
   const theme = useTheme();
+  const isDarkMode = theme.palette.mode === "dark";
   const [meetings, setMeetings] = useState<PersonHoursMeeting[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -214,16 +216,29 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
     <Box>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="space-between" alignItems="flex-start" sx={{ mb: 4 }}>
         <Box>
-          <Typography variant="h4" sx={{ fontWeight: 800, mb: 1, background: "linear-gradient(45deg, #1f4b8f, #4dabf5)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          <Typography
+            variant="h4"
+            sx={{
+              fontWeight: 800,
+              mb: 1,
+              background: isDarkMode
+                ? `linear-gradient(45deg, ${theme.palette.primary.light}, ${theme.palette.info.light})`
+                : "linear-gradient(45deg, #1f4b8f, #4dabf5)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent"
+            }}
+          >
             Próximas Reuniones
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Tu agenda de asistencias confirmadas ordenadas por proximidad.
+            {role === "DOCENTE" 
+              ? "Tus próximas reuniones programadas." 
+              : "Tu agenda de asistencias confirmadas ordenadas por proximidad."}
           </Typography>
         </Box>
         <Stack direction="row" spacing={2} alignItems="center">
           <Chip 
-            label={`${meetings.length} reuniones pendientes`} 
+            label={role === "DOCENTE" ? `${meetings.length} reuniones programadas` : `${meetings.length} reuniones pendientes`} 
             color="primary" 
             sx={{ fontWeight: 900, py: 2.5, px: 1, fontSize: "1rem", borderRadius: 3 }} 
           />
@@ -243,7 +258,9 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
         <Paper sx={{ p: 8, textAlign: "center", borderRadius: 4, bgcolor: alpha(theme.palette.primary.main, 0.03), border: "2px dashed", borderColor: alpha(theme.palette.primary.main, 0.1) }}>
           <EventIcon sx={{ fontSize: 64, color: "text.disabled", mb: 2 }} />
           <Typography variant="h6" color="text.secondary" fontWeight={700}>
-            No tienes reuniones asignadas próximamente.
+            {role === "DOCENTE" 
+              ? "No tienes reuniones programadas próximamente." 
+              : "No tienes reuniones asignadas próximamente."}
           </Typography>
         </Paper>
       ) : (
@@ -257,7 +274,7 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                     fontWeight: 900, 
                     px: 2, 
                     bgcolor: alpha(theme.palette.primary.main, 0.08),
-                    color: "primary.dark",
+                    color: isDarkMode ? "primary.light" : "primary.dark",
                     borderRadius: 2
                   }} 
                 />
@@ -329,9 +346,11 @@ export function SpaTabMisReunionesAsignadas({ userId }: SpaTabMisReunionesAsigna
                           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 3, mb: 3 }}>
                             <Box>
                               <Typography variant="caption" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontWeight: 700, mb: 0.5 }}>
-                                <PersonIcon fontSize="inherit" /> PERSONA A CARGO
+                                <PersonIcon fontSize="inherit" /> {role === "DOCENTE" ? "ASISTENTE ASIGNADO" : "PERSONA A CARGO"}
                               </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 700 }}>{m.responsableNombre || "No definido"}</Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                {role === "DOCENTE" ? (m.asistenteNombre || "Sin asignar") : (m.responsableNombre || "No definido")}
+                              </Typography>
                             </Box>
                             <Box>
                               <Typography variant="caption" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontWeight: 700, mb: 0.5 }}>

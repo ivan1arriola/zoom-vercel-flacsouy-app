@@ -19,6 +19,11 @@ interface ProfileForm {
   image: string;
 }
 
+interface PasswordForm {
+  newPassword: string;
+  confirmPassword: string;
+}
+
 interface SpaTabPerfilProps {
   user: CurrentUser | null;
   showProfileForm: boolean;
@@ -31,11 +36,17 @@ interface SpaTabPerfilProps {
   isSyncingGoogleProfile: boolean;
   isUnlinkingGoogleAccount: boolean;
   isUpdatingProfile: boolean;
+  isUpdatingPassword: boolean;
+  passwordForm: PasswordForm;
+  setPasswordForm: (form: PasswordForm) => void;
+  showPasswordForm: boolean;
+  setShowPasswordForm: (show: boolean) => void;
   canUseGoogleByEmail: boolean;
   onLinkGoogleAccount: () => void;
   onUnlinkGoogleAccount: () => void;
   onSyncProfileFromGoogle: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmitPassword: (event: FormEvent<HTMLFormElement>) => void;
 }
 
 export function SpaTabPerfil({
@@ -50,17 +61,23 @@ export function SpaTabPerfil({
   isSyncingGoogleProfile,
   isUnlinkingGoogleAccount,
   isUpdatingProfile,
+  isUpdatingPassword,
+  passwordForm,
+  setPasswordForm,
+  showPasswordForm,
+  setShowPasswordForm,
   canUseGoogleByEmail,
   onLinkGoogleAccount,
   onUnlinkGoogleAccount,
   onSyncProfileFromGoogle,
-  onSubmit
+  onSubmit,
+  onSubmitPassword
 }: SpaTabPerfilProps) {
   if (!user) return null;
 
   return (
-    <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-      <Card variant="outlined" sx={{ width: "min(100%, 760px)", borderRadius: 3 }}>
+    <Box>
+      <Card variant="outlined" sx={{ width: "100%", borderRadius: 3 }}>
         <CardContent>
           <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>
             Mi perfil
@@ -140,6 +157,66 @@ export function SpaTabPerfil({
                     {isSyncingGoogleProfile ? "Sincronizando..." : "Volver a sincronizar"}
                   </Button>
                 </Stack>
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                  Seguridad
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  {hasPassword 
+                    ? "Puedes cambiar tu contraseña actual para ingresar con tu email." 
+                    : "Aún no tienes una contraseña establecida para ingresar con email. Puedes crear una ahora."}
+                </Typography>
+                {!showPasswordForm ? (
+                  <Button variant="outlined" onClick={() => setShowPasswordForm(true)}>
+                    {hasPassword ? "Cambiar contraseña" : "Establecer contraseña"}
+                  </Button>
+                ) : (
+                  <Box component="form" onSubmit={onSubmitPassword} sx={{ maxWidth: 400 }}>
+                    <Stack spacing={1.5}>
+                      <TextField
+                        label="Nueva contraseña"
+                        type="password"
+                        size="small"
+                        required
+                        value={passwordForm.newPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                        helperText="Mínimo 6 caracteres"
+                      />
+                      <TextField
+                        label="Confirmar contraseña"
+                        type="password"
+                        size="small"
+                        required
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                        error={Boolean(passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword)}
+                        helperText={passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword ? "Las contraseñas no coinciden" : ""}
+                      />
+                      <Stack direction="row" spacing={1}>
+                        <Button 
+                          type="submit" 
+                          variant="contained" 
+                          size="small"
+                          disabled={isUpdatingPassword || !passwordForm.newPassword || passwordForm.newPassword !== passwordForm.confirmPassword || passwordForm.newPassword.length < 6}
+                        >
+                          {isUpdatingPassword ? "Guardando..." : hasPassword ? "Actualizar contraseña" : "Guardar contraseña"}
+                        </Button>
+                        <Button 
+                          variant="outlined" 
+                          size="small" 
+                          onClick={() => {
+                            setShowPasswordForm(false);
+                            setPasswordForm({ newPassword: "", confirmPassword: "" });
+                          }}
+                        >
+                          Cancelar
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Box>
+                )}
               </Box>
 
               <Button variant="contained" onClick={() => setShowProfileForm(true)}>

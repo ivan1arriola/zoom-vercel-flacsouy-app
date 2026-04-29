@@ -3225,7 +3225,7 @@ export class SalasService {
         }
       };
 
-      const [solicitudesTotales, solicitudesActivas, proximasReuniones, reunionesConZoom] =
+      const [solicitudesTotales, solicitudesActivas, proximasReuniones, reunionesConZoom, nextEvent] =
         await Promise.all([
           db.solicitudSala.count({ where: ownSolicitudesWhere }),
           db.solicitudSala.count({
@@ -3253,15 +3253,119 @@ export class SalasService {
               zoomMeetingId: { not: null },
               estadoEvento: { not: EstadoEventoZoom.CANCELADO }
             }
+          }),
+          db.eventoZoom.findFirst({
+            where: {
+              solicitud: ownSolicitudesWhere,
+              inicioProgramadoAt: { gte: now },
+              estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            },
+            orderBy: { inicioProgramadoAt: "asc" },
+            select: {
+              id: true,
+              inicioProgramadoAt: true,
+              finProgramadoAt: true,
+              modalidadReunion: true,
+              zoomJoinUrl: true,
+              zoomMeetingId: true,
+              requiereAsistencia: true,
+              solicitudSalaId: true,
+              cuentaZoom: {
+                select: {
+                  ownerEmail: true,
+                  nombreCuenta: true
+                }
+              },
+              solicitud: {
+                select: {
+                  titulo: true,
+                  programaNombre: true
+                }
+              },
+              asignaciones: {
+                where: {
+                  estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] },
+                  tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL
+                },
+                take: 1,
+                select: {
+                  asistente: {
+                    select: {
+                      usuario: {
+                        select: {
+                          email: true,
+                          name: true,
+                          firstName: true,
+                          lastName: true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           })
         ]);
+
+      let nextMeeting = null;
+      if (nextEvent) {
+        const [totalInstances, pastInstances] = await Promise.all([
+          db.eventoZoom.count({
+            where: {
+              solicitudSalaId: nextEvent.solicitudSalaId,
+              estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            }
+          }),
+          db.eventoZoom.count({
+            where: {
+              solicitudSalaId: nextEvent.solicitudSalaId,
+              estadoEvento: { not: EstadoEventoZoom.CANCELADO },
+              inicioProgramadoAt: { lt: nextEvent.inicioProgramadoAt }
+            }
+          })
+        ]);
+
+        const hostAccount = nextEvent.cuentaZoom?.ownerEmail || nextEvent.cuentaZoom?.nombreCuenta || null;
+        const hostPassword = hostAccount ? await getAccountPasswordFromWebhook(hostAccount) : null;
+
+        nextMeeting = {
+          id: nextEvent.id,
+          titulo: nextEvent.solicitud.titulo,
+          programaNombre: nextEvent.solicitud.programaNombre ?? null,
+          modalidad: nextEvent.modalidadReunion === "HIBRIDA" ? "Presencial" : "Virtual",
+          startTime: nextEvent.inicioProgramadoAt.toISOString(),
+          endTime: nextEvent.finProgramadoAt.toISOString(),
+          zoomJoinUrl: nextEvent.zoomJoinUrl ?? null,
+          zoomMeetingId: nextEvent.zoomMeetingId ?? null,
+          requiresAssistance: nextEvent.requiereAsistencia,
+          hostAccount,
+          hostPassword,
+          instanceIndex: pastInstances + 1,
+          totalInstances,
+          asistente: nextEvent.asignaciones[0]?.asistente?.usuario
+            ? {
+                nombre:
+                  nextEvent.asignaciones[0].asistente.usuario.name ||
+                  [
+                    nextEvent.asignaciones[0].asistente.usuario.firstName,
+                    nextEvent.asignaciones[0].asistente.usuario.lastName
+                  ]
+                    .filter(Boolean)
+                    .join(" ") ||
+                  nextEvent.asignaciones[0].asistente.usuario.email,
+                email: nextEvent.asignaciones[0].asistente.usuario.email
+              }
+            : null
+        };
+      }
 
       return {
         scope: UserRole.DOCENTE,
         solicitudesTotales,
         solicitudesActivas,
         proximasReuniones,
-        reunionesConZoom
+        reunionesConZoom,
+        nextMeeting
       };
     }
 
@@ -9047,9 +9151,13 @@ export class SalasService {
   }
 
   async listPersonMeetingHours(input: { userId?: string | null }) {
+    const requestedUserId = (input.userId ?? "").trim();
     const peopleRows = await db.user.findMany({
       where: {
-        role: { in: [...LEGACY_ASSISTANT_ROLES] }
+        OR: [
+          { role: { in: [...LEGACY_ASSISTANT_ROLES] } },
+          requestedUserId ? { id: requestedUserId } : { id: "__none__" }
+        ]
       },
       select: {
         id: true,
@@ -9073,7 +9181,6 @@ export class SalasService {
       hasAssistantProfile: Boolean(user.asistenteProfile?.id)
     }));
 
-    const requestedUserId = (input.userId ?? "").trim();
     const selectedUserId = people.some((item) => item.userId === requestedUserId)
       ? requestedUserId
       : (people[0]?.userId ?? null);
@@ -9122,6 +9229,7 @@ export class SalasService {
           titulo: string;
           programaNombre: string | null;
           requiereGrabacion: boolean;
+          responsableNombre?: string | null;
         };
       };
     }) => {
@@ -9201,6 +9309,9 @@ export class SalasService {
         zoomAccountEmail,
         zoomAccountName,
         zoomHostAccount,
+        responsableNombre: event.solicitud.responsableNombre ?? null,
+        asistenteNombre: (assignment as any).asistente?.usuario?.name || 
+                         (assignment as any).asistente?.usuario?.firstName + " " + (assignment as any).asistente?.usuario?.lastName || null,
         isCompleted,
         timezone: event.timezone || "America/Montevideo"
       };
@@ -9303,7 +9414,77 @@ export class SalasService {
       timezone: string;
     }> = [];
 
-    if (selectedUserHasProfile && selectedUserId) {
+    const isDocente = selectedPerson?.role === "DOCENTE";
+
+    if (isDocente && selectedUserId) {
+      const docenteEvents = await db.eventoZoom.findMany({
+        where: {
+          solicitud: { docente: { usuarioId: selectedUserId } }
+        },
+        select: {
+          id: true,
+          solicitudSalaId: true,
+          modalidadReunion: true,
+          inicioProgramadoAt: true,
+          finProgramadoAt: true,
+          inicioRealAt: true,
+          finRealAt: true,
+          minutosReales: true,
+          estadoEvento: true,
+          estadoEjecucion: true,
+          timezone: true,
+          zoomMeetingId: true,
+          zoomJoinUrl: true,
+          zoomPayloadUltimo: true,
+          cuentaZoom: {
+            select: {
+              ownerEmail: true,
+              nombreCuenta: true
+            }
+          },
+          solicitud: {
+            select: {
+              titulo: true,
+              responsableNombre: true,
+              programaNombre: true,
+              requiereGrabacion: true
+            }
+          },
+          asignaciones: {
+            where: {
+              tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+              estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+            },
+            take: 1,
+            select: {
+              id: true,
+              estadoAsignacion: true,
+              asistente: {
+                select: {
+                  usuario: {
+                    select: {
+                      name: true,
+                      firstName: true,
+                      lastName: true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        orderBy: [{ inicioProgramadoAt: "desc" }]
+      });
+
+      meetings = docenteEvents.map((event) => {
+        const fakeAssignment = {
+          id: event.asignaciones[0]?.id || `fake-${event.id}`,
+          estadoAsignacion: event.asignaciones[0]?.estadoAsignacion || EstadoAsignacion.ASIGNADO,
+          evento: event
+        };
+        return buildMeetingFromAssignment(fakeAssignment);
+      });
+    } else if (selectedUserHasProfile && selectedUserId) {
       const assignments = await db.asignacionAsistente.findMany({
         where: {
           tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
@@ -9338,6 +9519,7 @@ export class SalasService {
               solicitud: {
                 select: {
                   titulo: true,
+                  responsableNombre: true,
                   programaNombre: true,
                   requiereGrabacion: true
                 }

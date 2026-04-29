@@ -222,3 +222,21 @@ export async function updateProfile(payload: Record<string, unknown>): Promise<{
     user: data.user
   };
 }
+export async function updatePassword(password: string): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const response = await fetch("/api/v1/auth/password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password })
+  });
+  const data = (await response.json()) as { error?: string };
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo actualizar la contrasena."
+    };
+  }
+  return { success: true };
+}

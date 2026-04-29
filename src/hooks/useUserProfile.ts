@@ -16,6 +16,13 @@ export function useUserProfile() {
   });
   const [showProfileForm, setShowProfileForm] = useState(false);
 
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: "",
+    confirmPassword: ""
+  });
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+
   return {
     user,
     setUser,
@@ -34,6 +41,13 @@ export function useUserProfile() {
     profileForm,
     setProfileForm,
     showProfileForm,
-    setShowProfileForm
+    setShowProfileForm,
+    isUpdatingPassword,
+    setIsUpdatingPassword,
+    passwordForm,
+    setPasswordForm,
+    showPasswordForm,
+    setShowPasswordForm
   };
+
 }

@@ -3,6 +3,7 @@ import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
 import WorkspacesOutlinedIcon from "@mui/icons-material/WorkspacesOutlined";
 import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
+import AddIcon from "@mui/icons-material/Add";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import AutoStoriesOutlinedIcon from "@mui/icons-material/AutoStoriesOutlined";
@@ -21,6 +22,7 @@ import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 
 export const tabs = [
   "dashboard",
+  "crear_reunion",
   "solicitudes",
   "programas",
   "agenda_libre",
@@ -73,6 +75,12 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     roles: ALL_VIEW_ROLES,
     group: "GENERAL"
   },
+  crear_reunion: {
+    label: "Crear reunión",
+    visibleInNavigation: true,
+    roles: ["ADMINISTRADOR", "DOCENTE"],
+    group: "OPERACION"
+  },
   solicitudes: {
     label: "Solicitudes",
     visibleInNavigation: true,
@@ -94,7 +102,7 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
   mis_reuniones_asignadas: {
     label: "Próximas reuniones",
     visibleInNavigation: true,
-    roles: ["ASISTENTE_ZOOM"],
+    roles: ["ASISTENTE_ZOOM", "DOCENTE"],
     group: "OPERACION"
   },
   mis_asistencias: {
@@ -106,7 +114,7 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
   historico_asistencias: {
     label: "Histórico de reuniones",
     visibleInNavigation: true,
-    roles: ["ASISTENTE_ZOOM"],
+    roles: ["ASISTENTE_ZOOM", "DOCENTE"],
     group: "OPERACION"
   },
   asistentes_asignacion: {
@@ -189,6 +197,63 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
   }
 };
 
+export const ROLE_PRESENTATION_TABS: Record<ViewRole, readonly Tab[]> = {
+  ADMINISTRADOR: [
+    "dashboard",
+    "crear_reunion",
+    "solicitudes",
+    "programas",
+    "agenda_libre",
+    "mis_reuniones_asignadas",
+    "mis_asistencias",
+    "historico_asistencias",
+    "asistentes_asignacion",
+    "asistentes_perfiles",
+    "asistentes_estadisticas",
+    "manual",
+    "historico",
+    "cuentas",
+    "proximas_zoom",
+    "pasadas_zoom",
+    "zoom_drive_sync",
+    "estadisticas",
+    "tarifas",
+    "usuarios",
+    "perfil"
+  ],
+  ASISTENTE_ZOOM: [
+    "dashboard",
+    "agenda_libre",
+    "mis_reuniones_asignadas",
+    "mis_asistencias",
+    "historico_asistencias",
+    "perfil"
+  ],
+  DOCENTE: [
+    "dashboard",
+    "crear_reunion",
+    "solicitudes",
+    "programas",
+    "mis_reuniones_asignadas",
+    "historico_asistencias",
+    "perfil"
+  ],
+  CONTADURIA: [
+    "dashboard",
+    "asistentes_perfiles",
+    "asistentes_estadisticas",
+    "tarifas",
+    "perfil"
+  ]
+};
+
+export const ROLE_DEFAULT_TAB: Record<ViewRole, Tab> = {
+  ADMINISTRADOR: "dashboard",
+  ASISTENTE_ZOOM: "agenda_libre",
+  DOCENTE: "solicitudes",
+  CONTADURIA: "dashboard"
+};
+
 export const VIEW_ROLE_COOKIE = "zoom_view_as";
 
 export function normalizeAssistantRole(role: string): string {
@@ -204,23 +269,44 @@ export function isViewRole(role: string): role is ViewRole {
 
 export function canAccessTabForRole(tab: Tab, role: string): boolean {
   if (!isViewRole(role)) return tab === "dashboard";
-  return TAB_CONFIG[tab].roles.includes(role);
+  return ROLE_PRESENTATION_TABS[role].includes(tab) && TAB_CONFIG[tab].roles.includes(role);
 }
 
-export function getNavigationGroupIcon(group: NavigationGroup): ReactNode {
+export function getDefaultTabForRole(role: string): Tab {
+  if (!isViewRole(role)) return "dashboard";
+  return ROLE_DEFAULT_TAB[role];
+}
+
+export function resolveEffectiveRoleForUser(
+  userRole: string | null | undefined,
+  requestedViewAs: string | null | undefined
+): ViewRole | "" {
+  const normalizedUserRole = normalizeAssistantRole((userRole ?? "").toUpperCase());
+  if (!isViewRole(normalizedUserRole)) return "";
+  if (normalizedUserRole !== "ADMINISTRADOR") return normalizedUserRole;
+
+  const normalizedRequestedRole = normalizeAssistantRole((requestedViewAs ?? "ADMINISTRADOR").toUpperCase());
+  if (isViewRole(normalizedRequestedRole)) return normalizedRequestedRole;
+  return "ADMINISTRADOR";
+}
+
+export function getNavigationGroupIcon(
+  group: NavigationGroup,
+  fontSize: "small" | "medium" | "large" = "small"
+): ReactNode {
   switch (group) {
     case "GENERAL":
-      return <HomeOutlinedIcon fontSize="small" />;
+      return <HomeOutlinedIcon fontSize={fontSize} />;
     case "OPERACION":
-      return <WorkspacesOutlinedIcon fontSize="small" />;
+      return <WorkspacesOutlinedIcon fontSize={fontSize} />;
     case "ASISTENTES":
-      return <SupportAgentIcon fontSize="small" />;
+      return <SupportAgentIcon fontSize={fontSize} />;
     case "ZOOM":
-      return <VideocamOutlinedIcon fontSize="small" />;
+      return <VideocamOutlinedIcon fontSize={fontSize} />;
     case "ADMIN":
-      return <AdminPanelSettingsOutlinedIcon fontSize="small" />;
+      return <AdminPanelSettingsOutlinedIcon fontSize={fontSize} />;
     default:
-      return <HomeOutlinedIcon fontSize="small" />;
+      return <HomeOutlinedIcon fontSize={fontSize} />;
   }
 }
 
@@ -228,6 +314,8 @@ export function getTabIcon(tab: Tab): ReactNode {
   switch (tab) {
     case "dashboard":
       return <DashboardOutlinedIcon fontSize="small" />;
+    case "crear_reunion":
+      return <AddIcon fontSize="small" />;
     case "solicitudes":
       return <DescriptionOutlinedIcon fontSize="small" />;
     case "programas":

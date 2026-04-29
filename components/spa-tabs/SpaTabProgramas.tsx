@@ -10,13 +10,22 @@ import {
   Paper,
   Stack,
   TextField,
-  Typography
+  Typography,
+  useTheme,
+  alpha,
+  Grid,
+  InputAdornment
 } from "@mui/material";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
+import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
+import EventRepeatRoundedIcon from "@mui/icons-material/EventRepeatRounded";
+import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
 import type { Programa } from "@/src/services/programasApi";
 import type { Solicitud } from "@/src/services/solicitudesApi";
 import { formatZoomDateTime } from "./spa-tabs-utils";
@@ -28,6 +37,7 @@ interface SpaTabProgramasProps {
   isRefreshing: boolean;
   onCreatePrograma: (nombre: string) => Promise<string | null>;
   onRefresh: () => void;
+  role?: string;
 }
 
 type ProgramaMeeting = {
@@ -185,8 +195,11 @@ export function SpaTabProgramas({
   isCreatingPrograma,
   isRefreshing,
   onCreatePrograma,
-  onRefresh
+  onRefresh,
+  role
 }: SpaTabProgramasProps) {
+  const theme = useTheme();
+  const isDocente = role === "DOCENTE";
   const [newProgramaNombre, setNewProgramaNombre] = useState("");
   const [searchText, setSearchText] = useState("");
   const [expandedProgramaId, setExpandedProgramaId] = useState<string | null>(null);
@@ -227,82 +240,103 @@ export function SpaTabProgramas({
   }
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3 }}>
-      <CardContent>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          alignItems={{ xs: "flex-start", sm: "center" }}
-          justifyContent="space-between"
-          sx={{ mb: 2 }}
-        >
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 800 }}>
-              Programas
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
-              Catalogo de programas y reuniones asociadas por solicitud.
-            </Typography>
-          </Box>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshRoundedIcon />}
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700 }}
-          >
-            {isRefreshing ? "Actualizando..." : "Actualizar"}
-          </Button>
-        </Stack>
-
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: {
-              xs: "repeat(2, minmax(0, 1fr))",
-              md: "repeat(4, minmax(0, 1fr))"
-            },
-            gap: 1,
-            mb: 2
+    <Box>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={2}
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        justifyContent="space-between"
+        sx={{ mb: 4 }}
+      >
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: "primary.main", letterSpacing: "-1px" }}>
+            {isDocente ? "Catálogo de Programas" : "Gestión de Programas"}
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            {isDocente 
+              ? "Explora la oferta académica y las reuniones programadas para cada programa." 
+              : "Administración integral de la oferta académica y sus sesiones vinculadas."}
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          startIcon={<RefreshRoundedIcon />}
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          sx={{ 
+            textTransform: "none", 
+            borderRadius: 2.5, 
+            fontWeight: 700, 
+            px: 3,
+            borderWidth: 2,
+            "&:hover": { borderWidth: 2 }
           }}
         >
-          <Paper variant="outlined" sx={{ p: 1.1 }}>
-            <Typography variant="caption" color="text.secondary">
-              Programas totales
-            </Typography>
-            <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
-              {programaSummaries.length}
-            </Typography>
-          </Paper>
-          <Paper variant="outlined" sx={{ p: 1.1 }}>
-            <Typography variant="caption" color="text.secondary">
-              Programas filtrados
-            </Typography>
-            <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
-              {filteredProgramas.length}
-            </Typography>
-          </Paper>
-          <Paper variant="outlined" sx={{ p: 1.1 }}>
-            <Typography variant="caption" color="text.secondary">
-              Reuniones asociadas
-            </Typography>
-            <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
-              {totalReuniones}
-            </Typography>
-          </Paper>
-          <Paper variant="outlined" sx={{ p: 1.1 }}>
-            <Typography variant="caption" color="text.secondary">
-              Reuniones proximas
-            </Typography>
-            <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
-              {totalReunionesProximas}
-            </Typography>
-          </Paper>
-        </Box>
+          {isRefreshing ? "Actualizando..." : "Actualizar"}
+        </Button>
+      </Stack>
 
-        <Paper variant="outlined" sx={{ p: 1.4, borderRadius: 2.2, mb: 2 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-            Crear programa
+      <Grid container spacing={2} sx={{ mb: 4 }}>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.03), border: "1px solid", borderColor: alpha(theme.palette.primary.main, 0.1) }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <SchoolRoundedIcon color="primary" />
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Programas</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 900 }}>{programaSummaries.length}</Typography>
+              </Box>
+            </Stack>
+          </Paper>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.info.main, 0.03), border: "1px solid", borderColor: alpha(theme.palette.info.main, 0.1) }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <GroupsRoundedIcon color="info" />
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Activos</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 900 }}>{filteredProgramas.length}</Typography>
+              </Box>
+            </Stack>
+          </Paper>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.success.main, 0.03), border: "1px solid", borderColor: alpha(theme.palette.success.main, 0.1) }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <EventRepeatRoundedIcon color="success" />
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Sesiones</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 900 }}>{totalReuniones}</Typography>
+              </Box>
+            </Stack>
+          </Paper>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.warning.main, 0.03), border: "1px solid", borderColor: alpha(theme.palette.warning.main, 0.1) }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <CalendarMonthRoundedIcon color="warning" />
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Próximas</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 900 }}>{totalReunionesProximas}</Typography>
+              </Box>
+            </Stack>
+          </Paper>
+        </Grid>
+      </Grid>
+
+      {!isDocente && (
+        <Paper 
+          variant="outlined" 
+          sx={{ 
+            p: 2.5, 
+            borderRadius: 4, 
+            mb: 4, 
+            bgcolor: alpha(theme.palette.primary.main, 0.02),
+            border: "1px dashed",
+            borderColor: "primary.main"
+          }}
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 2, display: "flex", alignItems: "center", gap: 1 }}>
+            <AddCircleOutlineRoundedIcon color="primary" /> Crear nuevo programa
           </Typography>
           <Box
             component="form"
@@ -312,158 +346,189 @@ export function SpaTabProgramas({
             sx={{
               display: "grid",
               gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 1fr) auto" },
-              gap: 1
+              gap: 2
             }}
           >
             <TextField
-              label="Nombre del programa"
+              label="Nombre del programa académico"
               value={newProgramaNombre}
               onChange={(event) => setNewProgramaNombre(event.target.value)}
-              size="small"
+              size="medium"
+              placeholder="Ej: Posgrado en Educación, Sociedad y Política"
+              fullWidth
+              sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3 } }}
             />
             <Button
               type="submit"
               variant="contained"
               disabled={!newProgramaNombre.trim() || isCreatingPrograma}
-              startIcon={<AddCircleOutlineRoundedIcon />}
-              sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700 }}
+              sx={{ textTransform: "none", borderRadius: 3, fontWeight: 700, px: 4 }}
             >
-              {isCreatingPrograma ? "Creando..." : "Crear programa"}
+              {isCreatingPrograma ? "Procesando..." : "Registrar programa"}
             </Button>
           </Box>
         </Paper>
+      )}
 
+      <Box sx={{ position: "relative", mb: 3 }}>
         <TextField
-          label="Buscar programa"
+          placeholder="Buscar programa por nombre..."
           value={searchText}
           onChange={(event) => setSearchText(event.target.value)}
-          size="small"
           fullWidth
-          sx={{ mb: 1.6 }}
-          placeholder="Ej: posgrado, diplomatura, taller..."
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon color="action" />
+              </InputAdornment>
+            ),
+            sx: { borderRadius: 3, bgcolor: "background.paper" }
+          }}
         />
+      </Box>
 
-        {filteredProgramas.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            No hay programas para mostrar con el filtro actual.
+      {filteredProgramas.length === 0 ? (
+        <Paper sx={{ p: 8, textAlign: "center", borderRadius: 4, bgcolor: alpha(theme.palette.action.disabledBackground, 0.05) }}>
+          <Typography variant="h6" color="text.secondary">
+            No se encontraron programas que coincidan con tu búsqueda.
           </Typography>
-        ) : (
-          <Stack spacing={1.2}>
-            {filteredProgramas.map((programa) => {
-              const isExpanded = expandedProgramaId === programa.id;
-              const visibleMeetings = isExpanded ? programa.meetings : programa.meetings.slice(0, 4);
-              const canExpandMeetings = programa.meetings.length > 4;
+        </Paper>
+      ) : (
+        <Grid container spacing={2.5}>
+          {filteredProgramas.map((programa) => {
+            const isExpanded = expandedProgramaId === programa.id;
+            const visibleMeetings = isExpanded ? programa.meetings : programa.meetings.slice(0, 4);
+            const canExpandMeetings = programa.meetings.length > 4;
 
-              return (
-                <Paper key={programa.id} variant="outlined" sx={{ p: 1.3, borderRadius: 2.2 }}>
-                  <Stack
-                    direction={{ xs: "column", md: "row" }}
-                    spacing={1}
-                    alignItems={{ xs: "flex-start", md: "center" }}
-                    justifyContent="space-between"
-                    sx={{ mb: 1 }}
-                  >
-                    <Box>
-                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" alignItems="center">
-                        <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                          {programa.nombre}
-                        </Typography>
-                        {!programa.isCataloged ? (
-                          <Chip size="small" variant="outlined" color="warning" label="No catalogado" />
-                        ) : null}
-                      </Stack>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
-                        Solicitudes: {programa.solicitudesCount} | Reuniones: {programa.reunionesCount} | Proximas:{" "}
-                        {programa.reunionesProximasCount}
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={`Proxima: ${programa.nextMeetingAt ? formatZoomDateTime(programa.nextMeetingAt) : "-"}`}
-                      />
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={`Ultima: ${programa.latestMeetingAt ? formatZoomDateTime(programa.latestMeetingAt) : "-"}`}
-                      />
-                    </Stack>
-                  </Stack>
-
-                  {programa.meetings.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      Sin reuniones asociadas por ahora.
-                    </Typography>
-                  ) : (
-                    <Stack spacing={0.8}>
-                      {visibleMeetings.map((meeting) => {
-                        const status = mapSolicitudStatus(meeting.estadoSolicitudVista);
-                        return (
-                          <Paper
-                            key={meeting.key}
-                            variant="outlined"
-                            sx={{
-                              p: 1,
-                              borderRadius: 1.7,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              gap: 1,
-                              flexWrap: "wrap"
-                            }}
-                          >
-                            <Box>
-                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                                {meeting.titulo}
-                              </Typography>
-                              <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap" sx={{ mt: 0.45 }}>
-                                <Chip size="small" variant="outlined" label={formatZoomDateTime(meeting.startTime)} />
-                                <Chip size="small" variant="outlined" label={meeting.modalidadReunion} />
-                                <Chip size="small" color={status.color} label={status.label} />
-                                {meeting.monitorNombre ? (
-                                  <Chip size="small" variant="outlined" color="success" label={`Asistencia: ${meeting.monitorNombre}`} />
-                                ) : null}
-                              </Stack>
-                            </Box>
-                            {meeting.joinUrl ? (
-                              <Button
-                                size="small"
-                                variant="text"
-                                href={meeting.joinUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                endIcon={<LaunchRoundedIcon fontSize="small" />}
-                                sx={{ textTransform: "none" }}
-                              >
-                                Abrir
-                              </Button>
-                            ) : null}
-                          </Paper>
-                        );
-                      })}
-                    </Stack>
-                  )}
-
-                  {canExpandMeetings ? (
-                    <Button
-                      size="small"
-                      variant="text"
-                      sx={{ mt: 0.8, textTransform: "none" }}
-                      endIcon={isExpanded ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
-                      onClick={() =>
-                        setExpandedProgramaId((prev) => (prev === programa.id ? null : programa.id))
-                      }
+            return (
+              <Grid size={{ xs: 12 }} key={programa.id}>
+                <Card 
+                  variant="outlined" 
+                  sx={{ 
+                    borderRadius: 4, 
+                    transition: "all 0.2s",
+                    "&:hover": { borderColor: "primary.main", boxShadow: "0 8px 24px rgba(0,0,0,0.05)" }
+                  }}
+                >
+                  <CardContent sx={{ p: 3 }}>
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      spacing={2}
+                      alignItems={{ xs: "flex-start", md: "center" }}
+                      justifyContent="space-between"
+                      sx={{ mb: 2.5 }}
                     >
-                      {isExpanded ? "Ver menos reuniones" : `Ver todas las reuniones (${programa.meetings.length})`}
-                    </Button>
-                  ) : null}
-                </Paper>
-              );
-            })}
-          </Stack>
-        )}
-      </CardContent>
-    </Card>
+                      <Box>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                          <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                            {programa.nombre}
+                          </Typography>
+                          {!programa.isCataloged && (
+                            <Chip size="small" variant="filled" color="warning" label="Sin catalogar" sx={{ fontWeight: 800, fontSize: "0.65rem" }} />
+                          )}
+                        </Stack>
+                        <Stack direction="row" spacing={2} color="text.secondary">
+                          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                            <b>{programa.solicitudesCount}</b> Solicitudes
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                            <b>{programa.reunionesCount}</b> Reuniones
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontWeight: 600, color: "warning.dark" }}>
+                            <b>{programa.reunionesProximasCount}</b> Próximas
+                          </Typography>
+                        </Stack>
+                      </Box>
+                      <Stack direction="row" spacing={1}>
+                        <Paper variant="outlined" sx={{ px: 1.5, py: 0.5, borderRadius: 2, bgcolor: "grey.50" }}>
+                          <Typography variant="caption" display="block" sx={{ fontWeight: 800, color: "text.disabled", fontSize: "0.6rem" }}>PRÓXIMA</Typography>
+                          <Typography variant="caption" sx={{ fontWeight: 700 }}>{programa.nextMeetingAt ? formatZoomDateTime(programa.nextMeetingAt) : "-"}</Typography>
+                        </Paper>
+                        <Paper variant="outlined" sx={{ px: 1.5, py: 0.5, borderRadius: 2, bgcolor: "grey.50" }}>
+                          <Typography variant="caption" display="block" sx={{ fontWeight: 800, color: "text.disabled", fontSize: "0.6rem" }}>ÚLTIMA</Typography>
+                          <Typography variant="caption" sx={{ fontWeight: 700 }}>{programa.latestMeetingAt ? formatZoomDateTime(programa.latestMeetingAt) : "-"}</Typography>
+                        </Paper>
+                      </Stack>
+                    </Stack>
+
+                    {programa.meetings.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: "italic" }}>
+                        Sin reuniones asociadas por ahora.
+                      </Typography>
+                    ) : (
+                      <Stack spacing={1}>
+                        {visibleMeetings.map((meeting) => {
+                          const status = mapSolicitudStatus(meeting.estadoSolicitudVista);
+                          return (
+                            <Paper
+                              key={meeting.key}
+                              variant="outlined"
+                              sx={{
+                                p: 1.5,
+                                borderRadius: 3,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 2,
+                                bgcolor: alpha(theme.palette.background.default, 0.5),
+                                "&:hover": { bgcolor: "background.default" }
+                              }}
+                            >
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                                  {meeting.titulo}
+                                </Typography>
+                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 0.5 }}>
+                                    <CalendarMonthRoundedIcon sx={{ fontSize: 14 }} /> {formatZoomDateTime(meeting.startTime)}
+                                  </Typography>
+                                  <Chip size="small" variant="outlined" label={meeting.modalidadReunion} sx={{ height: 20, fontSize: "0.65rem", fontWeight: 700 }} />
+                                  <Chip size="small" color={status.color} label={status.label} sx={{ height: 20, fontSize: "0.65rem", fontWeight: 800 }} />
+                                  {meeting.monitorNombre && (
+                                    <Chip size="small" variant="filled" color="success" label={meeting.monitorNombre} sx={{ height: 20, fontSize: "0.65rem", fontWeight: 700 }} />
+                                  )}
+                                </Stack>
+                              </Box>
+                              {meeting.joinUrl && (
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  href={meeting.joinUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  endIcon={<LaunchRoundedIcon fontSize="small" />}
+                                  sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700 }}
+                                >
+                                  Unirse
+                                </Button>
+                              )}
+                            </Paper>
+                          );
+                        })}
+                      </Stack>
+                    )}
+
+                    {canExpandMeetings && (
+                      <Button
+                        fullWidth
+                        size="small"
+                        variant="text"
+                        sx={{ mt: 1.5, textTransform: "none", borderRadius: 2, fontWeight: 700, color: "text.secondary" }}
+                        endIcon={isExpanded ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
+                        onClick={() =>
+                          setExpandedProgramaId((prev) => (prev === programa.id ? null : programa.id))
+                        }
+                      >
+                        {isExpanded ? "Contraer lista" : `Mostrar todas las sesiones (${programa.meetings.length})`}
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
+      )}
+    </Box>
   );
 }
