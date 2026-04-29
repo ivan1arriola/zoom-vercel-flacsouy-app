@@ -24,8 +24,7 @@ import {
   getDefaultTabForRole,
   normalizeAssistantRole,
   resolveEffectiveRoleForUser,
-  type ViewRole,
-  VIEW_ROLE_COOKIE
+  type ViewRole
 } from "@/src/lib/spa-home/navigation";
 import { normalizeDocentesCorreosByLine } from "@/src/lib/spa-home/validation";
 import {
@@ -423,12 +422,9 @@ export function SpaHomeScreen() {
     isUpdatingPassword, setIsUpdatingPassword, passwordForm, setPasswordForm, showPasswordForm, setShowPasswordForm
   } = useUserProfile();
 
-  const { searchParams } = useUIState();
-  const requestedViewAs = searchParams.get("viewAs");
-  
   const effectiveRole = useMemo<ViewRole | "">(
-    () => resolveEffectiveRoleForUser(user?.role, requestedViewAs),
-    [user?.role, requestedViewAs]
+    () => resolveEffectiveRoleForUser(user?.role),
+    [user?.role]
   );
 
   const canSeeManual = canAccessTabForRole("manual", effectiveRole);
@@ -740,24 +736,8 @@ export function SpaHomeScreen() {
   }, [isGlobalBusy, busyMessageSequence]);
 
   useEffect(() => {
-    const rawViewAs = normalizeAssistantRole((searchParams.get("viewAs") ?? "ADMINISTRADOR").toUpperCase());
-    if (rawViewAs === "ADMINISTRADOR") {
-      document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
-      return;
-    }
-
-    const allowedViewAs = ["DOCENTE", "CONTADURIA", "ASISTENTE_ZOOM"];
-    if (!allowedViewAs.includes(rawViewAs)) {
-      document.cookie = `${VIEW_ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
-      return;
-    }
-
-    document.cookie = `${VIEW_ROLE_COOKIE}=${encodeURIComponent(rawViewAs)}; path=/; max-age=604800; samesite=lax`;
-  }, [searchParams]);
-
-  useEffect(() => {
     void bootstrap();
-  }, [requestedViewAs]);
+  }, []);
 
   async function bootstrap() {
     setLoading(true);
@@ -774,7 +754,7 @@ export function SpaHomeScreen() {
         lastName: meJson.user.lastName ?? "",
         image: meJson.user.image ?? ""
       });
-      const presentationRole = resolveEffectiveRoleForUser(meJson.user.role, requestedViewAs);
+      const presentationRole = resolveEffectiveRoleForUser(meJson.user.role);
       if (!requestedTab) {
         setTab(getDefaultTabForRole(presentationRole || "ADMINISTRADOR"));
       }

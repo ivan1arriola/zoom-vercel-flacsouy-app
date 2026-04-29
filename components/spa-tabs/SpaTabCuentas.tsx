@@ -42,6 +42,14 @@ export function SpaTabCuentas({
   setExpandedZoomAccountId,
   onRefresh
 }: SpaTabCuentasProps) {
+  const totalPendingEvents = useMemo(
+    () => zoomAccounts.reduce((total, account) => total + account.pendingEventsCount, 0),
+    [zoomAccounts]
+  );
+  const accountsWithPendingEvents = useMemo(
+    () => zoomAccounts.filter((account) => account.pendingEventsCount > 0).length,
+    [zoomAccounts]
+  );
   const accountColorMap = useMemo(
     () =>
       buildZoomAccountColorMap(
@@ -54,23 +62,43 @@ export function SpaTabCuentas({
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
       <CardContent>
         <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          alignItems={{ xs: "flex-start", sm: "center" }}
+          direction={{ xs: "column", lg: "row" }}
+          spacing={1.5}
+          alignItems={{ xs: "flex-start", lg: "center" }}
           justifyContent="space-between"
-          sx={{ mb: 1 }}
+          sx={{ mb: 2 }}
         >
-          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            Cuentas Zoom disponibles
-          </Typography>
-          <Button variant="outlined" onClick={onRefresh} disabled={isLoadingZoomAccounts}>
-            {isLoadingZoomAccounts ? "Actualizando..." : "Actualizar"}
-          </Button>
+          <Box>
+            <Typography variant="h5" sx={{ fontWeight: 700 }}>
+              Cuentas Zoom disponibles
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
+              Gestiona cuentas del grupo, pendientes y detalle por evento.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+            <Chip size="small" variant="outlined" label={`${zoomAccounts.length} cuenta(s)`} />
+            <Chip
+              size="small"
+              variant="outlined"
+              color={totalPendingEvents > 0 ? "warning" : "default"}
+              label={`${totalPendingEvents} pendiente(s)`}
+            />
+            <Button variant="outlined" onClick={onRefresh} disabled={isLoadingZoomAccounts}>
+              {isLoadingZoomAccounts ? "Actualizando..." : "Actualizar"}
+            </Button>
+          </Stack>
         </Stack>
 
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Grupo: {zoomGroupName || "(sin nombre)"}
-        </Typography>
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
+          <Chip size="small" variant="outlined" label={`Grupo: ${zoomGroupName || "(sin nombre)"}`} />
+          <Chip
+            size="small"
+            variant="outlined"
+            color={accountsWithPendingEvents > 0 ? "warning" : "default"}
+            label={`${accountsWithPendingEvents} con pendientes`}
+          />
+        </Stack>
 
         {isLoadingZoomAccounts ? (
           <Typography variant="body2" color="text.secondary">
@@ -102,17 +130,25 @@ export function SpaTabCuentas({
                   sx={{
                     borderRadius: 2,
                     overflow: "hidden",
-                    borderLeft: `5px solid ${accountColor.border}`
+                    borderLeft: `5px solid ${accountColor.border}`,
+                    backgroundColor: "background.paper",
+                    transition: "box-shadow 160ms ease, border-color 160ms ease",
+                    "&:hover": {
+                      boxShadow: 2
+                    }
                   }}
                 >
-                  <Box sx={{ p: 1.5 }}>
+                  <Box sx={{ p: { xs: 1.2, md: 1.6 } }}>
                     <Stack
                       direction={{ xs: "column", md: "row" }}
-                      spacing={1}
-                      alignItems={{ xs: "flex-start", md: "center" }}
+                      spacing={1.2}
+                      alignItems={{ xs: "flex-start", md: "flex-start" }}
                       justifyContent="space-between"
                     >
                       <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                          Cuenta Zoom
+                        </Typography>
                         <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" alignItems="center">
                           <Chip
                             size="small"
@@ -124,27 +160,35 @@ export function SpaTabCuentas({
                               fontWeight: 700
                             }}
                           />
-                          <Typography variant="subtitle2">{accountName}</Typography>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                            {accountName}
+                          </Typography>
                           {isLicensedZoomAccount(account) ? <Chip size="small" color="success" label="Licencia" /> : null}
                           {account.overlapCount > 0 ? (
                             <Chip size="small" color="warning" label={`Choques: ${account.overlapCount}`} />
                           ) : null}
                         </Stack>
                       </Box>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Chip size="small" variant="outlined" label={`${account.pendingEventsCount} pendientes`} />
+                      <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                        <Chip
+                          size="small"
+                          variant={account.pendingEventsCount > 0 ? "filled" : "outlined"}
+                          color={account.pendingEventsCount > 0 ? "warning" : "default"}
+                          label={`${account.pendingEventsCount} pendientes`}
+                        />
                         {recurringSeriesCountByMeetingId.size > 0 ? (
                           <Chip
                             size="small"
                             variant="outlined"
                             color="primary"
-                            label={`${recurringSeriesCountByMeetingId.size} serie(s) recurrente(s)`}
+                            label={`${recurringSeriesCountByMeetingId.size} recurrente(s)`}
                           />
                         ) : null}
                         {account.pendingEventsCount > 0 ? (
                           <Button
                             size="small"
                             variant="outlined"
+                            sx={{ minWidth: 118 }}
                             onClick={() => setExpandedZoomAccountId(isExpanded ? null : account.id)}
                           >
                             {isExpanded ? "Ocultar detalle" : "Ver detalle"}
@@ -152,7 +196,17 @@ export function SpaTabCuentas({
                         ) : null}
                       </Stack>
                     </Stack>
-                    <Box sx={{ mt: 1 }}>
+                    <Box
+                      sx={{
+                        mt: 1.1,
+                        px: 1.2,
+                        py: 0.9,
+                        borderRadius: 1.5,
+                        border: "1px dashed",
+                        borderColor: "divider",
+                        backgroundColor: "grey.50"
+                      }}
+                    >
                       <ZoomAccountPasswordField
                         hostAccount={account.email}
                         label="Contrasena cuenta streaming"
@@ -191,6 +245,16 @@ export function SpaTabCuentas({
                                   sx={{
                                     p: 1.2,
                                     borderRadius: 1.5,
+                                    borderLeft: hasOverlap
+                                      ? "4px solid"
+                                      : startsSoon
+                                        ? "4px solid"
+                                        : "1px solid",
+                                    borderLeftColor: hasOverlap
+                                      ? "error.main"
+                                      : startsSoon
+                                        ? "warning.main"
+                                        : "divider",
                                     backgroundColor: hasOverlap
                                       ? "error.50"
                                       : startsSoon

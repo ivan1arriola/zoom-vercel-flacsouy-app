@@ -9,8 +9,10 @@ import {
   CardContent,
   Chip,
   Collapse,
+  IconButton,
   MenuItem,
   Paper,
+  Skeleton,
   Stack,
   TextField,
   Typography
@@ -174,7 +176,15 @@ export function SpaTabHistorico({
             {isLoadingPastMeetings ? (
               <Stack spacing={1.5}>
                 {[1, 2, 3].map((i) => (
-                  <Paper key={i} variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: alpha(theme.palette.background.paper, 0.5) }}>
+                  <Paper
+                    key={i}
+                    variant="outlined"
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      bgcolor: (theme) => alpha(theme.palette.background.paper, 0.5)
+                    }}
+                  >
                     <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
                       <Box sx={{ flexGrow: 1 }}>
                         <Skeleton variant="text" width="40%" height={28} animation="wave" />
@@ -201,6 +211,7 @@ export function SpaTabHistorico({
                     meeting.zoomAccountEmail?.trim() ||
                     meeting.zoomAccountName?.trim() ||
                     null;
+                  const zoomJoinUrl = meeting.zoomJoinUrl?.trim() ?? "";
 
                   return (
                     <Paper key={meeting.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
@@ -230,7 +241,7 @@ export function SpaTabHistorico({
                           </Stack>
                         </Box>
                         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                          {meeting.zoomJoinUrl ? (
+                          {zoomJoinUrl ? (
                             <Box sx={{ 
                               display: "flex", 
                               alignItems: "center", 
@@ -247,7 +258,7 @@ export function SpaTabHistorico({
                               <Typography 
                                 variant="body2" 
                                 component="a"
-                                href={meeting.zoomJoinUrl}
+                                href={zoomJoinUrl}
                                 target="_blank"
                                 rel="noreferrer"
                                 sx={{ 
@@ -260,12 +271,12 @@ export function SpaTabHistorico({
                                   "&:hover": { textDecoration: "underline" }
                                 }}
                               >
-                                {meeting.zoomJoinUrl}
+                                {zoomJoinUrl}
                               </Typography>
                               <Tooltip title={copyFeedback[meeting.id] || "Copiar link"}>
                                 <IconButton 
                                   size="small" 
-                                  onClick={() => handleCopy(meeting.zoomJoinUrl, meeting.id)}
+                                  onClick={() => handleCopy(zoomJoinUrl, meeting.id)}
                                   color={copyFeedback[meeting.id] ? "success" : "secondary"}
                                 >
                                   {copyFeedback[meeting.id] ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}

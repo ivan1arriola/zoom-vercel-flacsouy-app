@@ -1796,8 +1796,8 @@ async function ensureAssistantProfilesForEligibleRoles() {
 }
 
 function assertAssistantEligibleRole(user: SessionUser) {
-  if (user.role !== UserRole.ASISTENTE_ZOOM) {
-    throw new Error("Solo usuarios con rol Asistente Zoom pueden operar como asistentes.");
+  if (user.role !== UserRole.ASISTENTE_ZOOM && user.role !== UserRole.ADMINISTRADOR) {
+    throw new Error("Solo asistentes Zoom o administradores pueden operar como asistentes.");
   }
 }
 
@@ -9292,6 +9292,7 @@ export class SalasService {
       id: string;
       estadoAsignacion: EstadoAsignacion;
       asistente?: {
+        usuarioId?: string;
         usuario?: {
           name?: string | null;
           firstName?: string | null;

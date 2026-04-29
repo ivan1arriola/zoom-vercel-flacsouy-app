@@ -203,10 +203,6 @@ export const ROLE_PRESENTATION_TABS: Record<ViewRole, readonly Tab[]> = {
     "crear_reunion",
     "solicitudes",
     "programas",
-    "agenda_libre",
-    "mis_reuniones_asignadas",
-    "mis_asistencias",
-    "historico_asistencias",
     "asistentes_asignacion",
     "asistentes_perfiles",
     "asistentes_estadisticas",
@@ -254,8 +250,6 @@ export const ROLE_DEFAULT_TAB: Record<ViewRole, Tab> = {
   CONTADURIA: "dashboard"
 };
 
-export const VIEW_ROLE_COOKIE = "zoom_view_as";
-
 export function normalizeAssistantRole(role: string): string {
   if (role === "ASISTENTE_ZOOM" || role === "SOPORTE_ZOOM") {
     return "ASISTENTE_ZOOM";
@@ -278,16 +272,11 @@ export function getDefaultTabForRole(role: string): Tab {
 }
 
 export function resolveEffectiveRoleForUser(
-  userRole: string | null | undefined,
-  requestedViewAs: string | null | undefined
+  userRole: string | null | undefined
 ): ViewRole | "" {
   const normalizedUserRole = normalizeAssistantRole((userRole ?? "").toUpperCase());
   if (!isViewRole(normalizedUserRole)) return "";
-  if (normalizedUserRole !== "ADMINISTRADOR") return normalizedUserRole;
-
-  const normalizedRequestedRole = normalizeAssistantRole((requestedViewAs ?? "ADMINISTRADOR").toUpperCase());
-  if (isViewRole(normalizedRequestedRole)) return normalizedRequestedRole;
-  return "ADMINISTRADOR";
+  return normalizedUserRole;
 }
 
 export function getNavigationGroupIcon(

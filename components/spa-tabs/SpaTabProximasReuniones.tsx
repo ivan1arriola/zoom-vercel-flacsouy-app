@@ -13,6 +13,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  IconButton,
   MenuItem,
   Paper,
   Stack,
@@ -583,6 +584,7 @@ export function SpaTabProximasReuniones({
     const meetingId = normalizeZoomMeetingId(meeting.meetingId) ?? "-";
     const recurringCount = meetingId === "-" ? 1 : recurrenceCountByMeetingId.get(meetingId) ?? 1;
     const hostAccount = meeting.accountEmail?.trim() || meeting.accountName?.trim() || null;
+    const joinUrl = meeting.joinUrl?.trim() ?? "";
     const assistantStatus = meeting.association.assistantStatus;
     const requiresAssistance = assistantStatus !== "NO_APLICA";
     const assistantName = assistantStatus === "ASIGNADO" ? meeting.association.assistantName : null;
@@ -641,7 +643,7 @@ export function SpaTabProximasReuniones({
             </Stack>
           </Box>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-            {meeting.joinUrl ? (
+            {joinUrl ? (
               <Box sx={{ 
                 display: "flex", 
                 alignItems: "center", 
@@ -658,7 +660,7 @@ export function SpaTabProximasReuniones({
                 <Typography 
                   variant="body2" 
                   component="a"
-                  href={meeting.joinUrl}
+                  href={joinUrl}
                   target="_blank"
                   rel="noreferrer"
                   sx={{ 
@@ -671,12 +673,12 @@ export function SpaTabProximasReuniones({
                     "&:hover": { textDecoration: "underline" }
                   }}
                 >
-                  {meeting.joinUrl}
+                  {joinUrl}
                 </Typography>
                 <Tooltip title={copyFeedback[meetingKey] || "Copiar link"}>
                   <IconButton 
                     size="small" 
-                    onClick={() => handleCopy(meeting.joinUrl, meetingKey)}
+                    onClick={() => handleCopy(joinUrl, meetingKey)}
                     color={copyFeedback[meetingKey] ? "success" : "secondary"}
                   >
                     {copyFeedback[meetingKey] ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}

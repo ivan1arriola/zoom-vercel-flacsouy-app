@@ -99,8 +99,8 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
   };
 
   const effectiveRole = useMemo<ViewRole | "">(
-    () => resolveEffectiveRoleForUser(user.role, searchParams.get("viewAs")),
-    [user.role, searchParams]
+    () => resolveEffectiveRoleForUser(user.role),
+    [user.role]
   );
   const isAdminRole = effectiveRole === "ADMINISTRADOR";
 
