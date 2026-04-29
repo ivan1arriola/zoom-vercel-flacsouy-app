@@ -60,6 +60,7 @@ export type PersonHoursMeeting = {
   zoomAccountEmail?: string | null;
   zoomAccountName?: string | null;
   zoomHostAccount?: string | null;
+  requiereAsistencia?: boolean;
   responsableNombre?: string | null;
   asistenteNombre?: string | null;
   isCompleted: boolean;

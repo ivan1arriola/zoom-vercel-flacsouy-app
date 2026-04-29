@@ -15,6 +15,10 @@ import {
   TextField,
   Typography
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckIcon from "@mui/icons-material/Check";
+import Tooltip from "@mui/material/Tooltip";
 import { formatDateTime } from "@/src/lib/spa-home/recurrence";
 import type { PastMeeting } from "@/src/services/solicitudesApi";
 import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
@@ -62,6 +66,15 @@ interface SpaTabHistoricoProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function SpaTabHistorico({
   pastMeetings,
   isLoadingPastMeetings,
@@ -84,6 +97,16 @@ export function SpaTabHistorico({
     programaNombre: "",
     monitorEmail: ""
   });
+  const [copyFeedback, setCopyFeedback] = useState<Record<string, string>>({});
+
+  const handleCopy = async (text: string, key: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopyFeedback(prev => ({ ...prev, [key]: "¡Copiado!" }));
+      setTimeout(() => setCopyFeedback(prev => ({ ...prev, [key]: "" })), 2000);
+    }
+  };
+
   const isZoomSeedMode = Boolean(zoomSeed);
   const recurrenceCountByMeetingId = useMemo(() => {
     const map = new Map<string, number>();
@@ -149,9 +172,22 @@ export function SpaTabHistorico({
             </Stack>
 
             {isLoadingPastMeetings ? (
-              <Typography variant="body2" color="text.secondary">
-                Cargando reuniones pasadas...
-              </Typography>
+              <Stack spacing={1.5}>
+                {[1, 2, 3].map((i) => (
+                  <Paper key={i} variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: alpha(theme.palette.background.paper, 0.5) }}>
+                    <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+                      <Box sx={{ flexGrow: 1 }}>
+                        <Skeleton variant="text" width="40%" height={28} animation="wave" />
+                        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                          <Skeleton variant="rounded" width={80} height={24} sx={{ borderRadius: 1.5 }} animation="wave" />
+                          <Skeleton variant="rounded" width={100} height={24} sx={{ borderRadius: 1.5 }} animation="wave" />
+                        </Stack>
+                      </Box>
+                      <Skeleton variant="rounded" width={150} height={32} sx={{ borderRadius: 2 }} animation="wave" />
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
             ) : pastMeetings.length === 0 ? (
               <Alert severity="info">No hay reuniones pasadas registradas.</Alert>
             ) : (
@@ -195,16 +231,47 @@ export function SpaTabHistorico({
                         </Box>
                         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                           {meeting.zoomJoinUrl ? (
-                            <Button
-                              size="small"
-                              variant="contained"
-                              color="secondary"
-                              href={meeting.zoomJoinUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Abrir
-                            </Button>
+                            <Box sx={{ 
+                              display: "flex", 
+                              alignItems: "center", 
+                              gap: 0.5, 
+                              bgcolor: (theme) => alpha(theme.palette.secondary.main, 0.08),
+                              pl: 1.5,
+                              pr: 0.5,
+                              py: 0.5,
+                              borderRadius: 2,
+                              border: "1px solid",
+                              borderColor: (theme) => alpha(theme.palette.secondary.main, 0.2),
+                              maxWidth: { xs: "100%", md: 350 }
+                            }}>
+                              <Typography 
+                                variant="body2" 
+                                component="a"
+                                href={meeting.zoomJoinUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                sx={{ 
+                                  fontWeight: 700, 
+                                  color: "secondary.main",
+                                  textDecoration: "none",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  "&:hover": { textDecoration: "underline" }
+                                }}
+                              >
+                                {meeting.zoomJoinUrl}
+                              </Typography>
+                              <Tooltip title={copyFeedback[meeting.id] || "Copiar link"}>
+                                <IconButton 
+                                  size="small" 
+                                  onClick={() => handleCopy(meeting.zoomJoinUrl, meeting.id)}
+                                  color={copyFeedback[meeting.id] ? "success" : "secondary"}
+                                >
+                                  {copyFeedback[meeting.id] ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
                           ) : null}
                           <Button
                             size="small"

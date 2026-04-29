@@ -267,6 +267,71 @@ function getUserDisplayName(user: {
   );
 }
 
+function buildDocenteSolicitudesWhere(user: SessionUser): Prisma.SolicitudSalaWhereInput {
+  const ownSolicitudesWhere: Prisma.SolicitudSalaWhereInput = {
+    docente: {
+      usuarioId: user.id
+    }
+  };
+
+  const emailCandidates = Array.from(
+    new Set(
+      [user.email, ...(user.emails ?? [])]
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+  const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim().toLowerCase();
+  const explicitName = (user.name ?? "").trim().toLowerCase();
+  const nameCandidates = Array.from(new Set([fullName, explicitName].filter(Boolean)));
+
+  const responsibleMatches: Prisma.SolicitudSalaWhereInput[] = [];
+  for (const email of emailCandidates) {
+    responsibleMatches.push({
+      responsableNombre: {
+        equals: email,
+        mode: Prisma.QueryMode.insensitive
+      }
+    });
+    responsibleMatches.push({
+      responsableNombre: {
+        contains: email,
+        mode: Prisma.QueryMode.insensitive
+      }
+    });
+  }
+  for (const name of nameCandidates) {
+    responsibleMatches.push({
+      responsableNombre: {
+        equals: name,
+        mode: Prisma.QueryMode.insensitive
+      }
+    });
+  }
+
+  if (responsibleMatches.length === 0) {
+    return ownSolicitudesWhere;
+  }
+
+  return {
+    OR: [
+      ownSolicitudesWhere,
+      {
+        AND: [
+          {
+            createdBy: {
+              role: UserRole.ADMINISTRADOR
+            }
+          },
+          {
+            OR: responsibleMatches
+          }
+        ]
+      }
+    ]
+  };
+}
+
 function toMonthKey(date: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
@@ -3140,7 +3205,14 @@ export class SalasService {
               estadoEvento: {
                 notIn: [EstadoEventoZoom.CANCELADO, EstadoEventoZoom.FINALIZADO]
               },
-              OR: [{ zoomJoinUrl: null }, { zoomMeetingId: null }]
+              AND: [
+                {
+                  OR: [{ zoomJoinUrl: null }, { zoomJoinUrl: "" }]
+                },
+                {
+                  OR: [{ zoomMeetingId: null }, { zoomMeetingId: "" }]
+                }
+              ]
             }
           }),
           db.eventoZoom.findMany({
@@ -3219,13 +3291,9 @@ export class SalasService {
     }
 
     if (user.role === UserRole.DOCENTE) {
-      const ownSolicitudesWhere = {
-        docente: {
-          usuarioId: user.id
-        }
-      };
+      const ownSolicitudesWhere = buildDocenteSolicitudesWhere(user);
 
-      const [solicitudesTotales, solicitudesActivas, proximasReuniones, reunionesConZoom, nextEvent] =
+      const [solicitudesTotales, solicitudesActivas, upcomingEvents, linkedEvents, nextEvent] =
         await Promise.all([
           db.solicitudSala.count({ where: ownSolicitudesWhere }),
           db.solicitudSala.count({
@@ -3239,19 +3307,25 @@ export class SalasService {
               }
             }
           }),
-          db.eventoZoom.count({
+          db.eventoZoom.findMany({
             where: {
               solicitud: ownSolicitudesWhere,
               inicioProgramadoAt: { gte: now },
               estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            },
+            select: {
+              solicitudSalaId: true
             }
           }),
-          db.eventoZoom.count({
+          db.eventoZoom.findMany({
             where: {
               solicitud: ownSolicitudesWhere,
-              inicioProgramadoAt: { gte: now },
-              zoomMeetingId: { not: null },
               estadoEvento: { not: EstadoEventoZoom.CANCELADO }
+            },
+            select: {
+              solicitudSalaId: true,
+              zoomJoinUrl: true,
+              zoomMeetingId: true
             }
           }),
           db.eventoZoom.findFirst({
@@ -3306,6 +3380,20 @@ export class SalasService {
             }
           })
         ]);
+
+      const proximasReuniones = upcomingEvents.length;
+      const solicitudesConZoom = new Set(
+        linkedEvents
+          .filter((event) => {
+            const hasJoinUrl = (event.zoomJoinUrl ?? "").trim().length > 0;
+            const hasMeetingId = normalizeZoomMeetingId(event.zoomMeetingId) !== null;
+            return hasJoinUrl || hasMeetingId;
+          })
+          .map((event) => event.solicitudSalaId)
+      );
+      const reunionesConZoom = upcomingEvents.filter((event) =>
+        solicitudesConZoom.has(event.solicitudSalaId)
+      ).length;
 
       let nextMeeting = null;
       if (nextEvent) {
@@ -3688,15 +3776,12 @@ export class SalasService {
     const canSeeAll =
       user.role === UserRole.ADMINISTRADOR ||
       user.role === UserRole.CONTADURIA;
+    const ownSolicitudesWhere = buildDocenteSolicitudesWhere(user);
 
     const solicitudes = await db.solicitudSala.findMany({
       where: canSeeAll
         ? undefined
-        : {
-            docente: {
-              usuarioId: user.id
-            }
-          },
+        : ownSolicitudesWhere,
       orderBy: { createdAt: "desc" },
       include: {
         eventos: {
@@ -9206,6 +9291,14 @@ export class SalasService {
     const buildMeetingFromAssignment = (assignment: {
       id: string;
       estadoAsignacion: EstadoAsignacion;
+      asistente?: {
+        usuario?: {
+          name?: string | null;
+          firstName?: string | null;
+          lastName?: string | null;
+          email?: string | null;
+        } | null;
+      } | null;
       evento: {
         id: string;
         solicitudSalaId: string;
@@ -9221,6 +9314,7 @@ export class SalasService {
         zoomMeetingId: string | null;
         zoomJoinUrl: string | null;
         zoomPayloadUltimo: Prisma.JsonValue | null;
+        requiereAsistencia: boolean;
         cuentaZoom: {
           ownerEmail: string;
           nombreCuenta: string;
@@ -9231,6 +9325,16 @@ export class SalasService {
           requiereGrabacion: boolean;
           responsableNombre?: string | null;
         };
+        asignaciones?: Array<{
+          asistente?: {
+            usuario?: {
+              name?: string | null;
+              firstName?: string | null;
+              lastName?: string | null;
+              email?: string | null;
+            } | null;
+          } | null;
+        }>;
       };
     }) => {
       const event = assignment.evento;
@@ -9280,6 +9384,15 @@ export class SalasService {
       const zoomAccountEmail = event.cuentaZoom?.ownerEmail ?? null;
       const zoomAccountName = event.cuentaZoom?.nombreCuenta ?? null;
       const zoomHostAccount = pickZoomHostAccountLabel(zoomAccountEmail, zoomAccountName);
+      const assistantUser =
+        event.asignaciones?.[0]?.asistente?.usuario ??
+        assignment.asistente?.usuario ??
+        null;
+      const assistantName =
+        assistantUser?.name?.trim() ||
+        [assistantUser?.firstName, assistantUser?.lastName].filter(Boolean).join(" ").trim() ||
+        assistantUser?.email?.trim() ||
+        null;
 
       return {
         assignmentId: assignment.id,
@@ -9309,9 +9422,9 @@ export class SalasService {
         zoomAccountEmail,
         zoomAccountName,
         zoomHostAccount,
+        requiereAsistencia: event.requiereAsistencia,
         responsableNombre: event.solicitud.responsableNombre ?? null,
-        asistenteNombre: (assignment as any).asistente?.usuario?.name || 
-                         (assignment as any).asistente?.usuario?.firstName + " " + (assignment as any).asistente?.usuario?.lastName || null,
+        asistenteNombre: assistantName,
         isCompleted,
         timezone: event.timezone || "America/Montevideo"
       };
@@ -9436,6 +9549,7 @@ export class SalasService {
           zoomMeetingId: true,
           zoomJoinUrl: true,
           zoomPayloadUltimo: true,
+          requiereAsistencia: true,
           cuentaZoom: {
             select: {
               ownerEmail: true,
@@ -9510,6 +9624,7 @@ export class SalasService {
               zoomMeetingId: true,
               zoomJoinUrl: true,
               zoomPayloadUltimo: true,
+              requiereAsistencia: true,
               cuentaZoom: {
                 select: {
                   ownerEmail: true,
@@ -9575,6 +9690,7 @@ export class SalasService {
             zoomMeetingId: true,
             zoomJoinUrl: true,
             zoomPayloadUltimo: true,
+            requiereAsistencia: true,
             cuentaZoom: {
               select: {
                 ownerEmail: true,

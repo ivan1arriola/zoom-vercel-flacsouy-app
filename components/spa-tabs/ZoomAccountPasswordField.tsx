@@ -58,7 +58,12 @@ export function ZoomAccountPasswordField({
       setError("");
     } else {
       setPassword(null);
-      setError(payload.error ?? "No hay contrasena disponible para esta cuenta.");
+      const rawError = payload.error || "";
+      if (rawError.includes("Forbidden") || rawError.includes("forbidden")) {
+        setError("Sin permiso para ver");
+      } else {
+        setError(rawError || "No disponible");
+      }
     }
     setIsLoading(false);
   }
@@ -81,7 +86,7 @@ export function ZoomAccountPasswordField({
           variant="body2"
           sx={{
             fontFamily: "monospace",
-            color: isVisible && error && !isLoading && !password ? "warning.main" : "text.primary"
+            color: isVisible && error && !isLoading && !password ? "error.main" : "text.primary"
           }}
         >
           {displayValue}

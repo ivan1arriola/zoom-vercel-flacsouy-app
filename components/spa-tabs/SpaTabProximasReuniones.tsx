@@ -21,6 +21,10 @@ import {
   ToggleButtonGroup,
   Typography
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckIcon from "@mui/icons-material/Check";
+import Tooltip from "@mui/material/Tooltip";
 import {
   loadZoomPastMeetingDetails,
   type ZoomPastMeetingDetails,
@@ -325,6 +329,15 @@ function renderAssociation(meeting: ZoomUpcomingMeeting) {
   );
 }
 
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function SpaTabProximasReuniones({
   title = "Proximas reuniones (Zoom)",
   subtitle = "Reuniones listadas desde Zoom para el grupo seleccionado.",
@@ -359,6 +372,16 @@ export function SpaTabProximasReuniones({
     requiereAsistencia: false,
     descripcion: ""
   });
+  const [copyFeedback, setCopyFeedback] = useState<Record<string, string>>({});
+
+  const handleCopy = async (text: string, key: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopyFeedback(prev => ({ ...prev, [key]: "¡Copiado!" }));
+      setTimeout(() => setCopyFeedback(prev => ({ ...prev, [key]: "" })), 2000);
+    }
+  };
+
   const [expandedDetailsByMeeting, setExpandedDetailsByMeeting] = useState<Record<string, boolean>>({});
   const [loadingDetailsByMeeting, setLoadingDetailsByMeeting] = useState<Record<string, boolean>>({});
   const [detailsByMeeting, setDetailsByMeeting] = useState<Record<string, ZoomPastMeetingDetails | null>>({});
@@ -619,16 +642,47 @@ export function SpaTabProximasReuniones({
           </Box>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
             {meeting.joinUrl ? (
-              <Button
-                size="small"
-                variant="contained"
-                color="secondary"
-                href={meeting.joinUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Abrir en Zoom
-              </Button>
+              <Box sx={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 0.5, 
+                bgcolor: (theme) => alpha(theme.palette.secondary.main, 0.08),
+                pl: 1.5,
+                pr: 0.5,
+                py: 0.5,
+                borderRadius: 2,
+                border: "1px solid",
+                borderColor: (theme) => alpha(theme.palette.secondary.main, 0.2),
+                maxWidth: { xs: "100%", md: 350 }
+              }}>
+                <Typography 
+                  variant="body2" 
+                  component="a"
+                  href={meeting.joinUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  sx={{ 
+                    fontWeight: 700, 
+                    color: "secondary.main",
+                    textDecoration: "none",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    "&:hover": { textDecoration: "underline" }
+                  }}
+                >
+                  {meeting.joinUrl}
+                </Typography>
+                <Tooltip title={copyFeedback[meetingKey] || "Copiar link"}>
+                  <IconButton 
+                    size="small" 
+                    onClick={() => handleCopy(meeting.joinUrl, meetingKey)}
+                    color={copyFeedback[meetingKey] ? "success" : "secondary"}
+                  >
+                    {copyFeedback[meetingKey] ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
+              </Box>
             ) : null}
             {!meeting.association.linked && onRegisterUpcomingMeeting ? (
               <Button

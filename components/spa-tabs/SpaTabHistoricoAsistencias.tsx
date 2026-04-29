@@ -174,8 +174,42 @@ export function SpaTabHistoricoAsistencias({ userId, role }: SpaTabHistoricoAsis
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
       {isLoading && meetings.length === 0 ? (
-        <Stack spacing={2}>
-          {[1, 2, 3].map(i => <Skeleton key={i} variant="rounded" height={150} sx={{ borderRadius: 4 }} />)}
+        <Stack spacing={2.5}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mb: 3 }}>
+            <Skeleton variant="rounded" height={80} sx={{ borderRadius: 3 }} animation="wave" />
+            <Skeleton variant="rounded" height={80} sx={{ borderRadius: 3 }} animation="wave" />
+          </Box>
+          <Stack spacing={1.5}>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Paper
+                key={i}
+                variant="outlined"
+                sx={{
+                  p: 1.5,
+                  borderRadius: 2,
+                  borderLeft: "4px solid",
+                  borderLeftColor: "divider",
+                  bgcolor: alpha(theme.palette.background.paper, 0.5)
+                }}
+              >
+                <Stack direction="row" spacing={2} alignItems="center">
+                  <Box sx={{ minWidth: 45, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <Skeleton variant="text" width={24} height={32} animation="wave" />
+                    <Skeleton variant="text" width={32} height={16} animation="wave" />
+                  </Box>
+                  <Divider orientation="vertical" flexItem />
+                  <Box sx={{ flex: 1 }}>
+                    <Skeleton variant="text" width="40%" height={24} animation="wave" />
+                    <Skeleton variant="text" width="30%" height={16} animation="wave" />
+                    <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                      <Skeleton variant="rounded" width={60} height={18} sx={{ borderRadius: 1 }} animation="wave" />
+                      <Skeleton variant="rounded" width={50} height={18} sx={{ borderRadius: 1 }} animation="wave" />
+                    </Stack>
+                  </Box>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
         </Stack>
       ) : meetings.length === 0 ? (
         <Paper sx={{ p: 8, textAlign: "center", borderRadius: 4, bgcolor: alpha(theme.palette.primary.main, 0.03), border: "2px dashed", borderColor: alpha(theme.palette.primary.main, 0.1) }}>

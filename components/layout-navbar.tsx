@@ -144,8 +144,9 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
     if (tabId === "mis_asistencias") {
       return `Reuniones de ${currentMonthLabel}`;
     }
-    if (tabId === "solicitudes" && isAdminRole) {
-      return "Todas las reuniones";
+    if (tabId === "solicitudes") {
+      if (effectiveRole === "DOCENTE") return "Mis Solicitudes";
+      if (isAdminRole) return "Todas las solicitudes";
     }
     return config.label;
   }

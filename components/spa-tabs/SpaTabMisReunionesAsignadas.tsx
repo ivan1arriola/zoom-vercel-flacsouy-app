@@ -30,6 +30,7 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import KeyIcon from "@mui/icons-material/Key";
 import LinkIcon from "@mui/icons-material/Link";
+import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 
 import {
   loadPersonHours,
@@ -116,6 +117,31 @@ function buildGoogleCalendarUrl(meeting: PersonHoursMeeting): string {
     location: "Zoom"
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function getDocenteAssistantStatus(meeting: PersonHoursMeeting): {
+  kind: "assigned" | "pending" | "not_required";
+  text: string;
+} {
+  if (meeting.requiereAsistencia === false) {
+    return {
+      kind: "not_required",
+      text: "No es requerida la asistencia de Zoom."
+    };
+  }
+
+  const assignedName = (meeting.asistenteNombre ?? "").trim();
+  if (assignedName) {
+    return {
+      kind: "assigned",
+      text: assignedName
+    };
+  }
+
+  return {
+    kind: "pending",
+    text: "Aún no ha sido asignado nadie."
+  };
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -251,8 +277,58 @@ export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReuniones
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
       {isLoading && meetings.length === 0 ? (
-        <Stack spacing={2}>
-          {[1, 2, 3].map(i => <Skeleton key={i} variant="rounded" height={200} sx={{ borderRadius: 4 }} />)}
+        <Stack spacing={2.5}>
+          {[1, 2, 3].map((i) => (
+            <Paper
+              key={i}
+              variant="outlined"
+              sx={{
+                p: 3,
+                borderRadius: 4,
+                borderLeft: "8px solid",
+                borderLeftColor: "divider",
+                bgcolor: alpha(theme.palette.background.paper, 0.5),
+                display: "flex",
+                flexDirection: { xs: "column", lg: "row" },
+                gap: 4
+              }}
+            >
+              <Box sx={{ flex: 1 }}>
+                <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                  <Skeleton variant="rounded" width={100} height={24} sx={{ borderRadius: 1.5 }} animation="wave" />
+                  <Skeleton variant="rounded" width={150} height={24} sx={{ borderRadius: 1.5 }} animation="wave" />
+                  <Skeleton variant="rounded" width={80} height={24} sx={{ borderRadius: 1.5 }} animation="wave" />
+                </Stack>
+                <Skeleton variant="text" width="60%" height={32} sx={{ mb: 1 }} animation="wave" />
+                <Skeleton variant="text" width="40%" height={24} sx={{ mb: 3 }} animation="wave" />
+                
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 3, mb: 3 }}>
+                  <Box>
+                    <Skeleton variant="text" width="30%" />
+                    <Skeleton variant="text" width="50%" />
+                  </Box>
+                  <Box>
+                    <Skeleton variant="text" width="30%" />
+                    <Skeleton variant="text" width="50%" />
+                  </Box>
+                </Box>
+
+                <Skeleton 
+                  variant="rounded" 
+                  height={80} 
+                  sx={{ 
+                    borderRadius: 3, 
+                    bgcolor: alpha(theme.palette.primary.main, 0.02) 
+                  }} 
+                  animation="wave" 
+                />
+              </Box>
+              <Box sx={{ width: { xs: "100%", lg: 200 }, display: "flex", flexDirection: "column", gap: 2, justifyContent: "center" }}>
+                <Skeleton variant="rounded" height={48} sx={{ borderRadius: 3 }} animation="wave" />
+                <Skeleton variant="text" width="100%" />
+              </Box>
+            </Paper>
+          ))}
         </Stack>
       ) : meetings.length === 0 ? (
         <Paper sx={{ p: 8, textAlign: "center", borderRadius: 4, bgcolor: alpha(theme.palette.primary.main, 0.03), border: "2px dashed", borderColor: alpha(theme.palette.primary.main, 0.1) }}>
@@ -289,6 +365,7 @@ export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReuniones
                   const password = passwords[host || ""] || "";
                   const isVisible = showPasswords[mKey];
                   const isLoadingPass = host ? passwordLoading[host] : false;
+                  const docenteAssistantStatus = role === "DOCENTE" ? getDocenteAssistantStatus(m) : null;
 
                   return (
                     <Paper
@@ -348,9 +425,33 @@ export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReuniones
                               <Typography variant="caption" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontWeight: 700, mb: 0.5 }}>
                                 <PersonIcon fontSize="inherit" /> {role === "DOCENTE" ? "ASISTENTE ASIGNADO" : "PERSONA A CARGO"}
                               </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                                {role === "DOCENTE" ? (m.asistenteNombre || "Sin asignar") : (m.responsableNombre || "No definido")}
-                              </Typography>
+                              {role === "DOCENTE" ? (
+                                docenteAssistantStatus?.kind === "pending" ? (
+                                  <Stack direction="row" spacing={0.75} alignItems="center">
+                                    <WarningAmberRoundedIcon sx={{ fontSize: 16, color: "warning.main" }} />
+                                    <Typography variant="body2" sx={{ fontWeight: 700, color: "warning.main" }}>
+                                      {docenteAssistantStatus.text}
+                                    </Typography>
+                                  </Stack>
+                                ) : (
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      fontWeight: 700,
+                                      color:
+                                        docenteAssistantStatus?.kind === "not_required"
+                                          ? "text.secondary"
+                                          : "text.primary"
+                                    }}
+                                  >
+                                    {docenteAssistantStatus?.text}
+                                  </Typography>
+                                )
+                              ) : (
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                  {m.responsableNombre || "No definido"}
+                                </Typography>
+                              )}
                             </Box>
                             <Box>
                               <Typography variant="caption" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontWeight: 700, mb: 0.5 }}>

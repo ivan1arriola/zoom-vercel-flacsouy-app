@@ -96,6 +96,16 @@ export function MuiProvider({ children }: { children: ReactNode }) {
           fontFamily: "Roboto, 'Helvetica Neue', Arial, sans-serif"
         },
         components: {
+          MuiCard: {
+            styleOverrides: {
+              root: {
+                borderRadius: 20,
+                border: "1px solid",
+                borderColor: mode === "dark" ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.06)",
+                boxShadow: "none"
+              }
+            }
+          },
           MuiCardContent: {
             styleOverrides: {
               root: {
@@ -103,6 +113,14 @@ export function MuiProvider({ children }: { children: ReactNode }) {
                 "&:last-child": {
                   paddingBottom: 24
                 }
+              }
+            }
+          },
+          MuiDialog: {
+            styleOverrides: {
+              paper: {
+                borderRadius: 28,
+                padding: 8
               }
             }
           },
@@ -117,7 +135,7 @@ export function MuiProvider({ children }: { children: ReactNode }) {
             styleOverrides: {
               root: {
                 backgroundImage: "none",
-                boxShadow: mode === "dark" ? "0 4px 20px 0 rgba(0,0,0,0.4)" : "0 4px 12px 0 rgba(0,0,0,0.05)"
+                borderRadius: 16
               }
             }
           },
@@ -126,7 +144,55 @@ export function MuiProvider({ children }: { children: ReactNode }) {
               root: {
                 textTransform: "none",
                 fontWeight: 600,
-                borderRadius: 10
+                borderRadius: 24,
+                padding: "8px 24px"
+              },
+              contained: {
+                boxShadow: "none",
+                "&:hover": {
+                  boxShadow: "none"
+                }
+              }
+            }
+          },
+          MuiTextField: {
+            defaultProps: {
+              variant: "outlined"
+            },
+            styleOverrides: {
+              root: {
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: 12,
+                  backgroundColor: mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                  "& fieldset": {
+                    borderColor: mode === "dark" ? "rgba(148, 163, 184, 0.2)" : "rgba(15, 23, 42, 0.12)"
+                  },
+                  "&:hover fieldset": {
+                    borderColor: mode === "dark" ? "rgba(148, 163, 184, 0.4)" : "rgba(15, 23, 42, 0.24)"
+                  }
+                }
+              }
+            }
+          },
+          MuiToggleButtonGroup: {
+            styleOverrides: {
+              root: {
+                borderRadius: 24,
+                backgroundColor: mode === "dark" ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+                padding: 4,
+                border: "none"
+              },
+              grouped: {
+                border: "none",
+                borderRadius: 20,
+                margin: 2,
+                "&.Mui-selected": {
+                  backgroundColor: mode === "dark" ? "#60a5fa" : "#1f4b8f",
+                  color: "#ffffff",
+                  "&:hover": {
+                    backgroundColor: mode === "dark" ? "#3b82f6" : "#16386b"
+                  }
+                }
               }
             }
           }

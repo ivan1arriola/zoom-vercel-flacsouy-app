@@ -2299,6 +2299,7 @@ export function SpaHomeScreen() {
           onCreatePrograma={createProgramaOnDemand}
           docenteSolicitudesView="form"
           setDocenteSolicitudesView={() => {}}
+          viewerRole={effectiveRole}
           onSubmit={submitDocenteSolicitud}
           isLoading={isLoadingSolicitudes}
         />
@@ -2340,6 +2341,7 @@ export function SpaHomeScreen() {
           onCreatePrograma={createProgramaOnDemand}
           docenteSolicitudesView="list"
           setDocenteSolicitudesView={() => {}}
+          viewerRole={effectiveRole}
           onSubmit={submitDocenteSolicitud}
           isLoading={isLoadingSolicitudes}
         />

@@ -122,6 +122,10 @@ export function SpaNavbar({
     if (tabKey === "mis_asistencias") {
       return `Reuniones de ${currentMonthLabel}`;
     }
+    if (tabKey === "solicitudes") {
+      if (user?.role === "DOCENTE") return "Mis Solicitudes";
+      if (isAdmin) return "Todas las solicitudes";
+    }
     return config.label;
   }
 
