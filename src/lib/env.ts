@@ -67,14 +67,27 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(rawEnv);
 
 if (!parsed.success) {
-  console.error(parsed.error.flatten().fieldErrors);
-  throw new Error("Variables de entorno inválidas.");
+  const isBuild = process.env.NEXT_PHASE === "phase-production-build" || process.env.VERCEL === "1";
+  if (isBuild) {
+    console.warn("⚠️ Advertencia: Variables de entorno faltantes o inválidas durante la fase de compilación.");
+    console.warn(JSON.stringify(parsed.error.flatten().fieldErrors, null, 2));
+  } else {
+    console.error(parsed.error.flatten().fieldErrors);
+    throw new Error("Variables de entorno inválidas.");
+  }
 }
 
-export const env = parsed.data;
+// Durante el build permitimos que falten o sean inválidas, pero en runtime fallará si no están
+export const env = parsed.success 
+  ? parsed.data 
+  : (envSchema.partial().parse(rawEnv) as any);
 
-if (env.NODE_ENV === "production" && !env.AUTH_SECRET) {
+if (env.NODE_ENV === "production" && !env.AUTH_SECRET && process.env.NEXT_PHASE !== "phase-production-build") {
   throw new Error("AUTH_SECRET es obligatorio en producción.");
+}
+
+if (env.NODE_ENV === "production" && !env.DATABASE_URL && process.env.NEXT_PHASE !== "phase-production-build") {
+  throw new Error("DATABASE_URL es obligatorio en producción.");
 }
 
 export const authSecret =
