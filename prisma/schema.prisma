@@ -49,6 +49,7 @@ model User {
   liquidacionesGeneradas Liquidacion[] @relation("LiquidacionGeneradaPor")
   liquidacionesRevisadas Liquidacion[] @relation("LiquidacionRevisadaPor")
   liquidacionesPagadas Liquidacion[] @relation("LiquidacionPagadaPor")
+  pushSubscriptions     PushSubscription[]
 }
 
 model UserEmailAlias {
@@ -610,4 +611,19 @@ enum EstadoIncidencia {
   EN_ANALISIS
   RESUELTA
   CERRADA
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

@@ -28,7 +28,10 @@ import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
+import { usePushNotifications } from "@/src/hooks/usePushNotifications";
+
 type NotificationScope = "mine" | "all";
+// ... (omitting types for brevity in instructions, will keep them in replacement)
 type NotificationReadFilter = "TODAS" | "LEIDAS" | "NO_LEIDAS";
 type NotificationOrder = "asc" | "desc";
 
@@ -145,7 +148,13 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
   const [tipoFiltro, setTipoFiltro] = useState<"" | "EMAIL" | "IN_APP" | "ALERTA_OPERATIVA">("");
   const [estadoFiltro, setEstadoFiltro] = useState<"" | "PENDIENTE" | "ENVIADA" | "FALLIDA">("");
   const [error, setError] = useState("");
-  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | "unsupported">("unsupported");
+  const { 
+    permission: pushPermission, 
+    isSubscribed, 
+    isLoading: isPushLoading, 
+    subscribe: subscribePush, 
+    unsubscribe: unsubscribePush 
+  } = usePushNotifications();
 
   async function fetchNotificaciones(page: number = 1) {
     setIsLoading(true);
@@ -242,20 +251,6 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
   useEffect(() => {
     void fetchNotificaciones(1);
   }, [scope, lecturaFiltro, ordenFiltro, tipoFiltro, estadoFiltro]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !("Notification" in window)) {
-      setBrowserPermission("unsupported");
-      return;
-    }
-    setBrowserPermission(Notification.permission);
-  }, []);
-
-  async function enableBrowserNotifications() {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    const permission = await Notification.requestPermission();
-    setBrowserPermission(permission);
-  }
 
   const currentPageUnreadIds = useMemo(
     () => notificaciones.filter((item) => !item.leidaAt).map((item) => item.id),
@@ -386,29 +381,36 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
               display: "flex", 
               flexDirection: "column",
               justifyContent: "center",
-              backgroundColor: "primary.main",
-              color: "primary.contrastText",
+              backgroundColor: isSubscribed ? "success.main" : "primary.main",
+              color: "white",
               border: "none",
-              cursor: browserPermission !== "granted" ? "pointer" : "default",
+              cursor: (pushPermission === "unsupported" || isPushLoading) ? "default" : "pointer",
+              transition: "all 0.2s ease",
               "&:hover": {
-                backgroundColor: browserPermission !== "granted" ? "primary.dark" : "primary.main"
+                backgroundColor: isSubscribed ? "success.dark" : "primary.dark",
+                opacity: (pushPermission === "unsupported" || isPushLoading) ? 1 : 0.9
               }
             }}
             onClick={() => {
-              if (browserPermission !== "granted" && browserPermission !== "unsupported") {
-                void enableBrowserNotifications();
+              if (isPushLoading || pushPermission === "unsupported") return;
+              if (isSubscribed) {
+                void unsubscribePush();
+              } else {
+                void subscribePush();
               }
             }}
           >
             <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.9 }}>
-              Navegador
+              Notificaciones Push
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              {browserPermission === "granted"
-                ? "Notificaciones activas"
-                : browserPermission === "unsupported"
-                  ? "Sin soporte"
-                  : "Activar notificaciones"}
+              {isPushLoading 
+                ? "Cargando..." 
+                : pushPermission === "unsupported"
+                  ? "No soportado"
+                  : isSubscribed 
+                    ? "Activadas (PWA/Push)" 
+                    : "Activar en este dispositivo"}
             </Typography>
           </Paper>
         </Stack>

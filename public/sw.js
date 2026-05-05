@@ -74,6 +74,29 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  try {
+    const payload = event.data.json();
+    const title = payload.title || "Notificacion FLACSO Zoom";
+    const options = {
+      body: payload.body,
+      icon: payload.icon || "/pwa-192x192.png",
+      badge: "/favicon.ico",
+      data: {
+        url: payload.url || "/"
+      },
+      tag: payload.tag || "flacso-notification",
+      renotify: true
+    };
+
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (error) {
+    console.error("Error al procesar evento push:", error);
+  }
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const targetUrl = event.notification?.data?.url || "/";

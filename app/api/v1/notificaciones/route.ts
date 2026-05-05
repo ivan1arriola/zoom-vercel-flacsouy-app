@@ -212,6 +212,36 @@ export async function POST(request: Request) {
     }))
   });
 
+  // Intentar enviar notificaciones Push si el tipo es IN_APP o ALERTA_OPERATIVA
+  if (data.tipoNotificacion !== TipoNotificacion.EMAIL) {
+    const pushSubscribers = await db.pushSubscription.findMany({
+      where: { userId: { in: destinatarios.map(d => d.id) } }
+    });
+
+    const { sendPushNotification } = await import("@/src/lib/push");
+
+    // Enviamos de forma asincrona sin bloquear la respuesta de la API
+    void Promise.all(pushSubscribers.map(sub => 
+      sendPushNotification(
+        {
+          endpoint: sub.endpoint,
+          keys: { p256dh: sub.p256dh, auth: sub.auth }
+        },
+        {
+          title: data.asunto,
+          body: data.cuerpo,
+          url: "/notificaciones", // Opcional: podriamos derivar una URL mas especifica
+          tag: "flacso-push"
+        }
+      ).then(res => {
+        if (res.success === false && res.expired) {
+          // Limpiar suscripciones expiradas
+          void db.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+        }
+      })
+    )).catch(err => console.error("Error en envio masivo push:", err));
+  }
+
   return NextResponse.json(
     {
       ok: true,
