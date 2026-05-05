@@ -39,7 +39,7 @@ function mapAuthError(raw?: string): string {
   const value = (raw ?? "").trim();
   if (!value) return "";
   if (value === "AccessDenied") {
-    return "Google solo esta habilitado para cuentas @flacso.edu.uy. Usa registro por correo.";
+    return "Google rechazo el acceso. Verifica la configuracion de OAuth e intentalo nuevamente.";
   }
   return value;
 }
@@ -57,7 +57,7 @@ export function InlineLogin({
 }: InlineLoginProps) {
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === "dark";
-  const googleDomainNotice = "Google solo para @flacso.edu.uy; el resto por correo y contrasena.";
+  const googleDomainNotice = "Puedes ingresar con cualquier cuenta de Google o con correo y contrasena.";
   const [activePanel, setActivePanel] = useState<AuthPanel>("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);

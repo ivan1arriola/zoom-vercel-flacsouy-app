@@ -57,7 +57,8 @@ import {
 import {
   loadAgendaLibre,
   setInterest as setInterestApi,
-  assignAssistantToEvent as assignAssistantToEventApi
+  assignAssistantToEvent as assignAssistantToEventApi,
+  unassignAssistantFromEvent as unassignAssistantFromEventApi
 } from "@/src/services/agendaApi";
 import {
   loadUsers,
@@ -469,10 +470,6 @@ export function SpaHomeScreen() {
     );
     return selectedOption?.monthsBack ?? DEFAULT_ZOOM_PAST_MONTHS_BACK;
   }, [selectedZoomPastMonthKey, zoomPastMonthOptions]);
-  const canUseGoogleByEmail = useMemo(
-    () => Boolean(user?.email?.trim().toLowerCase().endsWith("@flacso.edu.uy")),
-    [user?.email]
-  );
   const docenteLinkedEmailOptions = useMemo(
     () => resolveUserAccessEmails(user),
     [user]
@@ -889,10 +886,6 @@ export function SpaHomeScreen() {
 
   useEffect(() => {
     if (tab !== "perfil" || !user) return;
-    if (!canUseGoogleByEmail) {
-      setGoogleLinked(false);
-      return;
-    }
     (async () => {
       setIsLoadingGoogleStatus(true);
       try {
@@ -903,7 +896,7 @@ export function SpaHomeScreen() {
         setIsLoadingGoogleStatus(false);
       }
     })();
-  }, [tab, user?.id, canUseGoogleByEmail]);
+  }, [tab, user?.id]);
 
   useEffect(() => {
     if ((tab !== "cuentas" && tab !== "manual") || !canSeeZoomAccounts) return;
@@ -1658,6 +1651,34 @@ export function SpaHomeScreen() {
     }
   }
 
+  async function onUnassignAssistantFromEvent(eventoId: string) {
+    if (!window.confirm("¿Deseas quitar a la persona asignada? El requerimiento de asistencia se mantendrá y la reunión volverá a Pendientes.")) {
+      return;
+    }
+
+    setRemovingAssistanceAssignmentEventId(eventoId);
+    try {
+      const response = await unassignAssistantFromEventApi(eventoId);
+      if (!response.success) {
+        setMessage(response.error ?? "No se pudo desasignar asistencia.");
+        return;
+      }
+
+      setMessage("Asistente desasignado. La reunión volvió a Pendientes.");
+      await Promise.all([loadAssignmentBoard(), loadSummary()]).then(([assignmentData, summaryData]) => {
+        if (assignmentData) {
+          setAssignmentBoardEvents(assignmentData.events ?? []);
+          setAssignableAssistants(assignmentData.assistants ?? []);
+        }
+        if (summaryData) setSummary(summaryData);
+      });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo desasignar asistencia.");
+    } finally {
+      setRemovingAssistanceAssignmentEventId(null);
+    }
+  }
+
   function applySuggestionSelection(suggestion: AssignmentSuggestion | null) {
     if (!suggestion) return;
     setSelectedAssistantByEvent((current) => {
@@ -1725,10 +1746,6 @@ export function SpaHomeScreen() {
   }
 
   async function linkGoogleAccount() {
-    if (!canUseGoogleByEmail) {
-      setMessage("Google solo esta habilitado para cuentas @flacso.edu.uy.");
-      return;
-    }
     setMessage("");
     await signIn("google", { callbackUrl: "/" });
   }
@@ -2430,6 +2447,7 @@ export function SpaHomeScreen() {
           onRemoveAssistanceForEvent={removeAssistanceFromAssignmentEvent}
           onSuggestMonthly={suggestMonthlyAssignment}
           onSuggestNext={suggestNextMonthlyAssignment}
+          onUnassignAssistant={onUnassignAssistantFromEvent}
           onDownloadReport={async () => {
             const result = await downloadMonthlyAccountingReport();
             if (!result.success && result.error) {
@@ -2564,7 +2582,6 @@ export function SpaHomeScreen() {
           setPasswordForm={setPasswordForm}
           showPasswordForm={showPasswordForm}
           setShowPasswordForm={setShowPasswordForm}
-          canUseGoogleByEmail={canUseGoogleByEmail}
           onLinkGoogleAccount={linkGoogleAccount}
           onUnlinkGoogleAccount={unlinkGoogleAccount}
           onSyncProfileFromGoogle={syncProfileFromGoogle}

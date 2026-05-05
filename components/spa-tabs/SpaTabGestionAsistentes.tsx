@@ -74,6 +74,7 @@ interface SpaTabGestionAsistentesProps {
   }) => void;
   onSuggestMonthly: () => void;
   onSuggestNext: () => void;
+  onUnassignAssistant?: (eventoId: string) => void;
   // Other
   onDownloadReport: () => void;
 }
@@ -203,6 +204,7 @@ export function SpaTabGestionAsistentes(props: SpaTabGestionAsistentesProps) {
             onRemoveAssistanceForEvent={props.onRemoveAssistanceForEvent}
             onSuggestMonthly={props.onSuggestMonthly}
             onSuggestNext={props.onSuggestNext}
+            onUnassignAssistant={props.onUnassignAssistant}
           />
         )}
 

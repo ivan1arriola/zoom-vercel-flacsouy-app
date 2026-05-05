@@ -1,4 +1,5 @@
 import webpush from "web-push";
+import { db } from "@/src/lib/db";
 
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
@@ -15,6 +16,12 @@ export type PushPayload = {
   icon?: string;
   tag?: string;
 };
+
+function isExpiredPushSubscriptionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  return statusCode === 410 || statusCode === 404;
+}
 
 export async function sendPushNotification(
   subscription: {
@@ -40,14 +47,55 @@ export async function sendPushNotification(
     return { success: true };
   } catch (error) {
     console.error("Error enviando notificacion push:", error);
-    if (error instanceof webpush.WebPushError && (error.statusCode === 410 || error.statusCode === 404)) {
+    if (isExpiredPushSubscriptionError(error)) {
       // Subscripcion expirada o invalida
       return { success: false, expired: true };
     }
-    return { success: false, error };
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
 export function getVapidPublicKey() {
   return vapidPublicKey;
+}
+
+
+export async function sendPushToUser(userId: string, payload: PushPayload) {
+  const subscriptions = await db.pushSubscription.findMany({
+    where: { userId }
+  });
+
+  if (subscriptions.length === 0) return { count: 0 };
+
+  const results = await Promise.all(
+    subscriptions.map(async (sub) => {
+      const result = await sendPushNotification(
+        {
+          endpoint: sub.endpoint,
+          keys: {
+            p256dh: sub.p256dh,
+            auth: sub.auth
+          }
+        },
+        payload
+      );
+
+      if (result.expired) {
+        await db.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+      }
+
+      return result.success;
+    })
+  );
+
+  return { count: results.filter(Boolean).length };
+}
+
+export async function sendPushToUserByEmail(email: string, payload: PushPayload) {
+  const user = await db.user.findUnique({
+    where: { email: email.toLowerCase() },
+    select: { id: true }
+  });
+  if (!user) return { count: 0 };
+  return sendPushToUser(user.id, payload);
 }

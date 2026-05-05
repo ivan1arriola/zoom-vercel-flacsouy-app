@@ -6,6 +6,8 @@ import { logger } from "@/src/lib/logger";
 type AdminNotificationInput = {
   action: string;
   actorEmail?: string;
+  actorFirstName?: string | null;
+  actorLastName?: string | null;
   actorRole?: string;
   entityType?: string;
   entityId?: string;
@@ -115,7 +117,15 @@ function buildNotificationBody(input: AdminNotificationInput): string {
   }
   lines.push(`Fecha: ${formatDateTime(occurredAt)} (${occurredAt.toISOString()})`);
 
-  if (input.actorEmail?.trim()) lines.push(`Actor: ${input.actorEmail.trim()}`);
+  const actorName = [input.actorFirstName, input.actorLastName].filter(Boolean).join(" ").trim();
+  if (actorName && input.actorEmail?.trim()) {
+    lines.push(`Actor: ${actorName} (${input.actorEmail.trim()})`);
+  } else if (actorName) {
+    lines.push(`Actor: ${actorName}`);
+  } else if (input.actorEmail?.trim()) {
+    lines.push(`Actor: ${input.actorEmail.trim()}`);
+  }
+
   if (input.actorRole?.trim()) lines.push(`Rol actor: ${input.actorRole.trim()}`);
   if (input.entityType?.trim() || input.entityId?.trim()) {
     lines.push(`Entidad: ${(input.entityType ?? "-").trim() || "-"} / ${(input.entityId ?? "-").trim() || "-"}`);

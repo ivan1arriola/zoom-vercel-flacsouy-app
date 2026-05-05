@@ -41,7 +41,6 @@ interface SpaTabPerfilProps {
   setPasswordForm: (form: PasswordForm) => void;
   showPasswordForm: boolean;
   setShowPasswordForm: (show: boolean) => void;
-  canUseGoogleByEmail: boolean;
   onLinkGoogleAccount: () => void;
   onUnlinkGoogleAccount: () => void;
   onSyncProfileFromGoogle: () => void;
@@ -66,7 +65,6 @@ export function SpaTabPerfil({
   setPasswordForm,
   showPasswordForm,
   setShowPasswordForm,
-  canUseGoogleByEmail,
   onLinkGoogleAccount,
   onUnlinkGoogleAccount,
   onSyncProfileFromGoogle,
@@ -117,11 +115,7 @@ export function SpaTabPerfil({
                 <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
                   Cuenta de Google
                 </Typography>
-                {!canUseGoogleByEmail ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    Google solo esta habilitado para cuentas @flacso.edu.uy.
-                  </Typography>
-                ) : isLoadingGoogleStatus ? (
+                {isLoadingGoogleStatus ? (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                     Cargando estado de vinculacion...
                   </Typography>
@@ -139,20 +133,20 @@ export function SpaTabPerfil({
                 )}
 
                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                  <Button variant="outlined" onClick={onLinkGoogleAccount} disabled={!canUseGoogleByEmail}>
+                  <Button variant="outlined" onClick={onLinkGoogleAccount}>
                     Vincular Google
                   </Button>
                   <Button
                     variant="outlined"
                     onClick={onUnlinkGoogleAccount}
-                    disabled={!canUseGoogleByEmail || !googleLinked || !hasPassword || isUnlinkingGoogleAccount}
+                    disabled={!googleLinked || !hasPassword || isUnlinkingGoogleAccount}
                   >
                     {isUnlinkingGoogleAccount ? "Desvinculando..." : "Desvincular Google"}
                   </Button>
                   <Button
                     variant="outlined"
                     onClick={onSyncProfileFromGoogle}
-                    disabled={!canUseGoogleByEmail || !googleLinked || isSyncingGoogleProfile}
+                    disabled={!googleLinked || isSyncingGoogleProfile}
                   >
                     {isSyncingGoogleProfile ? "Sincronizando..." : "Volver a sincronizar"}
                   </Button>

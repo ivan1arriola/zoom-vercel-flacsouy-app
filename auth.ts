@@ -15,16 +15,11 @@ import { asBoolean, authSecret, env } from "@/src/lib/env";
 import { createAdminLoginNotifications } from "@/src/modules/notificaciones/service";
 
 const ADMIN_EMAIL = "web@flacso.edu.uy";
-const GOOGLE_ALLOWED_DOMAIN = "@flacso.edu.uy";
 
 const signInSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
 });
-
-function canUseGoogle(email: string): boolean {
-  return email.trim().toLowerCase().endsWith(GOOGLE_ALLOWED_DOMAIN);
-}
 
 type AuthUserRecord = {
   id: string;
@@ -265,8 +260,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
 
       if (account?.provider !== "google") return true;
-
-      if (!canUseGoogle(email)) return false;
 
       const googleProfile = profile as {
         email_verified?: boolean;

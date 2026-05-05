@@ -27,8 +27,10 @@ import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import LaunchIcon from "@mui/icons-material/Launch";
 
 import { usePushNotifications } from "@/src/hooks/usePushNotifications";
+import { SolicitudDetailDialog } from "@/components/spa-tabs/SolicitudDetailDialog";
 
 type NotificationScope = "mine" | "all";
 // ... (omitting types for brevity in instructions, will keep them in replacement)
@@ -155,6 +157,14 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
     subscribe: subscribePush, 
     unsubscribe: unsubscribePush 
   } = usePushNotifications();
+
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedSolicitudId, setSelectedSolicitudId] = useState<string | null>(null);
+
+  const openDetail = (id: string) => {
+    setSelectedSolicitudId(id);
+    setDetailOpen(true);
+  };
 
   async function fetchNotificaciones(page: number = 1) {
     setIsLoading(true);
@@ -715,10 +725,30 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
                                   fontSize: "0.65rem", 
                                   fontWeight: 800, 
                                   textTransform: "uppercase",
-                                  borderColor: "divider",
+                               borderColor: "divider",
                                   color: "text.secondary"
                                 }}
                               />
+                              {notif.entidadReferenciaTipo === "SolicitudSala" && notif.entidadReferenciaId && (
+                                <Button
+                                  size="small"
+                                  variant="text"
+                                  startIcon={<LaunchIcon fontSize="inherit" />}
+                                  onClick={() => openDetail(notif.entidadReferenciaId!)}
+                                  sx={{ 
+                                    height: 20, 
+                                    fontSize: "0.65rem", 
+                                    fontWeight: 800, 
+                                    textTransform: "none",
+                                    color: "primary.main",
+                                    p: 0,
+                                    minWidth: 0,
+                                    "&:hover": { backgroundColor: "transparent", textDecoration: "underline" }
+                                  }}
+                                >
+                                  Ver Solicitud
+                                </Button>
+                              )}
                             </Stack>
                           </Box>
 
@@ -794,6 +824,15 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
           </Box>
         )}
       </CardContent>
+
+      <SolicitudDetailDialog
+        solicitudId={selectedSolicitudId}
+        open={detailOpen}
+        onClose={() => {
+          setDetailOpen(false);
+          setSelectedSolicitudId(null);
+        }}
+      />
     </Card>
   );
 }

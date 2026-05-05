@@ -23,6 +23,7 @@ import { env } from "@/src/lib/env";
 import { EmailClient } from "@/src/lib/email.client";
 import { logger } from "@/src/lib/logger";
 import { notifyAdminInAppMovement } from "@/src/lib/admin-notifications.client";
+import { sendPushToUser, sendPushToUserByEmail } from "@/src/lib/push";
 import { ZoomApiError, ZoomMeetingsClient } from "@/src/lib/zoom-meetings.client";
 import {
   buildAdminInfoDigestEmailHtml,
@@ -1317,6 +1318,24 @@ async function sendDefinitiveAssignmentEmails(input: {
       })
     )
   );
+
+  // Send push notifications
+  const pushPayload = {
+    title: "Asignacion confirmada",
+    body: `Se ha confirmado tu asignacion para la reunion: ${input.titulo}`,
+    url: `/solicitudes/${input.solicitudId}`
+  };
+
+  await Promise.all(
+    Array.from(recipients).map((email) =>
+      sendPushToUserByEmail(email, pushPayload).catch((err) =>
+        logger.warn("No se pudo enviar notificacion push de asignacion.", {
+          email,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      )
+    )
+  );
 }
 
 type AssistanceCancellationRecipient = {
@@ -1386,6 +1405,18 @@ async function sendAssistanceCancelledEmails(input: {
         html
       });
       sentCount += 1;
+
+      // Push notification for cancellation
+      sendPushToUserByEmail(to, {
+        title: "Asistencia cancelada",
+        body: `Se ha cancelado tu asistencia para la reunion: ${input.titulo}`,
+        url: `/solicitudes/${input.solicitudId}`
+      }).catch((err) =>
+        logger.warn("No se pudo enviar notificacion push de cancelacion.", {
+          email: to,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      );
     } catch (error) {
       logger.warn("No se pudo enviar correo de cancelacion de asistencia.", {
         solicitudId: input.solicitudId,
@@ -4027,6 +4058,139 @@ export class SalasService {
     });
   }
 
+  async getSolicitud(user: SessionUser, solicitudId: string) {
+    const canSeeAll =
+      user.role === UserRole.ADMINISTRADOR ||
+      user.role === UserRole.CONTADURIA;
+    const ownSolicitudesWhere = buildDocenteSolicitudesWhere(user);
+
+    const solicitud = await db.solicitudSala.findUnique({
+      where: {
+        id: solicitudId,
+        AND: canSeeAll ? undefined : ownSolicitudesWhere
+      },
+      include: {
+        eventos: {
+          orderBy: { inicioProgramadoAt: "asc" },
+          select: {
+            id: true,
+            inicioProgramadoAt: true,
+            finProgramadoAt: true,
+            estadoEvento: true,
+            estadoCobertura: true,
+            requiereAsistencia: true,
+            zoomMeetingId: true,
+            zoomJoinUrl: true,
+            asignaciones: {
+              where: {
+                tipoAsignacion: TipoAsignacionAsistente.PRINCIPAL,
+                estadoAsignacion: { in: ["ASIGNADO", "ACEPTADO"] }
+              },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                asistente: {
+                  select: {
+                    usuario: {
+                      select: {
+                        email: true,
+                        name: true,
+                        firstName: true,
+                        lastName: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        cuentaZoomAsignada: {
+          select: {
+            id: true,
+            nombreCuenta: true,
+            ownerEmail: true
+          }
+        },
+        createdBy: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      }
+    });
+
+    if (!solicitud) {
+      throw new Error("Solicitud no encontrada o sin permisos.");
+    }
+
+    const meetingId = normalizeZoomMeetingId(solicitud.meetingPrincipalId);
+    let snapshot: ZoomMeetingSnapshot | undefined;
+
+    if (meetingId) {
+      try {
+        const zoomClient = await ZoomMeetingsClient.fromAccountCredentials();
+        snapshot = (await fetchZoomMeetingSnapshot(zoomClient, meetingId)) ?? undefined;
+      } catch {
+        // Fallback to local DB data if Zoom is unavailable
+      }
+    }
+
+    const fallbackInstances: ZoomOccurrenceSnapshot[] = solicitud.eventos.map((event) => {
+      const monitor = event.asignaciones[0]?.asistente.usuario ?? null;
+      const monitorNombre = monitor
+        ? monitor.name ||
+          [monitor.firstName, monitor.lastName].filter(Boolean).join(" ").trim() ||
+          null
+        : null;
+
+      return {
+        eventId: event.id,
+        occurrenceId: null,
+        startTime: event.inicioProgramadoAt.toISOString(),
+        endTime: event.finProgramadoAt.toISOString(),
+        durationMinutes: Math.floor(
+          (event.finProgramadoAt.getTime() - event.inicioProgramadoAt.getTime()) / 60000
+        ),
+        status: event.estadoEvento,
+        estadoEvento: event.estadoEvento,
+        estadoCobertura: event.estadoCobertura,
+        joinUrl: event.zoomJoinUrl,
+        requiereAsistencia: event.requiereAsistencia,
+        monitorNombre,
+        monitorEmail: monitor?.email ?? null
+      };
+    });
+
+    const instances = snapshot ? snapshot.instances : fallbackInstances;
+    const displayStatus = resolveSolicitudDisplayStatus(solicitud.estadoSolicitud, instances);
+
+    return {
+      ...solicitud,
+      requestedBy: {
+        id: solicitud.createdBy.id,
+        email: solicitud.createdBy.email,
+        name:
+          solicitud.createdBy.name ||
+          [solicitud.createdBy.firstName, solicitud.createdBy.lastName].filter(Boolean).join(" ").trim() ||
+          solicitud.createdBy.email
+      },
+      estadoSolicitudVista: displayStatus,
+      zoomInstances: instances,
+      zoomInstanceCount: instances.length,
+      zoomReadFromApi: !!snapshot,
+      zoomJoinUrl:
+        snapshot?.joinUrl ||
+        solicitud.eventos.find((event) => Boolean((event.zoomJoinUrl ?? "").trim()))?.zoomJoinUrl ||
+        null,
+      zoomHostAccount: snapshot?.hostEmail || solicitud.cuentaZoomAsignada?.ownerEmail || null
+    };
+  }
+
   async updateSolicitudAssistance(
     user: SessionUser,
     solicitudId: string,
@@ -4195,6 +4359,8 @@ export class SalasService {
       await notifyAdminInAppMovement({
         action: "SOLICITUD_HABILITA_ASISTENCIA",
         actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
         actorRole: user.role,
         entityType: "SolicitudSala",
         entityId: solicitud.id,
@@ -4338,6 +4504,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "SOLICITUD_DESHABILITA_ASISTENCIA",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "SolicitudSala",
       entityId: solicitud.id,
@@ -4581,6 +4749,8 @@ export class SalasService {
       await notifyAdminInAppMovement({
         action: "SOLICITUD_HABILITA_ASISTENCIA_INSTANCIA",
         actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
         actorRole: user.role,
         entityType: "EventoZoom",
         entityId: targetEvent.id,
@@ -4736,6 +4906,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "SOLICITUD_DESHABILITA_ASISTENCIA_INSTANCIA",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "EventoZoom",
       entityId: targetEvent.id,
@@ -4989,6 +5161,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "RECORDATORIO_SOLICITUD_ENVIADO",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "SolicitudSala",
       entityId: solicitud.id,
@@ -5326,6 +5500,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "EDICION_REUNION_PASADA",
       actorEmail: admin.email,
+        actorFirstName: admin.firstName,
+        actorLastName: admin.lastName,
       actorRole: admin.role,
       entityType: "EventoZoom",
       entityId: eventoId,
@@ -5467,6 +5643,8 @@ export class SalasService {
       await notifyAdminInAppMovement({
         action: "SOLICITUD_CREADA_PENDIENTE_MANUAL",
         actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
         actorRole: user.role,
         entityType: "SolicitudSala",
         entityId: created.id,
@@ -5613,6 +5791,8 @@ export class SalasService {
         await notifyAdminInAppMovement({
           action: "SOLICITUD_CREADA_PENDIENTE_MANUAL",
           actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
           actorRole: user.role,
           entityType: "SolicitudSala",
           entityId: created.id,
@@ -5791,6 +5971,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: requireManualResolution ? "SOLICITUD_CREADA_PENDIENTE_MANUAL" : "SOLICITUD_CREADA",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "SolicitudSala",
       entityId: result.id,
@@ -6208,6 +6390,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "SOLICITUD_INSTANCIA_AGREGADA",
       actorEmail: admin.email,
+        actorFirstName: admin.firstName,
+        actorLastName: admin.lastName,
       actorRole: admin.role,
       entityType: "EventoZoom",
       entityId: createdEvent.id,
@@ -6359,6 +6543,8 @@ export class SalasService {
       await notifyAdminInAppMovement({
         action: "SOLICITUD_CANCELADA_SERIE",
         actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
         actorRole: user.role,
         entityType: "SolicitudSala",
         entityId: solicitud.id,
@@ -6510,6 +6696,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "SOLICITUD_CANCELADA_INSTANCIA",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "EventoZoom",
       entityId: targetEvent.id,
@@ -6919,6 +7107,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "SOLICITUD_DESCANCELADA_INSTANCIA",
       actorEmail: admin.email,
+        actorFirstName: admin.firstName,
+        actorLastName: admin.lastName,
       actorRole: admin.role,
       entityType: "EventoZoom",
       entityId: targetEvent.id,
@@ -7053,6 +7243,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "SOLICITUD_ELIMINADA",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "SolicitudSala",
       entityId: solicitud.id,
@@ -7212,6 +7404,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "RESOLUCION_MANUAL_PROVISION",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "SolicitudSala",
       entityId: solicitudId,
@@ -8028,6 +8222,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "INTERES_ASISTENTE_ACTUALIZADO",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "EventoZoom",
       entityId: eventoId,
@@ -8245,6 +8441,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "ASIGNACION_ASISTENTE_CREADA",
       actorEmail: admin.email,
+        actorFirstName: admin.firstName,
+        actorLastName: admin.lastName,
       actorRole: admin.role,
       entityType: "EventoZoom",
       entityId: eventoId,
@@ -8289,6 +8487,112 @@ export class SalasService {
     });
 
     return assignment;
+  }
+
+  async unassignAssistantFromEvent(
+    admin: SessionUser,
+    eventoId: string,
+    input?: { motivo?: string | null }
+  ) {
+    const event = await db.eventoZoom.findUnique({
+      where: { id: eventoId },
+      include: {
+        asignaciones: {
+          where: { estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] } },
+          include: { asistente: { include: { usuario: true } } }
+        },
+        solicitud: true
+      }
+    });
+
+    if (!event) throw new Error("Evento no encontrado.");
+    if (!event.requiereAsistencia) throw new Error("El evento no requiere asistencia.");
+
+    const recipientsByEmail = new Map<string, AssistanceCancellationRecipient>();
+    for (const assignment of event.asignaciones) {
+      const monitor = assignment.asistente.usuario;
+      const monitorEmail = (monitor.email ?? "").trim().toLowerCase();
+      if (!EMAIL_LINE_REGEX.test(monitorEmail)) continue;
+
+      if (!recipientsByEmail.has(monitorEmail)) {
+        recipientsByEmail.set(monitorEmail, {
+          email: monitorEmail,
+          nombre: getUserDisplayName(monitor),
+          instancias: []
+        });
+      }
+
+      recipientsByEmail.get(monitorEmail)?.instancias.push({
+        inicio: event.inicioProgramadoAt,
+        fin: event.finProgramadoAt
+      });
+    }
+
+    const cancelledCount = await db.$transaction(async (tx) => {
+      const updateResult = await tx.asignacionAsistente.updateMany({
+        where: {
+          eventoZoomId: eventoId,
+          estadoAsignacion: { in: [EstadoAsignacion.ASIGNADO, EstadoAsignacion.ACEPTADO] }
+        },
+        data: {
+          estadoAsignacion: EstadoAsignacion.CANCELADO
+        }
+      });
+
+      await tx.eventoZoom.update({
+        where: { id: eventoId },
+        data: {
+          estadoCobertura: EstadoCoberturaSoporte.REQUERIDO_SIN_ASIGNAR
+        }
+      });
+
+      await tx.auditoria.create({
+        data: {
+          actorUsuarioId: admin.id,
+          accion: "ASISTENTE_DESASIGNADO_MANUAL",
+          entidadTipo: "EventoZoom",
+          entidadId: eventoId,
+          valorNuevo: {
+            motivo: input?.motivo,
+            cancelledCount: updateResult.count
+          }
+        }
+      });
+
+      return updateResult.count;
+    });
+
+    await notifyAdminInAppMovement({
+      action: "ASISTENTE_DESASIGNADO_MANUAL",
+      actorEmail: admin.email,
+      actorFirstName: admin.firstName,
+      actorLastName: admin.lastName,
+      actorRole: admin.role,
+      entityType: "EventoZoom",
+      entityId: eventoId,
+      details: {
+        motivo: input?.motivo,
+        cancelledCount
+      }
+    });
+
+    // Notify assistants
+    const notifiedCount = await sendAssistanceCancelledEmails({
+      solicitudId: event.solicitud.id,
+      titulo: event.solicitud.titulo,
+      programaNombre: event.solicitud.programaNombre ?? null,
+      responsableNombre: event.solicitud.responsableNombre ?? null,
+      timezone: event.solicitud.timezone || "America/Montevideo",
+      actorNombre: getUserDisplayName(admin),
+      actorEmail: admin.email,
+      motivo: input?.motivo || "Desasignacion manual de personal.",
+      recipients: Array.from(recipientsByEmail.values())
+    });
+
+    return {
+      cancelledCount,
+      notifiedCount
+    };
   }
 
   async registerUpcomingMeetingInSystem(
@@ -8551,6 +8855,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "REGISTRO_MANUAL_REUNION_PROXIMA",
       actorEmail: admin.email,
+        actorFirstName: admin.firstName,
+        actorLastName: admin.lastName,
       actorRole: admin.role,
       entityType: "EventoZoom",
       entityId: result.eventoId,
@@ -8861,6 +9167,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "REGISTRO_MANUAL_REUNION_PASADA",
       actorEmail: admin.email,
+        actorFirstName: admin.firstName,
+        actorLastName: admin.lastName,
       actorRole: admin.role,
       entityType: "EventoZoom",
       entityId: result.eventoId,
@@ -9959,6 +10267,8 @@ export class SalasService {
     await notifyAdminInAppMovement({
       action: "TARIFA_MODALIDAD_ACTUALIZADA",
       actorEmail: user.email,
+        actorFirstName: user.firstName,
+        actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "TarifaAsistenciaGlobal",
       entityId: created.id,

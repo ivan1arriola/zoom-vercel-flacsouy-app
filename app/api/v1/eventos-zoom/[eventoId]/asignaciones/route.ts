@@ -32,3 +32,25 @@ export async function POST(request: Request, context: Params) {
     );
   }
 }
+
+export async function DELETE(request: Request, context: Params) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== UserRole.ADMINISTRADOR) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  try {
+    const { eventoId } = await context.params;
+    const body = (await request.json().catch(() => ({}))) as { motivo?: string };
+
+    const service = new SalasService();
+    const result = await service.unassignAssistantFromEvent(user, eventoId, body);
+    return NextResponse.json(result);
+  } catch (error) {
+    return NextResponse.json(
+      { error: (error as Error).message || "No se pudo desasignar asistencia." },
+      { status: 400 }
+    );
+  }
+}

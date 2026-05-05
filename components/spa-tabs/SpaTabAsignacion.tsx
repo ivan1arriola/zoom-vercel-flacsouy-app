@@ -55,6 +55,7 @@ interface SpaTabAsignacionProps {
   }) => void;
   onSuggestMonthly: () => void;
   onSuggestNext: () => void;
+  onUnassignAssistant?: (eventoId: string) => void;
 }
 
 function normalizeZoomMeetingId(value?: string | null): string | null {
@@ -77,9 +78,11 @@ export function SpaTabAsignacion({
   onAssignAssistant,
   onRemoveAssistanceForEvent,
   onSuggestMonthly,
-  onSuggestNext
+  onSuggestNext,
+  onUnassignAssistant
 }: SpaTabAsignacionProps) {
   const [viewMode, setViewMode] = useState<"pending" | "assigned">("pending");
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const sortedEvents = useMemo(
     () =>
       [...assignmentBoardEvents].sort(
@@ -175,9 +178,12 @@ export function SpaTabAsignacion({
     const isReassignment = Boolean(currentAssignment) && Boolean(selectedAssistantId) && selectedAssistantId !== currentAssignment?.asistenteZoomId;
     const isNoopSelection = Boolean(currentAssignment) && selectedAssistantId === currentAssignment?.asistenteZoomId;
     const isPending = section === "pending";
+    const isEditing = editingEventId === item.id;
     const hasNoInterested = item.interesados.length === 0;
     
-    const actionDisabled = assigningEventId === item.id || !selectedAssistantId || isNoopSelection || hasNoInterested;
+    const showSelectionDropdown = isPending || isEditing;
+
+    const actionDisabled = assigningEventId === item.id || !selectedAssistantId || (isNoopSelection && !isEditing) || (hasNoInterested && isPending);
     
     const suggestedAssignment = assignmentSuggestion?.events.find((suggested) => suggested.eventoId === item.id) ?? null;
     const suggestedAssistantId = suggestedAssignment?.asistenteZoomId ?? "";
@@ -248,22 +254,26 @@ export function SpaTabAsignacion({
             </Stack>
 
             {/* Right: Assignment Actions */}
-            {isPending ? (
+            {showSelectionDropdown ? (
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "background.paper" }}>
                 <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
-                  Gestión de Asignación
+                  {isEditing ? "Reasignar Personal" : "Gestión de Asignación"}
                 </Typography>
                 
-                {hasNoInterested ? (
+                {hasNoInterested && isPending ? (
                   <Alert severity="warning" sx={{ py: 0, mb: 1 }}>
                     No hay postulantes para esta reunión.
                   </Alert>
                 ) : (
                   <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
                     <Typography variant="body2" sx={{ alignSelf: "center", mr: 1 }}>Interesados:</Typography>
-                    {item.interesados.map(int => (
-                      <Chip key={int.asistenteZoomId} size="small" avatar={<Avatar>{int.nombre[0]}</Avatar>} label={int.nombre} />
-                    ))}
+                    {item.interesados.length > 0 ? (
+                      item.interesados.map(int => (
+                        <Chip key={int.asistenteZoomId} size="small" avatar={<Avatar>{int.nombre[0]}</Avatar>} label={int.nombre} />
+                      ))
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">Sin postulantes</Typography>
+                    )}
                   </Stack>
                 )}
 
@@ -272,7 +282,6 @@ export function SpaTabAsignacion({
                     select
                     size="small"
                     fullWidth
-                    disabled={hasNoInterested}
                     value={selectedAssistantId}
                     onChange={(e) => onSelectedAssistantChange(item.id, e.target.value)}
                     label="Seleccionar Asistente"
@@ -284,16 +293,28 @@ export function SpaTabAsignacion({
                   </TextField>
                   <Button
                     variant="contained"
-                    onClick={() => onAssignAssistant(item.id)}
+                    onClick={() => {
+                      onAssignAssistant(item.id);
+                      if (isEditing) setEditingEventId(null);
+                    }}
                     disabled={actionDisabled}
                     sx={{ minWidth: 120, height: 40 }}
                     disableElevation
                   >
-                    {assigningEventId === item.id ? "Guardando..." : "Asignar"}
+                    {assigningEventId === item.id ? "Guardando..." : isEditing ? "Reasignar" : "Asignar"}
                   </Button>
+                  {isEditing && (
+                    <Button
+                      variant="text"
+                      onClick={() => setEditingEventId(null)}
+                      sx={{ height: 40 }}
+                    >
+                      Cancelar
+                    </Button>
+                  )}
                 </Stack>
 
-                {suggestedAssignment && (
+                {suggestedAssignment && isPending && (
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2, p: 1, bgcolor: "info.lighter", borderRadius: 1 }}>
                     <AutoAwesomeRoundedIcon fontSize="small" color="info" />
                     <Typography variant="body2" sx={{ flexGrow: 1 }}>
@@ -321,15 +342,29 @@ export function SpaTabAsignacion({
                     <Typography variant="body2" color="text.secondary">{currentAssignment?.email}</Typography>
                   </Box>
                 </Stack>
-                <Stack direction="row" spacing={1}>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Button
                     size="small"
                     variant="outlined"
-                    color="warning"
-                    onClick={() => setViewMode("pending")}
+                    color="primary"
+                    onClick={() => {
+                      onSelectedAssistantChange(item.id, currentAssignment?.asistenteZoomId || "");
+                      setEditingEventId(item.id);
+                    }}
                   >
-                    Modificar
+                    Cambiar asistente
                   </Button>
+                  {onUnassignAssistant && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="warning"
+                      onClick={() => onUnassignAssistant(item.id)}
+                      disabled={removingAssistanceEventId === item.id}
+                    >
+                      {removingAssistanceEventId === item.id ? "..." : "Desasignar"}
+                    </Button>
+                  )}
                   <Button
                     size="small"
                     variant="text"

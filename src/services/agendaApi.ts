@@ -98,3 +98,31 @@ export async function assignAssistantToEvent(
   }
   return { success: true };
 }
+
+export async function unassignAssistantFromEvent(
+  eventoId: string,
+  motivo?: string
+): Promise<{
+  success: boolean;
+  error?: string;
+  cancelledCount?: number;
+  notifiedCount?: number;
+}> {
+  const response = await fetch(`/api/v1/eventos-zoom/${eventoId}/asignaciones`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ motivo })
+  });
+  const data = (await response.json()) as { error?: string; cancelledCount?: number; notifiedCount?: number };
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo desasignar asistencia."
+    };
+  }
+  return { 
+    success: true, 
+    cancelledCount: data.cancelledCount,
+    notifiedCount: data.notifiedCount
+  };
+}

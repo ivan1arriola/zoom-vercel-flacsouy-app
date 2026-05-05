@@ -61,6 +61,7 @@ import type { Solicitud } from "@/src/services/solicitudesApi";
 import { parseSpecificDatesInput } from "@/components/spa-tabs/solicitud-payload-builder";
 import { MeetingAssistantStatusChip } from "@/components/spa-tabs/MeetingAssistantStatusChip";
 import { ZoomAccountPasswordField } from "@/components/spa-tabs/ZoomAccountPasswordField";
+import { SolicitudDetailDialog } from "@/components/spa-tabs/SolicitudDetailDialog";
 
 interface SpaTabSolicitudesProps {
   solicitudes: Solicitud[];
@@ -506,6 +507,13 @@ export function SpaTabSolicitudes({
   const [solicitudesSortMode, setSolicitudesSortMode] = useState<SolicitudesSortMode>("PROXIMA_INSTANCIA");
   const [specificDateInput, setSpecificDateInput] = useState("");
   const [copyFeedback, setCopyFeedback] = useState<Record<string, string>>({});
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedSolicitudId, setSelectedSolicitudId] = useState<string | null>(null);
+
+  const openDetail = (id: string) => {
+    setSelectedSolicitudId(id);
+    setDetailOpen(true);
+  };
 
   const handleCopy = async (text: string, key: string) => {
     const success = await copyToClipboard(text);
@@ -2661,6 +2669,20 @@ export function SpaTabSolicitudes({
                               >
                                 {isExpanded ? "Ocultar instancias" : "Ver instancias"}
                               </Button>
+                              <Tooltip title="Ver todos los detalles">
+                                <IconButton 
+                                  size="small" 
+                                  onClick={() => openDetail(item.id)}
+                                  sx={{ 
+                                    borderRadius: 2, 
+                                    color: "primary.main",
+                                    bgcolor: alpha(theme.palette.primary.main, 0.05),
+                                    "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.1) }
+                                  }}
+                                >
+                                  <InfoOutlinedIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             </Stack>
                           </Stack>
                         </Stack>
@@ -2915,6 +2937,15 @@ export function SpaTabSolicitudes({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <SolicitudDetailDialog
+        solicitudId={selectedSolicitudId}
+        open={detailOpen}
+        onClose={() => {
+          setDetailOpen(false);
+          setSelectedSolicitudId(null);
+        }}
+      />
       </CardContent>
     </Card>
   );

@@ -225,7 +225,7 @@ export function SpaTabUsuarios({
               El usuario se crea sin contrasena y recibe un enlace de activacion para definir su contrasena.
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.6 }}>
-              Los enlaces de activacion vencen en 7 dias. Las cuentas @flacso.edu.uy tambien pueden ingresar con Google.
+              Los enlaces de activacion vencen en 7 dias. Tambien se puede ingresar con Google.
             </Typography>
             <Button
               sx={{ mt: 1.3, textTransform: "none", borderRadius: 2, fontWeight: 700 }}

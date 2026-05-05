@@ -8,11 +8,14 @@ import {
   CardContent,
   Checkbox,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   FormControlLabel,
+  Grid,
   IconButton,
   MenuItem,
   Paper,
@@ -20,11 +23,20 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Typography
+  Typography,
+  useTheme
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
+import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
+import LinkIcon from "@mui/icons-material/Link";
+import SchoolIcon from "@mui/icons-material/School";
+import TerminalIcon from "@mui/icons-material/Terminal";
+import HistoryIcon from "@mui/icons-material/History";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Tooltip from "@mui/material/Tooltip";
 import {
   loadZoomPastMeetingDetails,
@@ -308,24 +320,35 @@ function formatNullableCount(value: number | null): string {
 
 function renderAssociation(meeting: ZoomUpcomingMeeting) {
   if (!meeting.association.linked) {
-    return <Chip size="small" color="warning" label="Pendiente de asociacion" />;
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, color: "warning.main" }}>
+        <HistoryIcon sx={{ fontSize: 16 }} />
+        <Typography variant="caption" sx={{ fontWeight: 800, textTransform: "uppercase" }}>
+          Sin asociación
+        </Typography>
+      </Box>
+    );
   }
 
   const programaNombre = meeting.association.solicitudProgramaNombre?.trim();
 
   return (
-    <Stack spacing={0.35}>
-      <Chip size="small" color="success" label="Asociada" />
-      {meeting.association.solicitudId ? (
-        <Typography variant="caption" color="text.secondary">
-          Solicitud {meeting.association.solicitudId}
+    <Stack spacing={0.5}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, color: "success.main" }}>
+        <SchoolIcon sx={{ fontSize: 16 }} />
+        <Typography variant="caption" sx={{ fontWeight: 800, textTransform: "uppercase" }}>
+          Asociada
         </Typography>
-      ) : null}
+      </Box>
       {programaNombre ? (
-        <Typography variant="caption" color="text.secondary">
-          Programa: {programaNombre}
+        <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary", lineHeight: 1.2 }}>
+          {programaNombre}
         </Typography>
-      ) : null}
+      ) : (
+        <Typography variant="caption" color="text.secondary">
+          Solicitud: {meeting.association.solicitudId}
+        </Typography>
+      )}
     </Stack>
   );
 }
@@ -340,7 +363,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 export function SpaTabProximasReuniones({
-  title = "Proximas reuniones (Zoom)",
+  title = "Próximas reuniones (Zoom)",
   subtitle = "Reuniones listadas desde Zoom para el grupo seleccionado.",
   groupName,
   meetings,
@@ -363,6 +386,8 @@ export function SpaTabProximasReuniones({
   onSelectMonth,
   isLoadingMonthSelection = false
 }: SpaTabProximasReunionesProps) {
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === "dark";
   const [grouping, setGrouping] = useState<ZoomGroupingMode>("MONTH");
   const [viewMode, setViewMode] = useState<ZoomViewMode>(defaultViewMode);
   const [registerDialogMeeting, setRegisterDialogMeeting] = useState<ZoomUpcomingMeeting | null>(null);
@@ -595,207 +620,223 @@ export function SpaTabProximasReuniones({
         key={meetingKey}
         variant="outlined"
         sx={{
-          p: 1.2,
-          borderRadius: 1.5,
-          borderLeft: `5px solid ${accountColor.border}`,
-          backgroundColor: meeting.hasAccountOverlap ? "error.50" : undefined
+          p: 2.5,
+          borderRadius: 4,
+          borderLeft: `6px solid ${accountColor.border}`,
+          backgroundColor: meeting.hasAccountOverlap ? (isDarkMode ? alpha(theme.palette.error.main, 0.1) : "error.50") : "background.paper",
+          transition: "all 0.2s ease-in-out",
+          position: "relative",
+          overflow: "hidden",
+          "&:hover": {
+            boxShadow: theme.shadows[4],
+            borderColor: accountColor.border,
+            transform: "translateY(-2px)"
+          }
         }}
       >
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={1}
-          alignItems={{ xs: "flex-start", md: "center" }}
-          justifyContent="space-between"
-        >
-          <Box>
-            {showTopic ? (
-              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                {meeting.topic}
-              </Typography>
-            ) : null}
-            <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: showTopic ? 0.6 : 0 }}>
-              <Chip
-                size="small"
-                color={meeting.association.linked ? "success" : "warning"}
-                label={meeting.association.linked ? "Asociada" : "Pendiente"}
-              />
-              <Chip size="small" variant="outlined" label={formatZoomDateTime(meeting.startTime)} />
-              <Chip size="small" variant="outlined" label={formatDurationHoursMinutes(meeting.durationMinutes)} />
-              <Chip
-                size="small"
-                color={meeting.meetingKind === "RECURRENTE" ? "primary" : "default"}
-                label={meeting.meetingKind === "RECURRENTE" ? "Recurrente" : "Unica"}
-              />
-              <Chip size="small" variant="outlined" label={`ID ${meetingId}`} />
-              <Chip
-                size="small"
-                color={recurringCount > 1 ? "primary" : "default"}
-                variant="outlined"
-                label={
-                  recurringCount > 1
-                    ? `${recurringCount} reuniones`
-                    : "1 reunion"
-                }
-              />
-              {meeting.hasAccountOverlap ? (
-                <Chip size="small" color="error" label={`Se pisa (${meeting.accountOverlapCount})`} />
-              ) : null}
-            </Stack>
-          </Box>
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-            {joinUrl ? (
-              <Box sx={{ 
-                display: "flex", 
-                alignItems: "center", 
-                gap: 0.5, 
-                bgcolor: (theme) => alpha(theme.palette.secondary.main, 0.08),
-                pl: 1.5,
-                pr: 0.5,
-                py: 0.5,
-                borderRadius: 2,
-                border: "1px solid",
-                borderColor: (theme) => alpha(theme.palette.secondary.main, 0.2),
-                maxWidth: { xs: "100%", md: 350 }
-              }}>
-                <Typography 
-                  variant="body2" 
-                  component="a"
-                  href={joinUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  sx={{ 
-                    fontWeight: 700, 
-                    color: "secondary.main",
-                    textDecoration: "none",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    "&:hover": { textDecoration: "underline" }
-                  }}
-                >
-                  {joinUrl}
+        <Stack spacing={2.5}>
+          {/* Top Section: Topic & Primary Actions */}
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={2}
+            alignItems={{ xs: "flex-start", md: "center" }}
+            justifyContent="space-between"
+          >
+            <Box sx={{ flex: 1 }}>
+              {showTopic && (
+                <Typography variant="h6" sx={{ fontWeight: 900, mb: 1, letterSpacing: "-0.01em", color: "text.primary" }}>
+                  {meeting.topic}
                 </Typography>
-                <Tooltip title={copyFeedback[meetingKey] || "Copiar link"}>
-                  <IconButton 
+              )}
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                <Chip
+                  size="small"
+                  icon={meeting.association.linked ? <CheckIcon /> : undefined}
+                  color={meeting.association.linked ? "success" : "warning"}
+                  label={meeting.association.linked ? "Asociada" : "Pendiente de vínculo"}
+                  sx={{ fontWeight: 800, px: 0.5 }}
+                />
+                <Chip 
+                  size="small" 
+                  variant="outlined" 
+                  icon={<CalendarTodayIcon sx={{ fontSize: "0.8rem !important" }} />}
+                  label={formatZoomDateTime(meeting.startTime)} 
+                  sx={{ fontWeight: 700 }}
+                />
+                <Chip 
+                  size="small" 
+                  variant="outlined" 
+                  icon={<AccessTimeIcon sx={{ fontSize: "0.8rem !important" }} />}
+                  label={formatDurationHoursMinutes(meeting.durationMinutes)} 
+                  sx={{ fontWeight: 700 }}
+                />
+                <Chip
+                  size="small"
+                  variant={meeting.meetingKind === "RECURRENTE" ? "filled" : "outlined"}
+                  color={meeting.meetingKind === "RECURRENTE" ? "primary" : "default"}
+                  label={meeting.meetingKind === "RECURRENTE" ? "Recurrente" : "Única"}
+                  sx={{ fontWeight: 700 }}
+                />
+                {meeting.hasAccountOverlap && (
+                  <Chip 
                     size="small" 
-                    onClick={() => handleCopy(joinUrl, meetingKey)}
-                    color={copyFeedback[meetingKey] ? "success" : "secondary"}
-                  >
-                    {copyFeedback[meetingKey] ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            ) : null}
-            {!meeting.association.linked && onRegisterUpcomingMeeting ? (
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => openRegisterDialog(meeting)}
-                disabled={!meeting.meetingId}
-              >
-                Registrar en sistema
-              </Button>
-            ) : null}
-            {!meeting.association.linked && !onRegisterUpcomingMeeting && onCreatePostMeetingRecord ? (
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => onCreatePostMeetingRecord(meeting)}
-              >
-                Crear registro historico
-              </Button>
-            ) : null}
-            {enablePastMeetingDetails ? (
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => togglePastMeetingDetails(meeting)}
-                disabled={!meeting.meetingId}
-              >
-                {detailsOpen ? "Ocultar detalle" : "Ver detalle"}
-              </Button>
-            ) : null}
-          </Stack>
-        </Stack>
+                    color="error" 
+                    variant="filled"
+                    label={`Conflicto (${meeting.accountOverlapCount})`} 
+                    sx={{ fontWeight: 900, animation: "pulse 2s infinite" }}
+                  />
+                )}
+              </Stack>
+            </Box>
 
-        <Box
-          sx={{
-            mt: 1.2,
-            display: "grid",
-            gridTemplateColumns: {
-              xs: "1fr",
-              sm: "repeat(2, minmax(0, 1fr))",
-              lg: "repeat(4, minmax(0, 1fr))"
-            },
-            gap: 1
-          }}
-        >
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Cuenta
-            </Typography>
-            <Stack direction="row" spacing={0.8} alignItems="center">
-              <Chip
-                size="small"
-                label={meeting.accountEmail || "-"}
-                sx={{
-                  bgcolor: accountColor.background,
-                  color: accountColor.text,
-                  border: `1px solid ${accountColor.border}`,
-                  fontWeight: 700
-                }}
-              />
+            <Stack direction="row" spacing={1} alignItems="center">
+              {joinUrl && (
+                <Stack direction="row" spacing={0} sx={{ 
+                  borderRadius: 3, 
+                  overflow: "hidden",
+                  border: "1px solid",
+                  borderColor: alpha(theme.palette.success.main, 0.3),
+                  bgcolor: alpha(theme.palette.success.main, 0.05),
+                }}>
+                  <Button
+                    size="small"
+                    component="a"
+                    href={joinUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    startIcon={<OpenInNewIcon />}
+                    sx={{ 
+                      fontWeight: 900, 
+                      color: "success.dark",
+                      px: 2,
+                      "&:hover": { bgcolor: alpha(theme.palette.success.main, 0.1) }
+                    }}
+                  >
+                    Unirse
+                  </Button>
+                  <Divider orientation="vertical" flexItem sx={{ borderColor: alpha(theme.palette.success.main, 0.2) }} />
+                  <Tooltip title={copyFeedback[meetingKey] || "Copiar link de invitación"}>
+                    <IconButton 
+                      size="small" 
+                      onClick={() => handleCopy(joinUrl, meetingKey)}
+                      sx={{ 
+                        color: "success.main",
+                        borderRadius: 0,
+                        "&:hover": { bgcolor: alpha(theme.palette.success.main, 0.1) }
+                      }}
+                    >
+                      {copyFeedback[meetingKey] ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              )}
+              
+              {!meeting.association.linked && onRegisterUpcomingMeeting && (
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => openRegisterDialog(meeting)}
+                  disabled={!meeting.meetingId}
+                  sx={{ fontWeight: 800, borderRadius: 2.5 }}
+                >
+                  Vincular
+                </Button>
+              )}
+              
+              {enablePastMeetingDetails && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => togglePastMeetingDetails(meeting)}
+                  disabled={!meeting.meetingId}
+                  sx={{ fontWeight: 700, borderRadius: 2.5 }}
+                >
+                  {detailsOpen ? "Ocultar detalles" : "Ver detalles"}
+                </Button>
+              )}
             </Stack>
-            <Typography variant="caption" color="text.secondary">
-              {meeting.accountName || "-"}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Estado Zoom
-            </Typography>
-            <Typography variant="body2">{meeting.status || "-"}</Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              ID de reunion
-            </Typography>
-            <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-              {meetingId}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Cantidad de reuniones
-            </Typography>
-            <Typography variant="body2">
-              {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Asistente por reunion
-            </Typography>
-            <MeetingAssistantStatusChip
-              requiresAssistance={requiresAssistance}
-              assistantName={assistantName}
-              assistantEmail={assistantEmail}
-              pendingLabel={meeting.association.linked ? "Pendiente" : "Pendiente de asociacion"}
-            />
-          </Box>
-          <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
-            <Typography variant="caption" color="text.secondary">
-              Asociacion en sistema
-            </Typography>
-            <Box sx={{ mt: 0.4 }}>{renderAssociation(meeting)}</Box>
-          </Box>
-          <Box sx={{ gridColumn: { xs: "1 / -1", lg: "span 2" } }}>
-            <ZoomAccountPasswordField
-              hostAccount={hostAccount}
-              label="Contrasena cuenta streaming"
-            />
-          </Box>
-        </Box>
+          </Stack>
+
+          <Divider />
+
+          {/* Grid Section: Metadata Details */}
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+              <Stack spacing={0.5}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <AccountCircleIcon sx={{ fontSize: 14 }} /> Cuenta Anfitriona
+                </Typography>
+                <Chip
+                  size="small"
+                  label={meeting.accountEmail || "-"}
+                  sx={{
+                    bgcolor: alpha(accountColor.background, 0.6),
+                    color: accountColor.text,
+                    border: `1px solid ${accountColor.border}`,
+                    fontWeight: 800,
+                    width: "fit-content",
+                    maxWidth: "100%"
+                  }}
+                />
+                <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", ml: 0.5 }}>
+                  {meeting.accountName || "-"}
+                </Typography>
+              </Stack>
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+              <Stack spacing={0.5}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <TerminalIcon sx={{ fontSize: 14 }} /> ID Reunión
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                  {meetingId}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  {recurringCount} {recurringCount === 1 ? "instancia" : "instancias"}
+                </Typography>
+              </Stack>
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+              <Stack spacing={0.5}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <LinkIcon sx={{ fontSize: 14 }} /> Asistente Zoom
+                </Typography>
+                <MeetingAssistantStatusChip
+                  requiresAssistance={requiresAssistance}
+                  assistantName={assistantName}
+                  assistantEmail={assistantEmail}
+                  pendingLabel={meeting.association.linked ? "Pendiente" : "Falta vínculo"}
+                />
+              </Stack>
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <Stack spacing={0.5}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <SchoolIcon sx={{ fontSize: 14 }} /> Programa / Vínculo
+                </Typography>
+                <Box>{renderAssociation(meeting)}</Box>
+              </Stack>
+            </Grid>
+
+            <Grid size={{ xs: 12 }}>
+              <Box sx={{ 
+                p: 1.5, 
+                borderRadius: 2, 
+                bgcolor: isDarkMode ? alpha(theme.palette.warning.main, 0.05) : alpha(theme.palette.warning.main, 0.02),
+                border: "1px dashed",
+                borderColor: alpha(theme.palette.warning.main, 0.2)
+              }}>
+                <ZoomAccountPasswordField
+                  hostAccount={hostAccount}
+                  label="Contraseña de la cuenta Zoom"
+                />
+              </Box>
+            </Grid>
+          </Grid>
+        </Stack>
 
         {enablePastMeetingDetails && detailsOpen ? (
           <Paper
@@ -909,72 +950,135 @@ export function SpaTabProximasReuniones({
   }
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3 }}>
-      <CardContent>
+    <Card 
+      variant="outlined" 
+      sx={{ 
+        borderRadius: 5, 
+        border: "none",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+        overflow: "visible" 
+      }}
+    >
+      <CardContent sx={{ p: { xs: 2, md: 4 } }}>
         <Stack
           direction={{ xs: "column", sm: "row" }}
-          spacing={1.2}
-          alignItems={{ xs: "flex-start", sm: "flex-start" }}
+          spacing={2}
+          alignItems={{ xs: "stretch", sm: "flex-start" }}
           justifyContent="space-between"
-          sx={{ mb: 1 }}
+          sx={{ mb: 3 }}
         >
           <Box>
-            <Typography variant="h5" sx={{ fontWeight: 700 }}>
+            <Typography variant="h4" sx={{ fontWeight: 900, letterSpacing: "-1.5px", color: "text.primary", mb: 0.5 }}>
               {title}
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.45 }}>
+            <Typography variant="body1" sx={{ color: "text.secondary", fontWeight: 500, maxWidth: 600 }}>
               {subtitle}
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
-            {onSelectMonth && monthOptions.length > 0 ? (
+          
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            {onSelectMonth && monthOptions.length > 0 && (
               <TextField
                 select
                 size="small"
-                label="Mes"
+                label="Período"
                 value={selectedMonth}
                 onChange={(event) => onSelectMonth(String(event.target.value))}
                 disabled={isLoading || isLoadingMonthSelection}
-                sx={{ minWidth: { xs: 220, sm: 240 } }}
+                sx={{ 
+                  minWidth: { xs: 160, sm: 220 },
+                  "& .MuiOutlinedInput-root": {
+                    borderRadius: 3,
+                    bgcolor: "background.paper",
+                    fontWeight: 700
+                  }
+                }}
               >
                 {monthOptions.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
+                  <MenuItem key={option.value} value={option.value} sx={{ fontWeight: 600 }}>
                     {option.label}
                   </MenuItem>
                 ))}
               </TextField>
-            ) : null}
-            <Button variant="outlined" onClick={onRefresh} disabled={isLoading}>
-              {isLoading ? "Actualizando..." : "Actualizar"}
+            )}
+            
+            <Button 
+              variant="contained" 
+              onClick={onRefresh} 
+              disabled={isLoading}
+              sx={{ 
+                borderRadius: 3, 
+                fontWeight: 900, 
+                px: 3, 
+                boxShadow: theme.shadows[2],
+                textTransform: "none"
+              }}
+            >
+              {isLoading ? "Cargando..." : "Actualizar"}
             </Button>
-            {onLoadMoreBack ? (
-              <Button
-                variant="outlined"
-                onClick={onLoadMoreBack}
-                disabled={isLoading || isLoadingMoreBack || !canLoadMoreBack}
-              >
-                {isLoadingMoreBack ? "Cargando mas..." : "Ver mas atras"}
-              </Button>
-            ) : null}
           </Stack>
         </Stack>
 
-        <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mb: 1.3 }}>
-          <Chip size="small" variant="outlined" label={`Grupo: ${groupName || "(sin nombre)"}`} />
-          <Chip size="small" variant="outlined" label={`Total: ${meetingSummary.total}`} />
-          <Chip size="small" color="success" variant="outlined" label={`Asociadas: ${meetingSummary.linked}`} />
-          <Chip size="small" color="warning" variant="outlined" label={`Pendientes: ${meetingSummary.pending}`} />
-          <Chip size="small" color="primary" variant="outlined" label={`Recurrentes: ${meetingSummary.recurrent}`} />
-          {meetingSummary.overlaps > 0 ? (
-            <Chip size="small" color="error" variant="outlined" label={`Cruces: ${meetingSummary.overlaps}`} />
-          ) : null}
+        <Stack direction="row" spacing={1.2} useFlexGap flexWrap="wrap" sx={{ mb: 4 }}>
+          <Chip 
+            size="medium" 
+            variant="filled" 
+            label={`Grupo: ${groupName || "Global"}`} 
+            sx={{ fontWeight: 800, bgcolor: alpha(theme.palette.primary.main, 0.1), color: "primary.dark" }}
+          />
+          <Chip 
+            size="medium" 
+            variant="filled" 
+            label={`Total: ${meetingSummary.total}`} 
+            sx={{ fontWeight: 800, bgcolor: "text.primary", color: "background.paper" }}
+          />
+          <Chip 
+            size="medium" 
+            color="success" 
+            variant="filled" 
+            label={`Asociadas: ${meetingSummary.linked}`} 
+            sx={{ fontWeight: 800 }}
+          />
+          <Chip 
+            size="medium" 
+            color="warning" 
+            variant="filled" 
+            label={`Pendientes: ${meetingSummary.pending}`} 
+            sx={{ fontWeight: 800 }}
+          />
+          <Chip 
+            size="medium" 
+            color="info" 
+            variant="filled" 
+            label={`Recurrentes: ${meetingSummary.recurrent}`} 
+            sx={{ fontWeight: 800 }}
+          />
+          {meetingSummary.overlaps > 0 && (
+            <Chip 
+              size="medium" 
+              color="error" 
+              variant="filled" 
+              label={`Cruces: ${meetingSummary.overlaps}`} 
+              sx={{ fontWeight: 900, animation: "pulse 2s infinite" }}
+            />
+          )}
         </Stack>
 
-        <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 2, mb: 2 }}>
-          <Stack direction={{ xs: "column", md: "row" }} spacing={1.2} useFlexGap alignItems={{ md: "center" }}>
+        <Paper 
+          variant="outlined" 
+          sx={{ 
+            p: 2, 
+            borderRadius: 4, 
+            mb: 4, 
+            bgcolor: alpha(theme.palette.primary.main, 0.02),
+            border: "1px solid",
+            borderColor: alpha(theme.palette.primary.main, 0.1)
+          }}
+        >
+          <Stack direction={{ xs: "column", md: "row" }} spacing={3} alignItems={{ md: "center" }}>
             <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.35 }}>
-                Vista
+              <Typography variant="caption" sx={{ fontWeight: 900, color: "text.secondary", textTransform: "uppercase", display: "block", mb: 1, letterSpacing: "0.1em" }}>
+                Modo de Vista
               </Typography>
               <ToggleButtonGroup
                 size="small"
@@ -983,16 +1087,24 @@ export function SpaTabProximasReuniones({
                 onChange={(_event, value: ZoomViewMode | null) => {
                   if (value) setViewMode(value);
                 }}
+                sx={{ 
+                  "& .MuiToggleButton-root": { 
+                    px: 3, 
+                    fontWeight: 800, 
+                    borderRadius: 2,
+                    textTransform: "none"
+                  } 
+                }}
               >
                 <ToggleButton value="CALENDAR">Calendario</ToggleButton>
-                <ToggleButton value="RECURRENTES">Recurrentes</ToggleButton>
+                <ToggleButton value="RECURRENTES">Series Recurrentes</ToggleButton>
               </ToggleButtonGroup>
             </Box>
 
-            {viewMode === "CALENDAR" ? (
+            {viewMode === "CALENDAR" && (
               <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.35 }}>
-                  Agrupar por
+                <Typography variant="caption" sx={{ fontWeight: 900, color: "text.secondary", textTransform: "uppercase", display: "block", mb: 1, letterSpacing: "0.1em" }}>
+                  Agrupación Temporal
                 </Typography>
                 <ToggleButtonGroup
                   size="small"
@@ -1001,60 +1113,96 @@ export function SpaTabProximasReuniones({
                   onChange={(_event, value: ZoomGroupingMode | null) => {
                     if (value) setGrouping(value);
                   }}
+                  sx={{ 
+                    "& .MuiToggleButton-root": { 
+                      px: 3, 
+                      fontWeight: 800, 
+                      borderRadius: 2,
+                      textTransform: "none"
+                    } 
+                  }}
                 >
                   <ToggleButton value="WEEK">Semanas</ToggleButton>
                   <ToggleButton value="MONTH">Meses</ToggleButton>
                 </ToggleButtonGroup>
               </Box>
-            ) : null}
+            )}
+
+            {onLoadMoreBack && (
+              <Box sx={{ ml: { md: "auto" } }}>
+                <Button
+                  variant="outlined"
+                  onClick={onLoadMoreBack}
+                  disabled={isLoading || isLoadingMoreBack || !canLoadMoreBack}
+                  startIcon={<HistoryIcon />}
+                  sx={{ borderRadius: 3, fontWeight: 700 }}
+                >
+                  {isLoadingMoreBack ? "Cargando..." : "Historial anterior"}
+                </Button>
+              </Box>
+            )}
           </Stack>
         </Paper>
 
         {isLoading ? (
-          <Typography variant="body2" color="text.secondary">
-            Cargando reuniones de Zoom...
-          </Typography>
+          <Box sx={{ py: 8, textAlign: "center" }}>
+            <CircularProgress size={40} thickness={4} />
+            <Typography variant="body1" sx={{ mt: 2, fontWeight: 600, color: "text.secondary" }}>
+              Sincronizando agenda de Zoom...
+            </Typography>
+          </Box>
         ) : meetings.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            No hay reuniones reportadas por Zoom.
-          </Typography>
+          <Paper sx={{ py: 8, textAlign: "center", borderRadius: 4, bgcolor: "background.paper", border: "1px dashed", borderColor: "divider" }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: "text.secondary" }}>
+              No hay reuniones reportadas
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Intenta actualizar o cambiar el período seleccionado.
+            </Typography>
+          </Paper>
         ) : (
-          <Stack spacing={2}>
+          <Stack spacing={4}>
             {viewMode === "CALENDAR"
               ? grouping === "MONTH"
                 ? groupedMeetingsByMonthAndDay.map((monthGroup) => (
-                    <Paper key={monthGroup.key} variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.2 }}>
-                        {monthGroup.label} ({monthGroup.dayGroups.reduce((acc, dg) => acc + dg.meetings.length, 0)})
+                    <Box key={monthGroup.key}>
+                      <Typography variant="h5" sx={{ fontWeight: 900, mb: 3, color: "primary.main", letterSpacing: "-0.02em", display: "flex", alignItems: "center", gap: 1.5 }}>
+                        <Box sx={{ width: 4, height: 24, bgcolor: "primary.main", borderRadius: 1 }} />
+                        {monthGroup.label}
+                        <Chip 
+                          label={monthGroup.dayGroups.reduce((acc, dg) => acc + dg.meetings.length, 0)} 
+                          size="small" 
+                          sx={{ fontWeight: 900, bgcolor: alpha(theme.palette.primary.main, 0.1), color: "primary.main" }} 
+                        />
                       </Typography>
-                      <Stack spacing={1.5}>
+                      <Stack spacing={3}>
                         {monthGroup.dayGroups.map((dayGroup) => (
-                          <Paper key={dayGroup.key} variant="outlined" sx={{ p: 1, borderRadius: 1.5, backgroundColor: "grey.50" }}>
-                            <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.8, color: "primary.main" }}>
+                          <Box key={dayGroup.key}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.5, color: "text.secondary", textTransform: "capitalize", pl: 0.5 }}>
                               {dayGroup.label} ({dayGroup.meetings.length})
                             </Typography>
-                            <Stack spacing={1}>
+                            <Stack spacing={2.5}>
                               {dayGroup.meetings.map((meeting) => renderMeetingCard(meeting, true))}
                             </Stack>
-                          </Paper>
+                          </Box>
                         ))}
                       </Stack>
-                    </Paper>
+                    </Box>
                   ))
                 : groupedMeetings.map((group) => (
-                    <Paper key={group.key} variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.8 }}>
+                    <Box key={group.key}>
+                      <Typography variant="h5" sx={{ fontWeight: 900, mb: 2, color: "primary.main", letterSpacing: "-0.02em" }}>
                         {group.label} ({group.meetings.length})
                       </Typography>
-                      <Stack spacing={1}>
+                      <Stack spacing={2.5}>
                         {group.meetings.map((meeting) => renderMeetingCard(meeting, true))}
                       </Stack>
-                    </Paper>
+                    </Box>
                   ))
               : recurringSeries.length === 0
                 ? (
-                  <Typography variant="body2" color="text.secondary">
-                    No hay reuniones recurrentes para mostrar.
+                  <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>
+                    No hay series recurrentes detectadas.
                   </Typography>
                 )
                 : recurringSeries.map((series) => {

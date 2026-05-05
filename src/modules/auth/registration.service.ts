@@ -12,7 +12,6 @@ const PENDING_KEY_PREFIX = "auth:registration:pending:";
 const TOKEN_TTL_MINUTES = 60 * 24 * 7;
 const PASSWORD_RECOVERY_LINK_TTL_MINUTES = 30;
 const ACCOUNT_ACTIVATION_LINK_TTL_MINUTES = 60 * 24 * 7;
-const GOOGLE_ALLOWED_DOMAIN = "@flacso.edu.uy";
 
 const pendingRegistrationSchema = z.object({
   token: z.string().min(1),
@@ -236,7 +235,7 @@ function buildPasswordLinkEmail(input: {
         invitedBy
           ? `La cuenta fue creada por ${invitedBy}. Para completar el alta, activa tu acceso desde este enlace.`
           : "Para completar el alta, activa tu acceso desde este enlace.",
-        `Si tu correo termina en ${GOOGLE_ALLOWED_DOMAIN}, tambien puedes ingresar directamente con tu cuenta de Google en el sistema.`
+        "Tambien puedes ingresar directamente con tu cuenta de Google en el sistema."
       ],
         actionLabel: "Activar cuenta y definir contrasena",
         actionUrl: input.resetUrl,
@@ -315,7 +314,7 @@ function buildAccountConfirmedEmail(input: {
       paragraphs: [
         "Tu cuenta fue activada correctamente.",
         "Ya puedes ingresar a la plataforma con tu correo y la contrasena que acabas de definir.",
-        `Si tu correo termina en ${GOOGLE_ALLOWED_DOMAIN}, tambien puedes ingresar con Google.`
+        "Tambien puedes ingresar con Google."
       ],
       actionLabel: "Ir a la plataforma",
       actionUrl: loginUrl,
