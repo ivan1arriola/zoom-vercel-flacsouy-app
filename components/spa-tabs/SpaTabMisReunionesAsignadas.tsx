@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -37,6 +37,7 @@ import {
   loadZoomAccountPassword,
   type PersonHoursMeeting
 } from "@/src/services/tarifasApi";
+import { syncUpcomingMeetingsToGoogleCalendar } from "@/src/services/userApi";
 
 interface SpaTabMisReunionesAsignadasProps {
   userId: string;
@@ -159,10 +160,32 @@ export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReuniones
   const [meetings, setMeetings] = useState<PersonHoursMeeting[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [calendarSyncMessage, setCalendarSyncMessage] = useState("");
+  const [calendarSyncError, setCalendarSyncError] = useState("");
+  const [isCalendarSyncing, setIsCalendarSyncing] = useState(false);
   const [passwords, setPasswords] = useState<Record<string, string>>({});
   const [passwordLoading, setPasswordLoading] = useState<Record<string, boolean>>({});
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const [copyFeedback, setCopyFeedback] = useState<Record<string, string>>({});
+  const syncTimeoutRef = useRef<number | null>(null);
+  const syncInFlightRef = useRef(false);
+  const lastSyncedSignatureRef = useRef("");
+
+  const canAutoSyncGoogleCalendar =
+    role === "DOCENTE" || role === "ASISTENTE_ZOOM" || role === "ADMINISTRADOR";
+
+  const meetingsSyncSignature = useMemo(() => {
+    return meetings
+      .map((meeting) => {
+        return [
+          meeting.assignmentId ?? "",
+          meeting.eventId,
+          meeting.inicioProgramadoAt || meeting.inicioAt,
+          meeting.finProgramadoAt || meeting.finAt
+        ].join(":");
+      })
+      .join("|");
+  }, [meetings]);
 
   async function refresh() {
     if (!userId) return;
@@ -194,6 +217,66 @@ export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReuniones
   useEffect(() => {
     void refresh();
   }, [userId]);
+
+  const runCalendarSync = useCallback(
+    async (source: "auto" | "manual") => {
+      if (!userId || !canAutoSyncGoogleCalendar || isLoading || meetings.length === 0) return;
+      if (syncInFlightRef.current) return;
+
+      syncInFlightRef.current = true;
+      setIsCalendarSyncing(true);
+      if (source === "manual") setCalendarSyncError("");
+
+      try {
+        const result = await syncUpcomingMeetingsToGoogleCalendar();
+        if (!result.success) {
+          setCalendarSyncError(result.error ?? "No se pudo sincronizar con Google Calendar.");
+          return;
+        }
+
+        const created = result.created ?? 0;
+        const updated = result.updated ?? 0;
+        const skipped = result.skipped ?? 0;
+        const total = result.total ?? meetings.length;
+        setCalendarSyncError("");
+        setCalendarSyncMessage(
+          result.message ??
+            `Sincronización automática completada: ${created + updated}/${total} reuniones (${created} nuevas, ${updated} actualizadas, ${skipped} omitidas).`
+        );
+        lastSyncedSignatureRef.current = meetingsSyncSignature;
+      } finally {
+        syncInFlightRef.current = false;
+        setIsCalendarSyncing(false);
+      }
+    },
+    [canAutoSyncGoogleCalendar, isLoading, meetings.length, meetingsSyncSignature, userId]
+  );
+
+  useEffect(() => {
+    if (!canAutoSyncGoogleCalendar || !meetingsSyncSignature || isLoading) return;
+    if (lastSyncedSignatureRef.current === meetingsSyncSignature) return;
+
+    if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = window.setTimeout(() => {
+      void runCalendarSync("auto");
+    }, 1200);
+
+    return () => {
+      if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
+    };
+  }, [canAutoSyncGoogleCalendar, isLoading, meetingsSyncSignature, runCalendarSync]);
+
+  useEffect(() => {
+    if (!canAutoSyncGoogleCalendar || !userId) return;
+
+    const intervalId = window.setInterval(() => {
+      void refresh();
+    }, 5 * 60 * 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [canAutoSyncGoogleCalendar, userId]);
 
   const groupedMeetings = useMemo(() => {
     const groups: Record<string, MonthlyUpcomingGroup> = {};
@@ -268,6 +351,15 @@ export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReuniones
             color="primary" 
             sx={{ fontWeight: 900, py: 2.5, px: 1, fontSize: "1rem", borderRadius: 3 }} 
           />
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={() => void runCalendarSync("manual")}
+            disabled={isCalendarSyncing || isLoading || meetings.length === 0 || !canAutoSyncGoogleCalendar}
+            sx={{ borderRadius: 2, fontWeight: 700, textTransform: "none" }}
+          >
+            {isCalendarSyncing ? "Sincronizando..." : "Sincronizar Google"}
+          </Button>
           <Button variant="outlined" onClick={() => void refresh()} disabled={isLoading} sx={{ borderRadius: 2, fontWeight: 700 }}>
             Actualizar
           </Button>
@@ -275,6 +367,11 @@ export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReuniones
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+      {!error && canAutoSyncGoogleCalendar && (
+        <Alert severity={calendarSyncError ? "warning" : "success"} sx={{ mb: 3 }}>
+          {calendarSyncError || calendarSyncMessage || "Sincronización automática con Google Calendar activa. Se actualiza al abrir esta pestaña y periódicamente cada 5 minutos."}
+        </Alert>
+      )}
 
       {isLoading && meetings.length === 0 ? (
         <Stack spacing={2.5}>
@@ -509,10 +606,10 @@ export function SpaTabMisReunionesAsignadas({ userId, role }: SpaTabMisReuniones
                             target="_blank"
                             sx={{ borderRadius: 3, fontWeight: 800, py: 1.5, textTransform: "none" }}
                           >
-                            Agendar Google
+                            Ver en Google Calendar
                           </Button>
                           <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center", fontWeight: 500 }}>
-                            Asegúrate de agendarla para no olvidar el compromiso.
+                            Se sincroniza automáticamente. Usa este acceso para revisarla en Google.
                           </Typography>
                         </Box>
                       </Stack>

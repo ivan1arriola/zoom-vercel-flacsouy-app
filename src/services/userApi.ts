@@ -200,6 +200,43 @@ export async function syncProfileFromGoogle(): Promise<{
   };
 }
 
+export async function syncUpcomingMeetingsToGoogleCalendar(): Promise<{
+  success: boolean;
+  total?: number;
+  created?: number;
+  updated?: number;
+  skipped?: number;
+  message?: string;
+  error?: string;
+}> {
+  const response = await fetch("/api/v1/google-calendar/upcoming/sync", {
+    method: "POST"
+  });
+  const data = (await response.json()) as {
+    ok?: boolean;
+    total?: number;
+    created?: number;
+    updated?: number;
+    skipped?: number;
+    message?: string;
+    error?: string;
+  };
+  if (!response.ok) {
+    return {
+      success: false,
+      error: data.error ?? "No se pudo sincronizar con Google Calendar."
+    };
+  }
+  return {
+    success: true,
+    total: data.total ?? 0,
+    created: data.created ?? 0,
+    updated: data.updated ?? 0,
+    skipped: data.skipped ?? 0,
+    message: data.message ?? "Sincronizacion completada."
+  };
+}
+
 export async function updateProfile(payload: Record<string, unknown>): Promise<{
   success: boolean;
   user?: CurrentUser;

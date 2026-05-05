@@ -215,6 +215,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           Google({
             clientId: env.AUTH_GOOGLE_ID,
             clientSecret: env.AUTH_GOOGLE_SECRET,
+            authorization: {
+              params: {
+                scope: [
+                  "openid",
+                  "email",
+                  "profile",
+                  "https://www.googleapis.com/auth/calendar.events"
+                ].join(" "),
+                access_type: "offline",
+                include_granted_scopes: "true"
+              }
+            },
             allowDangerousEmailAccountLinking: true
           })
         ]
