@@ -34,8 +34,6 @@ type ZoomDriveSyncForm = {
   apiKey: string;
   zoomGroupId: string;
   driveDestinationId: string;
-  telegramBotToken: string;
-  telegramChatId: string;
 };
 
 type SyncBackendTarget = "LOCAL" | "PROD" | "CUSTOM";
@@ -47,9 +45,7 @@ const defaultForm: ZoomDriveSyncForm = {
   apiBaseUrl: SYNC_BACKEND_LOCAL_URL,
   apiKey: "",
   zoomGroupId: "",
-  driveDestinationId: "",
-  telegramBotToken: "",
-  telegramChatId: ""
+  driveDestinationId: ""
 };
 
 function normalizeUrl(value: string): string {
@@ -74,9 +70,7 @@ function formFromBootstrap(payload: ZoomDriveSyncBootstrapResponse): Partial<Zoo
 function toPayloadConfig(form: ZoomDriveSyncForm): ZoomDriveSyncConfigInput {
   return {
     zoomGroupId: form.zoomGroupId.trim(),
-    driveDestinationId: form.driveDestinationId.trim(),
-    telegramBotToken: form.telegramBotToken.trim(),
-    telegramChatId: form.telegramChatId.trim()
+    driveDestinationId: form.driveDestinationId.trim()
   };
 }
 
@@ -88,8 +82,6 @@ function formatEventLine(event: NonNullable<ZoomDriveSyncRunResponse["eventsTail
     file_uploaded: "Archivo subido",
     file_error: "Error de transferencia",
     meeting_deleted_in_zoom: "Reunion eliminada en Zoom",
-    telegram_sent: "Telegram enviado",
-    telegram_failed: "Error enviando Telegram",
     sync_completed: "Sincronizacion completada",
     sync_failed: "Sincronizacion fallida"
   };
@@ -317,7 +309,7 @@ export function SpaTabZoomDriveSync() {
               Descargar grabaciones a Google Drive
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Google Service Account se resuelve en backend. Aqui solo eliges el destino en Drive, grupo Zoom y Telegram opcional.
+              Google Service Account se resuelve en backend. Aqui solo eliges el destino en Drive y el grupo Zoom.
             </Typography>
             <Typography variant="caption" color="text.secondary">
               Las opciones de ejecucion (workers, borrado en Zoom, etc.) se gestionan en el backend.
@@ -447,20 +439,6 @@ export function SpaTabZoomDriveSync() {
                 }
                 helperText="Unico campo obligatorio editable para el destino en Drive."
               />
-              <TextField
-                label="TELEGRAM_BOT_TOKEN (opcional)"
-                value={form.telegramBotToken}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, telegramBotToken: event.target.value }))
-                }
-              />
-              <TextField
-                label="TELEGRAM_CHAT_ID (opcional)"
-                value={form.telegramChatId}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, telegramChatId: event.target.value }))
-                }
-              />
             </Box>
 
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
@@ -573,7 +551,6 @@ export function SpaTabZoomDriveSync() {
               <Chip label={`Scope: ${validation.settingsPreview.scope || "-"}`} />
               <Chip label={`Timezone: ${validation.settingsPreview.timezone || "-"}`} />
               <Chip label={`Drive: ${validation.settingsPreview.driveDestinationId || "-"}`} />
-              <Chip label={`Telegram: ${validation.settingsPreview.hasTelegram ? "si" : "no"}`} />
               {typeof validation.settingsPreview.parallelWorkers === "number" ? (
                 <Chip label={`Workers backend: ${validation.settingsPreview.parallelWorkers}`} />
               ) : null}
@@ -600,7 +577,6 @@ export function SpaTabZoomDriveSync() {
               <Chip variant="outlined" label={`${syncResult.result.filesDownloaded} descargados`} />
               <Chip variant="outlined" label={`${syncResult.result.filesSkipped} omitidos`} />
               <Chip variant="outlined" label={`${syncResult.result.zoomDeleted} eliminados en Zoom`} />
-              <Chip variant="outlined" label={`${syncResult.result.telegramMessagesSent} Telegram`} />
               <Chip variant="outlined" label={`${syncResult.elapsedSeconds ?? 0}s`} />
             </Stack>
             {syncResult.eventsTail && syncResult.eventsTail.length > 0 ? (

@@ -19,9 +19,11 @@ import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
 import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
+import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
 
 export const tabs = [
   "dashboard",
+  "notificaciones",
   "crear_reunion",
   "solicitudes",
   "programas",
@@ -71,6 +73,12 @@ export const NAVIGATION_GROUP_LABEL: Record<NavigationGroup, string> = {
 export const TAB_CONFIG: Record<Tab, TabConfig> = {
   dashboard: {
     label: "Inicio",
+    visibleInNavigation: true,
+    roles: ALL_VIEW_ROLES,
+    group: "GENERAL"
+  },
+  notificaciones: {
+    label: "Notificaciones",
     visibleInNavigation: true,
     roles: ALL_VIEW_ROLES,
     group: "GENERAL"
@@ -200,6 +208,7 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
 export const ROLE_PRESENTATION_TABS: Record<ViewRole, readonly Tab[]> = {
   ADMINISTRADOR: [
     "dashboard",
+    "notificaciones",
     "crear_reunion",
     "solicitudes",
     "programas",
@@ -219,6 +228,7 @@ export const ROLE_PRESENTATION_TABS: Record<ViewRole, readonly Tab[]> = {
   ],
   ASISTENTE_ZOOM: [
     "dashboard",
+    "notificaciones",
     "agenda_libre",
     "mis_reuniones_asignadas",
     "mis_asistencias",
@@ -227,6 +237,7 @@ export const ROLE_PRESENTATION_TABS: Record<ViewRole, readonly Tab[]> = {
   ],
   DOCENTE: [
     "dashboard",
+    "notificaciones",
     "crear_reunion",
     "solicitudes",
     "programas",
@@ -236,6 +247,7 @@ export const ROLE_PRESENTATION_TABS: Record<ViewRole, readonly Tab[]> = {
   ],
   CONTADURIA: [
     "dashboard",
+    "notificaciones",
     "asistentes_perfiles",
     "asistentes_estadisticas",
     "tarifas",
@@ -303,6 +315,8 @@ export function getTabIcon(tab: Tab): ReactNode {
   switch (tab) {
     case "dashboard":
       return <DashboardOutlinedIcon fontSize="small" />;
+    case "notificaciones":
+      return <NotificationsNoneOutlinedIcon fontSize="small" />;
     case "crear_reunion":
       return <AddIcon fontSize="small" />;
     case "solicitudes":

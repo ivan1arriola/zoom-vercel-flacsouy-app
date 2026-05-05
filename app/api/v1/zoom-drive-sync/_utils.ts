@@ -10,8 +10,6 @@ export type ZoomDriveSyncProxyConnection = {
 export type ZoomDriveSyncProxyConfigInput = {
   zoomGroupId?: string;
   driveDestinationId?: string;
-  telegramBotToken?: string;
-  telegramChatId?: string;
 };
 
 type ProxyRequestBody = {
@@ -84,17 +82,11 @@ export function buildBackendSyncConfig(input: ZoomDriveSyncProxyConfigInput): Re
     DRIVE_DESTINATION_ID: cleanString(input.driveDestinationId) || cleanString(env.DRIVE_DESTINATION_ID),
     GOOGLE_SERVICE_ACCOUNT_EMAIL: cleanString(env.GOOGLE_SERVICE_ACCOUNT_EMAIL),
     GOOGLE_PRIVATE_KEY: cleanString(env.GOOGLE_PRIVATE_KEY),
-    GOOGLE_SERVICE_ACCOUNT_SUBJECT: cleanString(env.GOOGLE_SERVICE_ACCOUNT_SUBJECT),
-    TELEGRAM_BOT_TOKEN: cleanString(input.telegramBotToken),
-    TELEGRAM_CHAT_ID: cleanString(input.telegramChatId),
+    GOOGLE_SERVICE_ACCOUNT_SUBJECT: cleanString(env.GOOGLE_SERVICE_ACCOUNT_SUBJECT)
   };
 
   const compact: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
-    if (key === "TELEGRAM_BOT_TOKEN" || key === "TELEGRAM_CHAT_ID") {
-      compact[key] = value;
-      continue;
-    }
     if (typeof value === "string" && value.trim() === "") continue;
     compact[key] = value;
   }

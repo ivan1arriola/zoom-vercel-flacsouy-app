@@ -3,6 +3,7 @@ import { useSearchParams } from "next/navigation";
 
 const tabs = [
   "dashboard",
+  "notificaciones",
   "crear_reunion",
   "solicitudes",
   "programas",
@@ -36,6 +37,7 @@ export function useUIState() {
     const rawTab = (searchParams.get("tab") ?? "").toLowerCase();
     if (!rawTab) return null;
     if (rawTab === "agenda") return "agenda_libre" as Tab;
+    if (rawTab === "notificaciones") return "notificaciones" as Tab;
     if (rawTab === "asistencias") return "mis_asistencias" as Tab;
     if (rawTab === "proximas") return "proximas_zoom" as Tab;
     if (rawTab === "pasadas") return "pasadas_zoom" as Tab;

@@ -126,9 +126,9 @@ export type AssignmentSuggestion = {
     finProgramadoAt: string;
     modalidadReunion: string;
     coverageValue: number;
-    asistenteZoomId: string;
-    asistenteNombre: string;
-    asistenteEmail: string;
+    asistenteZoomId: string | null;
+    asistenteNombre: string | null;
+    asistenteEmail: string | null;
   }>;
   assistants: Array<{
     asistenteZoomId: string;

@@ -4,8 +4,7 @@ const rawEnv = {
   ...process.env,
   ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET ?? process.env.Zoom_Client_Secret,
   ZOOM_CLIENT_ID: process.env.ZOOM_CLIENT_ID ?? process.env.Zoom_Client_ID,
-  ZOOM_ACCOUNT_ID: process.env.ZOOM_ACCOUNT_ID ?? process.env.Zoom_Account_ID,
-  TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID ?? process.env.TELEGRAM_CHAT_ID_IVAN
+  ZOOM_ACCOUNT_ID: process.env.ZOOM_ACCOUNT_ID ?? process.env.Zoom_Account_ID
 };
 
 const envSchema = z.object({
@@ -31,8 +30,6 @@ const envSchema = z.object({
   GOOGLE_PRIVATE_KEY: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_SUBJECT: z.string().email().optional(),
   DRIVE_DESTINATION_ID: z.string().optional(),
-  TELEGRAM_BOT_TOKEN: z.string().optional(),
-  TELEGRAM_CHAT_ID: z.string().optional(),
   ZOOM_DRIVE_DEFAULT_ENABLED: z.string().default("false"),
   ZOOM_DRIVE_SYNC_API_BASE_URL: z.string().url().optional(),
   ZOOM_DRIVE_SYNC_API_KEY: z.string().optional(),

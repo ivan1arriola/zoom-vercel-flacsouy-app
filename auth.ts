@@ -4,6 +4,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { UserRole } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import NextAuth from "next-auth";
+import { headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import type { Adapter } from "next-auth/adapters";
 import Credentials from "next-auth/providers/credentials";
@@ -11,6 +12,7 @@ import Google from "next-auth/providers/google";
 import { z } from "zod";
 import { db } from "@/src/lib/db";
 import { asBoolean, authSecret, env } from "@/src/lib/env";
+import { createAdminLoginNotifications } from "@/src/modules/notificaciones/service";
 
 const ADMIN_EMAIL = "web@flacso.edu.uy";
 const GOOGLE_ALLOWED_DOMAIN = "@flacso.edu.uy";
@@ -113,6 +115,22 @@ async function ensureUserAliasEmail(userId: string, email: string): Promise<void
       userId
     }
   });
+}
+
+async function resolveRequestMetadata(): Promise<{ userAgent: string | null; ip: string | null }> {
+  try {
+    const requestHeaders = await headers();
+    const userAgent = requestHeaders.get("user-agent");
+    const forwardedFor = requestHeaders.get("x-forwarded-for");
+    const realIp = requestHeaders.get("x-real-ip");
+    const cfIp = requestHeaders.get("cf-connecting-ip");
+    const firstForwardedIp = forwardedFor?.split(",").map((item) => item.trim()).find(Boolean) ?? null;
+    const ip = firstForwardedIp ?? realIp ?? cfIp ?? null;
+
+    return { userAgent, ip };
+  } catch {
+    return { userAgent: null, ip: null };
+  }
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -401,6 +419,33 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.lastName = (token as any).lastName;
       }
       return session;
+    }
+  },
+  events: {
+    async signIn({ user, account }) {
+      try {
+        const email = String(user.email ?? "").trim().toLowerCase();
+        if (!email) return;
+
+        const canonical = await findUserByLoginEmail(email);
+        const fallbackId = String((user as { id?: string | null }).id ?? "").trim();
+        const userId = canonical?.id ?? fallbackId;
+        if (!userId) return;
+
+        const { userAgent, ip } = await resolveRequestMetadata();
+
+        await createAdminLoginNotifications({
+          userId,
+          userEmail: email,
+          userName: canonical?.name ?? user.name,
+          provider: account?.provider ?? null,
+          connectedAt: new Date(),
+          userAgent,
+          ip
+        });
+      } catch (error) {
+        console.error("No se pudo crear la notificacion interna de login.", error);
+      }
     }
   }
 });

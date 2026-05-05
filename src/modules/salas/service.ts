@@ -22,7 +22,7 @@ import { db } from "@/src/lib/db";
 import { env } from "@/src/lib/env";
 import { EmailClient } from "@/src/lib/email.client";
 import { logger } from "@/src/lib/logger";
-import { notifyAdminTelegramMovement } from "@/src/lib/telegram.client";
+import { notifyAdminInAppMovement } from "@/src/lib/admin-notifications.client";
 import { ZoomApiError, ZoomMeetingsClient } from "@/src/lib/zoom-meetings.client";
 import {
   buildAdminInfoDigestEmailHtml,
@@ -145,9 +145,9 @@ type AssignmentSuggestionResult = {
     finProgramadoAt: string;
     modalidadReunion: ModalidadReunion;
     coverageValue: number;
-    asistenteZoomId: string;
-    asistenteNombre: string;
-    asistenteEmail: string;
+    asistenteZoomId: string | null;
+    asistenteNombre: string | null;
+    asistenteEmail: string | null;
   }>;
   assistants: Array<{
     asistenteZoomId: string;
@@ -481,11 +481,17 @@ function cloneLoadsByMonth(loadsByMonth: SuggestionLoadsByMonth): SuggestionLoad
   return clone;
 }
 
-function computeSuggestionScoreByMonth(loadsByMonth: SuggestionLoadsByMonth): number {
-  return Object.values(loadsByMonth).reduce(
+function computeSuggestionScoreByMonth(
+  loadsByMonth: SuggestionLoadsByMonth,
+  assignmentByEvent: Array<string | null>
+): number {
+  const loadScore = Object.values(loadsByMonth).reduce(
     (sum, loads) => sum + computeSuggestionScore(loads),
     0
   );
+  const nullCount = assignmentByEvent.filter((id) => id === null).length;
+  // Use a very high penalty for unassigned events to ensure the DFS finds the most complete solution first
+  return loadScore + nullCount * 10_000_000;
 }
 
 function buildSuggestionSignature(assignmentByEvent: Array<string | null>): string {
@@ -4186,7 +4192,7 @@ export class SalasService {
         });
       });
 
-      await notifyAdminTelegramMovement({
+      await notifyAdminInAppMovement({
         action: "SOLICITUD_HABILITA_ASISTENCIA",
         actorEmail: user.email,
         actorRole: user.role,
@@ -4329,7 +4335,7 @@ export class SalasService {
       };
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "SOLICITUD_DESHABILITA_ASISTENCIA",
       actorEmail: user.email,
       actorRole: user.role,
@@ -4572,7 +4578,7 @@ export class SalasService {
         { timeout: 15000 }
       );
 
-      await notifyAdminTelegramMovement({
+      await notifyAdminInAppMovement({
         action: "SOLICITUD_HABILITA_ASISTENCIA_INSTANCIA",
         actorEmail: user.email,
         actorRole: user.role,
@@ -4727,7 +4733,7 @@ export class SalasService {
       { timeout: 15000 }
     );
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "SOLICITUD_DESHABILITA_ASISTENCIA_INSTANCIA",
       actorEmail: user.email,
       actorRole: user.role,
@@ -4980,7 +4986,7 @@ export class SalasService {
       html
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "RECORDATORIO_SOLICITUD_ENVIADO",
       actorEmail: user.email,
       actorRole: user.role,
@@ -5317,7 +5323,7 @@ export class SalasService {
       });
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "EDICION_REUNION_PASADA",
       actorEmail: admin.email,
       actorRole: admin.role,
@@ -5458,7 +5464,7 @@ export class SalasService {
         }
       });
 
-      await notifyAdminTelegramMovement({
+      await notifyAdminInAppMovement({
         action: "SOLICITUD_CREADA_PENDIENTE_MANUAL",
         actorEmail: user.email,
         actorRole: user.role,
@@ -5604,7 +5610,7 @@ export class SalasService {
           }
         });
 
-        await notifyAdminTelegramMovement({
+        await notifyAdminInAppMovement({
           action: "SOLICITUD_CREADA_PENDIENTE_MANUAL",
           actorEmail: user.email,
           actorRole: user.role,
@@ -5782,7 +5788,7 @@ export class SalasService {
       throw error;
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: requireManualResolution ? "SOLICITUD_CREADA_PENDIENTE_MANUAL" : "SOLICITUD_CREADA",
       actorEmail: user.email,
       actorRole: user.role,
@@ -6199,7 +6205,7 @@ export class SalasService {
       throw error;
     }
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "SOLICITUD_INSTANCIA_AGREGADA",
       actorEmail: admin.email,
       actorRole: admin.role,
@@ -6350,7 +6356,7 @@ export class SalasService {
         return eventsResult.count;
       });
 
-      await notifyAdminTelegramMovement({
+      await notifyAdminInAppMovement({
         action: "SOLICITUD_CANCELADA_SERIE",
         actorEmail: user.email,
         actorRole: user.role,
@@ -6501,7 +6507,7 @@ export class SalasService {
       };
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "SOLICITUD_CANCELADA_INSTANCIA",
       actorEmail: user.email,
       actorRole: user.role,
@@ -6910,7 +6916,7 @@ export class SalasService {
       };
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "SOLICITUD_DESCANCELADA_INSTANCIA",
       actorEmail: admin.email,
       actorRole: admin.role,
@@ -7044,7 +7050,7 @@ export class SalasService {
       throw error;
     }
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "SOLICITUD_ELIMINADA",
       actorEmail: user.email,
       actorRole: user.role,
@@ -7203,7 +7209,7 @@ export class SalasService {
       return updated;
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "RESOLUCION_MANUAL_PROVISION",
       actorEmail: user.email,
       actorRole: user.role,
@@ -7574,9 +7580,13 @@ export class SalasService {
         .map((interest) => interest.asistenteZoomId)
         .filter((assistantId) => assistantIdSet.has(assistantId));
 
+      // if (candidateAssistantIds.length === 0) {
+      //   unsatisfiedEvents.push(`${event.solicitud.titulo} (${event.id})`);
+      //   continue;
+      // }
+
       if (candidateAssistantIds.length === 0) {
         unsatisfiedEvents.push(`${event.solicitud.titulo} (${event.id})`);
-        continue;
       }
 
       const hourlyRate = rateByModality.get(event.modalidadReunion) ?? 0;
@@ -7693,7 +7703,7 @@ export class SalasService {
       if (!node) break;
 
       if (node.eventIndex >= session.events.length) {
-        const score = computeSuggestionScoreByMonth(node.loadsByMonth);
+        const score = computeSuggestionScoreByMonth(node.loadsByMonth, node.assignmentByEvent);
 
         if (session.targetScore === null) {
           session.targetScore = score;
@@ -7725,12 +7735,12 @@ export class SalasService {
         });
 
         const events = session.events.map((event, idx) => {
-          const assistantId = node.assignmentByEvent[idx];
-          if (!assistantId) {
-            throw new Error("La sugerencia quedó incompleta durante el cálculo.");
-          }
-          const assistant = session.assistants.find((item) => item.id === assistantId);
-          if (!assistant) {
+          const assistantId = node.assignmentByEvent[idx] ?? null;
+          const assistant = assistantId
+            ? session.assistants.find((item) => item.id === assistantId)
+            : null;
+
+          if (assistantId && !assistant) {
             throw new Error("No se encontró información del asistente sugerido.");
           }
           return {
@@ -7740,9 +7750,9 @@ export class SalasService {
             finProgramadoAt: event.finProgramadoAtIso,
             modalidadReunion: event.modalidadReunion,
             coverageValue: event.coverageValue,
-            asistenteZoomId: assistant.id,
-            asistenteNombre: assistant.nombre,
-            asistenteEmail: assistant.email
+            asistenteZoomId: assistant?.id ?? null,
+            asistenteNombre: assistant?.nombre ?? null,
+            asistenteEmail: assistant?.email ?? null
           };
         });
 
@@ -7824,6 +7834,19 @@ export class SalasService {
           schedulesByAssistant: nextSchedulesByAssistant
         });
       }
+      
+      // ALWAYS add a "null" candidate at the end of the children list.
+      // Since children are pushed to the stack in reverse order (7840), 
+      // the first child in children[] is the one popped first.
+      // So putting null at the end ensures it's tried only after all assistants.
+      const unassignedAssignmentByEvent = [...node.assignmentByEvent];
+      unassignedAssignmentByEvent[node.eventIndex] = null;
+      children.push({
+        eventIndex: node.eventIndex + 1,
+        loadsByMonth: node.loadsByMonth, // No load added
+        assignmentByEvent: unassignedAssignmentByEvent,
+        schedulesByAssistant: node.schedulesByAssistant
+      });
 
       for (let i = children.length - 1; i >= 0; i -= 1) {
         session.frontier.push(children[i]);
@@ -7844,11 +7867,12 @@ export class SalasService {
 
     const problem = await this.buildAssignmentSuggestionProblem();
 
-    if (problem.unsatisfiedEvents.length > 0) {
-      throw new Error(
-        `No se puede sugerir cobertura para todos los eventos. Sin candidatos interesados: ${problem.unsatisfiedEvents.join(", ")}`
-      );
-    }
+    // We no longer throw if there are unsatisfied events, as we want to provide a best-effort recommendation.
+    // if (problem.unsatisfiedEvents.length > 0) {
+    //   throw new Error(
+    //     `No se puede sugerir cobertura para todos los eventos. Sin candidatos interesados: ${problem.unsatisfiedEvents.join(", ")}`
+    //   );
+    // }
 
     if (problem.events.length === 0) {
       return {
@@ -8001,7 +8025,7 @@ export class SalasService {
       }
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "INTERES_ASISTENTE_ACTUALIZADO",
       actorEmail: user.email,
       actorRole: user.role,
@@ -8218,7 +8242,7 @@ export class SalasService {
       return assignment;
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "ASIGNACION_ASISTENTE_CREADA",
       actorEmail: admin.email,
       actorRole: admin.role,
@@ -8524,7 +8548,7 @@ export class SalasService {
       };
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "REGISTRO_MANUAL_REUNION_PROXIMA",
       actorEmail: admin.email,
       actorRole: admin.role,
@@ -8834,7 +8858,7 @@ export class SalasService {
       };
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "REGISTRO_MANUAL_REUNION_PASADA",
       actorEmail: admin.email,
       actorRole: admin.role,
@@ -9932,7 +9956,7 @@ export class SalasService {
       return created;
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "TARIFA_MODALIDAD_ACTUALIZADA",
       actorEmail: user.email,
       actorRole: user.role,

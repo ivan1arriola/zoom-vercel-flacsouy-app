@@ -180,7 +180,8 @@ export function SpaTabAsignacion({
     const actionDisabled = assigningEventId === item.id || !selectedAssistantId || isNoopSelection || hasNoInterested;
     
     const suggestedAssignment = assignmentSuggestion?.events.find((suggested) => suggested.eventoId === item.id) ?? null;
-    const canApplySuggestionToSelector = Boolean(suggestedAssignment) && selectedAssistantId !== (suggestedAssignment?.asistenteZoomId ?? "");
+    const suggestedAssistantId = suggestedAssignment?.asistenteZoomId ?? "";
+    const canApplySuggestionToSelector = suggestedAssignment !== null && selectedAssistantId !== suggestedAssistantId;
     
     const meetingId = normalizeZoomMeetingId(item.zoomMeetingId) ?? "-";
     const recurringCount = meetingId === "-" ? 1 : recurrenceCountByMeetingId.get(meetingId) ?? 1;
@@ -296,11 +297,11 @@ export function SpaTabAsignacion({
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2, p: 1, bgcolor: "info.lighter", borderRadius: 1 }}>
                     <AutoAwesomeRoundedIcon fontSize="small" color="info" />
                     <Typography variant="body2" sx={{ flexGrow: 1 }}>
-                      Sugerencia: <strong>{suggestedAssignment.asistenteNombre}</strong>
+                      Sugerencia: <strong>{suggestedAssignment.asistenteNombre || "Sin recomendación de personal"}</strong>
                     </Typography>
                     <Button 
                       size="small" 
-                      onClick={() => onSelectedAssistantChange(item.id, suggestedAssignment.asistenteZoomId)}
+                      onClick={() => onSelectedAssistantChange(item.id, suggestedAssistantId)}
                       disabled={!canApplySuggestionToSelector}
                     >
                       Aplicar

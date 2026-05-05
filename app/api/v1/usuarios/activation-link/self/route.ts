@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser, isAdminAuthorized } from "@/src/lib/api-auth";
-import { notifyAdminTelegramMovement } from "@/src/lib/telegram.client";
+import { notifyAdminInAppMovement } from "@/src/lib/admin-notifications.client";
 import { requestUserActivationLink } from "@/src/modules/auth/registration.service";
 
 export const runtime = "nodejs";
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       invitedBy: buildDisplayName(user.firstName, user.lastName) || user.email
     });
 
-    await notifyAdminTelegramMovement({
+    await notifyAdminInAppMovement({
       action: "USUARIO_ENVIO_ACTIVACION_SELF_TEST",
       actorEmail: user.email,
       actorRole: user.role,

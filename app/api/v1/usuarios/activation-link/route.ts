@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionUser, isAdminAuthorized } from "@/src/lib/api-auth";
 import { db } from "@/src/lib/db";
-import { notifyAdminTelegramMovement } from "@/src/lib/telegram.client";
+import { notifyAdminInAppMovement } from "@/src/lib/admin-notifications.client";
 import { requestUserActivationLink } from "@/src/modules/auth/registration.service";
 
 export const runtime = "nodejs";
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
-  await notifyAdminTelegramMovement({
+  await notifyAdminInAppMovement({
     action: "USUARIO_REENVIO_ACTIVACION",
     actorEmail: adminUser?.email,
     actorRole: adminUser?.role,

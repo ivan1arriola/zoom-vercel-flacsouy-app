@@ -15,8 +15,7 @@ export async function GET() {
       apiBaseUrl: env.ZOOM_DRIVE_SYNC_API_BASE_URL ?? "",
       timezone: env.TIMEZONE,
       zoomGroupId: env.ZOOM_GROUP_ID ?? "",
-      driveDestinationId: env.DRIVE_DESTINATION_ID ?? "",
-      telegramChatId: "",
+      driveDestinationId: env.DRIVE_DESTINATION_ID ?? ""
     },
     zoomConfig: {
       usesServerVariables: true,

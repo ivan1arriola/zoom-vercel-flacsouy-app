@@ -6,8 +6,6 @@ export type ZoomDriveSyncConnection = {
 export type ZoomDriveSyncConfigInput = {
   zoomGroupId?: string;
   driveDestinationId?: string;
-  telegramBotToken?: string;
-  telegramChatId?: string;
 };
 
 export type ZoomGroup = {
@@ -27,7 +25,6 @@ export type ZoomDriveSyncBootstrapResponse = {
     timezone: string;
     zoomGroupId: string;
     driveDestinationId: string;
-    telegramChatId: string;
   };
   zoomConfig: {
     usesServerVariables: boolean;
@@ -50,7 +47,6 @@ export type ZoomDriveSyncValidationResponse = {
     parallelWorkers?: number;
     mediaWorkers?: number;
     deleteFromZoom?: boolean;
-    hasTelegram?: boolean;
   };
 };
 
@@ -65,7 +61,6 @@ export type ZoomDriveSyncRunResponse = {
     filesUploaded: number;
     filesSkipped: number;
     zoomDeleted: number;
-    telegramMessagesSent: number;
   };
   eventsTail?: Array<{
     event: string;

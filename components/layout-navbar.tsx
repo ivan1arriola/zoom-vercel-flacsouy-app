@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AppBar,
@@ -58,6 +58,48 @@ type LayoutNavbarProps = {
   user: LayoutNavbarUser;
 };
 
+type NavbarNotificationItem = {
+  id: string;
+  asunto: string;
+  cuerpo: string;
+};
+
+function summarizeNotificationBody(body: string): string {
+  const firstLine = body
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return "Nueva notificacion en la plataforma.";
+  if (firstLine.length <= 140) return firstLine;
+  return `${firstLine.slice(0, 137)}...`;
+}
+
+async function showBrowserNotification(item: NavbarNotificationItem): Promise<void> {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  const title = item.asunto?.trim() || "Nueva notificacion";
+  const body = summarizeNotificationBody(item.cuerpo ?? "");
+  const targetUrl = "/?tab=notificaciones";
+
+  if ("serviceWorker" in navigator) {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (registration) {
+      await registration.showNotification(title, {
+        body,
+        tag: `admin-notif-${item.id}`,
+        data: { url: targetUrl }
+      });
+      return;
+    }
+  }
+
+  new Notification(title, {
+    body,
+    tag: `admin-notif-${item.id}`
+  });
+}
+
 function resolveTabFromSearchParams(searchParams: URLSearchParams): Tab {
   const rawTab = (searchParams.get("tab") ?? "").toLowerCase();
   if (!rawTab) return "dashboard";
@@ -82,6 +124,9 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
   
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const knownUnreadNotificationIdsRef = useRef<Set<string>>(new Set());
+  const hasHydratedNotificationsRef = useRef(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     OPERACION: true,
     ZOOM: false,
@@ -106,6 +151,50 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
 
   const currentTab = useMemo(() => resolveTabFromSearchParams(searchParams), [searchParams]);
   const normalizedRoleLabel = (effectiveRole || "ADMINISTRADOR").replace(/_/g, " ");
+
+  const refreshUnreadNotifications = useCallback(async () => {
+    try {
+      const response = await fetch("/api/v1/notificaciones?limit=20&lectura=NO_LEIDAS&orden=desc", {
+        cache: "no-store"
+      });
+      if (!response.ok) return;
+      const json = (await response.json()) as {
+        unreadCount?: number;
+        notificaciones?: Array<NavbarNotificationItem>;
+        pagination?: { total?: number };
+      };
+      const count = typeof json.unreadCount === "number"
+        ? json.unreadCount
+        : (json.pagination?.total ?? 0);
+      setUnreadNotificationsCount(Math.max(0, count));
+
+      const unreadItems = Array.isArray(json.notificaciones) ? json.notificaciones : [];
+      const currentUnreadIds = new Set(unreadItems.map((item) => item.id));
+
+      if (!hasHydratedNotificationsRef.current) {
+        knownUnreadNotificationIdsRef.current = currentUnreadIds;
+        hasHydratedNotificationsRef.current = true;
+        return;
+      }
+
+      const freshItems = unreadItems.filter(
+        (item) => !knownUnreadNotificationIdsRef.current.has(item.id)
+      );
+      knownUnreadNotificationIdsRef.current = currentUnreadIds;
+
+      if (freshItems.length === 0) return;
+      if (typeof window === "undefined" || !("Notification" in window)) return;
+      if (Notification.permission !== "granted") return;
+
+      const maxToNotify = 3;
+      const toNotify = freshItems.slice(0, maxToNotify).reverse();
+      for (const item of toNotify) {
+        await showBrowserNotification(item);
+      }
+    } catch {
+      // No interrumpe la navegación si falla la consulta de badge.
+    }
+  }, []);
 
   const visibleNavigationTabs = useMemo(
     () =>
@@ -137,6 +226,25 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
     const month = new Date().toLocaleDateString("es-UY", { month: "long" });
     return month.charAt(0).toUpperCase() + month.slice(1);
   }, []);
+
+  useEffect(() => {
+    void refreshUnreadNotifications();
+  }, [refreshUnreadNotifications]);
+
+  useEffect(() => {
+    if (currentTab === "notificaciones") {
+      void refreshUnreadNotifications();
+    }
+  }, [currentTab, refreshUnreadNotifications]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void refreshUnreadNotifications();
+    }, 45000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [refreshUnreadNotifications]);
 
   function getTabDisplayLabel(tabId: string): string {
     const config = TAB_CONFIG[tabId as keyof typeof TAB_CONFIG];
@@ -253,7 +361,19 @@ export function LayoutNavbar({ user }: LayoutNavbarProps) {
                             }} />
                           )}
                           <ListItemText 
-                            primary={getTabDisplayLabel(tabId)} 
+                            primary={
+                              <Stack direction="row" spacing={0.8} alignItems="center">
+                                <span>{getTabDisplayLabel(tabId)}</span>
+                                {tabId === "notificaciones" && unreadNotificationsCount > 0 ? (
+                                  <Chip
+                                    size="small"
+                                    color="warning"
+                                    label={unreadNotificationsCount}
+                                    sx={{ height: 18, fontSize: "0.65rem", fontWeight: 800 }}
+                                  />
+                                ) : null}
+                              </Stack>
+                            }
                             primaryTypographyProps={{ 
                               fontSize: "0.8rem", 
                               fontWeight: isActive ? 700 : 500 

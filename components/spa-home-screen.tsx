@@ -118,6 +118,7 @@ import { SpaTabZoomDriveSync } from "@/components/spa-tabs/SpaTabZoomDriveSync";
 import { SpaTabUsuarios } from "@/components/spa-tabs/SpaTabUsuarios";
 import { SpaTabPerfil } from "@/components/spa-tabs/SpaTabPerfil";
 import { SpaTabEstadisticas } from "@/components/spa-tabs/SpaTabEstadisticas";
+import { SpaTabNotificaciones } from "@/components/SpaTabNotificaciones";
 import { buildDocenteSolicitudPayload } from "@/components/spa-tabs/solicitud-payload-builder";
 
 
@@ -442,6 +443,7 @@ export function SpaHomeScreen() {
   const canSeeGestionAsistentes = canSeeAsistentesAsignacion || canSeeAsistentesPerfiles || canSeeAsistentesEstadisticas;
   const canSeeTarifas = canAccessTabForRole("tarifas", effectiveRole);
   const canSeeEstadisticas = canAccessTabForRole("estadisticas", effectiveRole);
+  const canSeeNotificaciones = canAccessTabForRole("notificaciones", effectiveRole);
   const canSeeSolicitudes = canAccessTabForRole("solicitudes", effectiveRole);
   const canSeeProgramas = canAccessTabForRole("programas", effectiveRole);
   const isDocente = useMemo(() => effectiveRole === "DOCENTE", [effectiveRole]);
@@ -1661,7 +1663,7 @@ export function SpaHomeScreen() {
     setSelectedAssistantByEvent((current) => {
       const next = { ...current };
       for (const event of suggestion.events) {
-        next[event.eventoId] = event.asistenteZoomId;
+        next[event.eventoId] = event.asistenteZoomId ?? "";
       }
       return next;
     });
@@ -2241,6 +2243,10 @@ export function SpaHomeScreen() {
             setTab("mis_reuniones_asignadas");
           }}
         />
+      )}
+
+      {tab === "notificaciones" && canSeeNotificaciones && (
+        <SpaTabNotificaciones isAdmin={effectiveRole === "ADMINISTRADOR"} />
       )}
 
       {tab === "crear_reunion" && canSeeSolicitudes && (
