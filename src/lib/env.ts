@@ -1,11 +1,6 @@
 import { z } from "zod";
 
-const rawEnv = {
-  ...process.env,
-  ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET ?? process.env.Zoom_Client_Secret,
-  ZOOM_CLIENT_ID: process.env.ZOOM_CLIENT_ID ?? process.env.Zoom_Client_ID,
-  ZOOM_ACCOUNT_ID: process.env.ZOOM_ACCOUNT_ID ?? process.env.Zoom_Account_ID
-};
+const rawEnv = process.env;
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
