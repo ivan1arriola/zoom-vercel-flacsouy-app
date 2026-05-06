@@ -10,8 +10,14 @@ import {
   Card,
   CardContent,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
   IconButton,
   InputAdornment,
+  Link,
   Stack,
   Tab,
   Tabs,
@@ -22,6 +28,7 @@ import {
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import GoogleIcon from "@mui/icons-material/Google";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { FlacsoBrandLogo } from "@/components/flacso-brand-logo";
 
 type InlineLoginProps = {
@@ -72,6 +79,7 @@ export function InlineLogin({
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [error, setError] = useState(mapAuthError(initialError));
   const [info, setInfo] = useState("");
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
 
   const canAutoVerify = useMemo(
     () => Boolean(verificationToken && verificationEmail),
@@ -429,98 +437,94 @@ export function InlineLogin({
   return (
     <Box
       sx={{
-        minHeight: "85vh",
+        minHeight: "100vh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        py: 4,
+        py: { xs: 4, md: 8 },
         px: 2,
         background: isDarkMode
           ? `radial-gradient(circle at 50% 0%, ${alpha(theme.palette.primary.main, 0.12)} 0%, transparent 50%), radial-gradient(circle at 100% 100%, ${alpha(theme.palette.primary.main, 0.05)} 0%, transparent 50%), ${theme.palette.background.default}`
           : "radial-gradient(circle at 50% 50%, rgba(31, 75, 143, 0.04) 0%, rgba(246, 248, 252, 1) 100%)",
       }}
     >
-      <Box sx={{ width: "100%", maxWidth: 450 }}>
-        <Box sx={{ textAlign: "center", mb: 4 }}>
-          <Stack direction="row" justifyContent="center" sx={{ mb: 2.5 }}>
-            <FlacsoBrandLogo height={140} />
+      <Box sx={{ width: "100%", maxWidth: 460, position: "relative", zIndex: 1 }}>
+        <Box sx={{ textAlign: "center", mb: 5 }}>
+          <Stack direction="row" justifyContent="center" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+            <Box 
+              sx={{ 
+                p: 1.5, 
+                borderRadius: "20px", 
+                bgcolor: isDarkMode ? alpha(theme.palette.common.white, 0.05) : "rgba(255, 255, 255, 0.8)",
+                boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
+                backdropFilter: "blur(10px)",
+                border: "1px solid",
+                borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.1) : "rgba(255, 255, 255, 0.5)",
+                display: "flex",
+                alignItems: "center"
+              }}
+            >
+              <FlacsoBrandLogo height={60} />
+            </Box>
+            <Divider orientation="vertical" flexItem sx={{ borderColor: isDarkMode ? alpha(theme.palette.common.white, 0.2) : 'rgba(0,0,0,0.1)' }} />
+            <Stack direction="column" alignItems="flex-start" justifyContent="center">
+              <Stack direction="row" alignItems="center" spacing={0.5}>
+                <Typography variant="h5" sx={{ fontWeight: 900, color: isDarkMode ? "primary.light" : "primary.main", letterSpacing: "-0.5px", lineHeight: 1 }}>
+                  Zoom
+                </Typography>
+              </Stack>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "text.secondary", letterSpacing: "-0.5px", lineHeight: 1 }}>
+                APP
+              </Typography>
+            </Stack>
           </Stack>
-          <Typography variant="h5" sx={{ fontWeight: 800, mb: 1, color: "primary.main", letterSpacing: "-0.5px" }}>
+          <Typography 
+            variant="h5" 
+            sx={{ 
+              fontWeight: 800, 
+              mb: 1.5, 
+              color: isDarkMode ? "primary.light" : "primary.dark", 
+              letterSpacing: "-0.5px",
+            }}
+          >
             {appPublicName}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
-            {activePanel === "login" && "Bienvenido de nuevo. Inicia sesión para continuar."}
+          <Typography 
+            variant="body1" 
+            sx={{ 
+              fontWeight: 500, 
+              color: isDarkMode ? "text.secondary" : "text.primary",
+              opacity: 0.9
+            }}
+          >
+            {activePanel === "login" && "Inicia sesión para gestionar tus salas."}
             {activePanel === "register" && "Crea tu cuenta para empezar a coordinar salas."}
             {activePanel === "recovery" && "Recupera el acceso a tu cuenta fácilmente."}
             {activePanel === "activation" && "Estás a un paso de activar tu cuenta."}
           </Typography>
         </Box>
 
-        <Card
-          variant="outlined"
-          sx={{
-            borderRadius: "20px",
-            mb: 2,
-            borderColor: isDarkMode ? alpha(theme.palette.primary.main, 0.2) : alpha(theme.palette.primary.main, 0.24),
-            background: isDarkMode
-              ? `linear-gradient(160deg, ${alpha(theme.palette.primary.main, 0.14)} 0%, ${alpha(theme.palette.background.paper, 0.9)} 100%)`
-              : `linear-gradient(160deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.06)} 100%)`
-          }}
-        >
-          <CardContent sx={{ p: 2.2 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 0.8 }}>
-              ¿Qué es esta app?
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
-              {appPublicName} es la plataforma de FLACSO Uruguay para gestionar reuniones académicas en Zoom,
-              asistentes de soporte, notificaciones operativas y sincronización con Google Calendar.
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
-              Solicitamos datos de Google (perfil básico y correo) solo para autenticar usuarios y operar las
-              funciones autorizadas de la aplicación.
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
-              Contacto de soporte y privacidad: <strong>web@flacso.edu.uy</strong>.
-            </Typography>
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              <Button
-                size="small"
-                variant="text"
-                href="/privacy"
-                sx={{ textTransform: "none", fontWeight: 700, px: 0.6 }}
-              >
-                Política de Privacidad
-              </Button>
-              <Button
-                size="small"
-                variant="text"
-                href="/terms"
-                sx={{ textTransform: "none", fontWeight: 700, px: 0.6 }}
-              >
-                Términos del Servicio
-              </Button>
-              <Button
-                size="small"
-                variant="text"
-                href="/oauth-home"
-                sx={{ textTransform: "none", fontWeight: 700, px: 0.6 }}
-              >
-                Pagina Publica OAuth
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-
         <Card 
           variant="outlined" 
           sx={{ 
-            borderRadius: "24px", 
-            boxShadow: isDarkMode ? "0 24px 60px rgba(2, 8, 23, 0.65)" : "0 20px 60px rgba(15, 26, 45, 0.08)",
+            borderRadius: "28px", 
+            boxShadow: isDarkMode 
+              ? "0 30px 70px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.1)" 
+              : "0 20px 60px rgba(15, 26, 45, 0.12)",
             border: "1px solid",
-            borderColor: isDarkMode ? alpha(theme.palette.primary.main, 0.15) : "rgba(0, 0, 0, 0.06)",
-            overflow: "visible",
-            backgroundColor: isDarkMode ? alpha(theme.palette.background.paper, 0.8) : "background.paper",
-            position: "relative"
+            borderColor: isDarkMode ? alpha(theme.palette.primary.main, 0.2) : "rgba(255, 255, 255, 0.4)",
+            overflow: "hidden",
+            backgroundColor: isDarkMode 
+              ? alpha(theme.palette.background.paper, 0.6) 
+              : "rgba(255, 255, 255, 0.72)",
+            backdropFilter: "blur(20px)",
+            position: "relative",
+            transition: "transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out",
+            "&:hover": {
+              boxShadow: isDarkMode 
+                ? "0 40px 80px rgba(0, 0, 0, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.15)" 
+                : "0 25px 70px rgba(15, 26, 45, 0.18)",
+            }
           }}
         >
           <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
@@ -857,17 +861,87 @@ export function InlineLogin({
 
         <Box sx={{ mt: 3, textAlign: "center" }} aria-live="polite">
           {isVerifying ? (
-            <Stack direction="row" spacing={1} justifyContent="center" alignItems="center">
+            <Stack direction="row" spacing={1} justifyContent="center" alignItems="center" sx={{ mb: 2 }}>
               <CircularProgress size={16} />
               <Typography variant="body2" color="text.secondary">
                 Verificando correo...
               </Typography>
             </Stack>
           ) : null}
-          {info ? <Alert severity="success" sx={{ mt: 1, borderRadius: "12px" }}>{info}</Alert> : null}
-          {error ? <Alert severity="error" sx={{ mt: 1, borderRadius: "12px" }}>{error}</Alert> : null}
+          {info ? <Alert severity="success" sx={{ mt: 1, borderRadius: "12px", border: "1px solid", borderColor: "success.main" }}>{info}</Alert> : null}
+          {error ? <Alert severity="error" sx={{ mt: 1, borderRadius: "12px", border: "1px solid", borderColor: "error.main" }}>{error}</Alert> : null}
         </Box>
+
+        <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 4, opacity: 0.8 }}>
+          <Link
+            component="button"
+            variant="caption"
+            onClick={() => setIsAboutOpen(true)}
+            sx={{ color: "text.secondary", textDecoration: "none", display: "flex", alignItems: "center", gap: 0.5, "&:hover": { color: "primary.main" } }}
+          >
+            <InfoOutlinedIcon sx={{ fontSize: 14 }} />
+            Sobre esta aplicación
+          </Link>
+          <Link
+            href="/privacy"
+            variant="caption"
+            sx={{ color: "text.secondary", textDecoration: "none", "&:hover": { color: "primary.main" } }}
+          >
+            Privacidad
+          </Link>
+          <Link
+            href="/terms"
+            variant="caption"
+            sx={{ color: "text.secondary", textDecoration: "none", "&:hover": { color: "primary.main" } }}
+          >
+            Términos
+          </Link>
+        </Stack>
       </Box>
+
+      {/* OAuth Info Dialog */}
+      <Dialog 
+        open={isAboutOpen} 
+        onClose={() => setIsAboutOpen(false)}
+        PaperProps={{
+          sx: { borderRadius: "20px", p: 1, maxWidth: 500 }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 800, pb: 1 }}>
+          ¿Qué es {appPublicName}?
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary">
+              Es la plataforma de FLACSO Uruguay para gestionar reuniones académicas en Zoom,
+              asistentes de soporte, notificaciones operativas y sincronización con Google Calendar.
+            </Typography>
+            <Divider />
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                Uso de Datos de Google
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Solicitamos acceso a tu perfil básico y correo únicamente para autenticar tu identidad 
+                y operar las funciones de gestión de salas y calendario autorizadas por el usuario.
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                Soporte y Privacidad
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Si tienes dudas sobre tus datos o necesitas ayuda, contáctanos en: <strong>web@flacso.edu.uy</strong>.
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setIsAboutOpen(false)} variant="contained" sx={{ borderRadius: "10px", textTransform: "none", px: 3 }}>
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
