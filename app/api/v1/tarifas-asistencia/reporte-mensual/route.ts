@@ -5,14 +5,23 @@ import { SalasService } from "@/src/modules/salas/service";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
+async function ensureAccountingAccess() {
   const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user) {
+    return { ok: false as const, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
 
   const canAccess = user.role === UserRole.ADMINISTRADOR || user.role === UserRole.CONTADURIA;
   if (!canAccess) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return { ok: false as const, response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
+
+  return { ok: true as const };
+}
+
+export async function GET(request: Request) {
+  const access = await ensureAccountingAccess();
+  if (!access.ok) return access.response;
 
   try {
     const url = new URL(request.url);
@@ -31,6 +40,38 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message || "No se pudo generar el informe mensual." },
+      { status: 400 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  const access = await ensureAccountingAccess();
+  if (!access.ok) return access.response;
+
+  try {
+    const rawBody = (await request.json().catch(() => ({}))) as {
+      month?: unknown;
+      driveFolderId?: unknown;
+    };
+    const monthKey = typeof rawBody.month === "string" ? rawBody.month.trim() : undefined;
+    const driveFolderId = typeof rawBody.driveFolderId === "string"
+      ? rawBody.driveFolderId.trim()
+      : undefined;
+
+    const service = new SalasService();
+    const uploaded = await service.uploadMonthlyAccountingWorkbookToDrive({
+      monthKey,
+      driveFolderId
+    });
+
+    return NextResponse.json({
+      ok: true,
+      ...uploaded
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: (error as Error).message || "No se pudo subir el informe mensual a Drive." },
       { status: 400 }
     );
   }

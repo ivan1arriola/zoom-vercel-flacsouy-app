@@ -30,8 +30,21 @@ export async function GET(request: Request) {
   if (isAssistant) {
     const ownPerson = payload.people.find((person) => person.userId === user.id) ?? null;
     const ownSummary = payload.assistantSummaries?.find((summary) => summary.userId === user.id) ?? null;
+    const currentMonthKey = new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      timeZone: "America/Montevideo"
+    })
+      .formatToParts(new Date())
+      .reduce((acc, part) => {
+        if (part.type === "year") acc.year = part.value;
+        if (part.type === "month") acc.month = part.value;
+        return acc;
+      }, { year: "0000", month: "01" } as { year: string; month: string });
+    const currentMonth = `${currentMonthKey.year}-${currentMonthKey.month}`;
     const ownMonthKeys = (ownSummary?.months ?? [])
       .map((month) => month.monthKey)
+      .filter((monthKey) => monthKey < currentMonth)
       .filter((monthKey) => monthKey.length > 0)
       .sort((a, b) => b.localeCompare(a));
     return NextResponse.json({

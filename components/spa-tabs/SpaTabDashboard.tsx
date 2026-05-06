@@ -10,6 +10,7 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  MenuItem,
   Stack,
   TextField,
   Typography,
@@ -47,6 +48,7 @@ import {
   downloadMonthlyAccountingReport,
   loadPersonHours,
   loadTarifas,
+  uploadMonthlyAccountingReportToDrive,
   type PersonHoursMeeting,
   type PersonHoursPerson,
   type Tarifa
@@ -131,6 +133,15 @@ function getCurrentMonthKey(): string {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
+}
+
+function getPreviousMonthKey(): string {
+  const [yearRaw = "0", monthRaw = "1"] = getCurrentMonthKey().split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const previousYear = month === 1 ? year - 1 : year;
+  const previousMonth = month === 1 ? 12 : month - 1;
+  return `${previousYear}-${String(previousMonth).padStart(2, "0")}`;
 }
 
 function toMonthKey(isoDate: string): string {
@@ -632,9 +643,14 @@ export function SpaTabDashboard({
   }>>([]);
   const [isLoadingPersonHours, setIsLoadingPersonHours] = useState(false);
   const [personHoursError, setPersonHoursError] = useState("");
-  const [selectedMonthKey, setSelectedMonthKey] = useState(getCurrentMonthKey());
+  const [selectedMonthKey, setSelectedMonthKey] = useState(getPreviousMonthKey());
+  const [availableReportMonths, setAvailableReportMonths] = useState<string[]>([]);
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [downloadReportError, setDownloadReportError] = useState("");
+  const [isUploadingReport, setIsUploadingReport] = useState(false);
+  const [uploadReportError, setUploadReportError] = useState("");
+  const [uploadReportSuccess, setUploadReportSuccess] = useState("");
+  const [uploadReportLink, setUploadReportLink] = useState<string | null>(null);
   const [tarifasByModalidad, setTarifasByModalidad] = useState<Record<"VIRTUAL" | "HIBRIDA", Tarifa | null>>({
     VIRTUAL: null,
     HIBRIDA: null
@@ -656,6 +672,23 @@ export function SpaTabDashboard({
         setAssistantCards([]);
         return;
       }
+
+      const currentMonthKey = getCurrentMonthKey();
+      const closedMonthsWithRecords = (payload.availableMonthKeys ?? [])
+        .filter((monthKey) => monthKey && monthKey < currentMonthKey)
+        .sort((left, right) => right.localeCompare(left));
+      setAvailableReportMonths(closedMonthsWithRecords);
+
+      const preferredMonthKey = getPreviousMonthKey();
+      setSelectedMonthKey((currentValue) => {
+        if (currentValue && closedMonthsWithRecords.includes(currentValue)) {
+          return currentValue;
+        }
+        if (closedMonthsWithRecords.includes(preferredMonthKey)) {
+          return preferredMonthKey;
+        }
+        return closedMonthsWithRecords[0] ?? preferredMonthKey;
+      });
 
       const detailPayloads = await Promise.all(
         (payload.people ?? []).map(async (person) => {
@@ -842,7 +875,10 @@ export function SpaTabDashboard({
     const hibridaCurrency = tarifasByModalidad.HIBRIDA?.moneda ?? "";
     const mixedCurrency = Boolean(virtualCurrency && hibridaCurrency && virtualCurrency !== hibridaCurrency);
     const paymentCurrency = !mixedCurrency ? (virtualCurrency || hibridaCurrency || "") : "";
-    const selectedMonthLabel = selectedMonthKey ? formatMonthKey(selectedMonthKey) : "Sin datos";
+    const selectedMonthLabel =
+      selectedMonthKey && availableReportMonths.includes(selectedMonthKey)
+        ? formatMonthKey(selectedMonthKey)
+        : "Sin datos";
 
     const cards = assistantCards.map(({ person, meetings }) => {
       const monthMeetings = meetings
@@ -929,13 +965,23 @@ export function SpaTabDashboard({
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                 <TextField
                   size="small"
-                  type="month"
-                  label="Mes"
-                  value={selectedMonthKey}
+                  select
+                  label="Mes cerrado"
+                  value={availableReportMonths.includes(selectedMonthKey) ? selectedMonthKey : ""}
                   onChange={(event) => setSelectedMonthKey(String(event.target.value))}
-                  InputLabelProps={{ shrink: true }}
                   sx={{ minWidth: { sm: 180 } }}
-                />
+                  helperText={
+                    availableReportMonths.length > 0
+                      ? "Solo meses cerrados con registros."
+                      : "No hay meses cerrados con registros disponibles."
+                  }
+                >
+                  {availableReportMonths.map((monthKey) => (
+                    <MenuItem key={monthKey} value={monthKey}>
+                      {formatMonthKey(monthKey)}
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <Button
                   variant="outlined"
                   disabled={isLoadingPersonHours}
@@ -947,11 +993,14 @@ export function SpaTabDashboard({
                 </Button>
                 <Button
                   variant="contained"
-                  disabled={isDownloadingReport || !selectedMonthKey}
+                  disabled={isDownloadingReport || !selectedMonthKey || availableReportMonths.length === 0}
                   onClick={async () => {
                     setDownloadReportError("");
+                    setUploadReportError("");
+                    setUploadReportSuccess("");
+                    setUploadReportLink(null);
                     setIsDownloadingReport(true);
-                    const targetMonthKey = selectedMonthKey || getCurrentMonthKey();
+                    const targetMonthKey = selectedMonthKey || getPreviousMonthKey();
                     const result = await downloadMonthlyAccountingReport(targetMonthKey);
                     if (!result.success) {
                       setDownloadReportError(result.error ?? "No se pudo descargar el informe mensual.");
@@ -960,6 +1009,34 @@ export function SpaTabDashboard({
                   }}
                 >
                   {isDownloadingReport ? "Generando..." : "Descargar informe mensual"}
+                </Button>
+                <Button
+                  variant="contained"
+                  color="success"
+                  disabled={isUploadingReport || !selectedMonthKey || availableReportMonths.length === 0}
+                  onClick={async () => {
+                    setDownloadReportError("");
+                    setUploadReportError("");
+                    setUploadReportSuccess("");
+                    setUploadReportLink(null);
+                    setIsUploadingReport(true);
+                    const result = await uploadMonthlyAccountingReportToDrive({
+                      monthKey: selectedMonthKey || getPreviousMonthKey()
+                    });
+                    if (!result.success) {
+                      setUploadReportError(
+                        result.error ?? "No se pudo subir el informe mensual a Google Drive."
+                      );
+                    } else {
+                      setUploadReportSuccess(
+                        `Informe ${result.fileName ?? ""} subido correctamente a Drive.`
+                      );
+                      setUploadReportLink(result.driveWebViewLink ?? null);
+                    }
+                    setIsUploadingReport(false);
+                  }}
+                >
+                  {isUploadingReport ? "Subiendo..." : "Subir informe a Drive"}
                 </Button>
               </Stack>
             </Stack>
@@ -972,6 +1049,32 @@ export function SpaTabDashboard({
             {downloadReportError ? (
               <Alert severity="error" sx={{ mb: 1.2 }}>
                 {downloadReportError}
+              </Alert>
+            ) : null}
+            {uploadReportError ? (
+              <Alert severity="error" sx={{ mb: 1.2 }}>
+                {uploadReportError}
+              </Alert>
+            ) : null}
+            {uploadReportSuccess ? (
+              <Alert
+                severity="success"
+                sx={{ mb: 1.2 }}
+                action={
+                  uploadReportLink ? (
+                    <Button
+                      color="inherit"
+                      size="small"
+                      href={uploadReportLink}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Abrir en Drive
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {uploadReportSuccess}
               </Alert>
             ) : null}
 

@@ -21,6 +21,7 @@ import * as XLSX from "xlsx";
 import { db } from "@/src/lib/db";
 import { env } from "@/src/lib/env";
 import { EmailClient } from "@/src/lib/email.client";
+import { uploadFileToDriveFolder } from "@/src/lib/google-drive.client";
 import { logger } from "@/src/lib/logger";
 import { notifyAdminInAppMovement } from "@/src/lib/admin-notifications.client";
 import { sendPushToUser, sendPushToUserByEmail } from "@/src/lib/push";
@@ -342,6 +343,19 @@ function toMonthKey(date: Date, timeZone: string): string {
   const year = parts.find((part) => part.type === "year")?.value ?? "0000";
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   return `${year}-${month}`;
+}
+
+function getPreviousMonthKey(timeZone: string): string {
+  const currentMonthKey = toMonthKey(new Date(), timeZone);
+  const [yearRaw = "0", monthRaw = "1"] = currentMonthKey.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return currentMonthKey;
+  }
+  const previousYear = month === 1 ? year - 1 : year;
+  const previousMonth = month === 1 ? 12 : month - 1;
+  return `${previousYear}-${String(previousMonth).padStart(2, "0")}`;
 }
 
 function toDayKey(date: Date, timeZone: string): string {
@@ -9232,11 +9246,19 @@ export class SalasService {
   }
 
   async buildMonthlyAccountingWorkbook(input: { monthKey?: string | null }) {
+    const reportTimezone = "America/Montevideo";
     const requestedMonthKey = (input.monthKey ?? "").trim();
-    const defaultMonthKey = toMonthKey(new Date(), "America/Montevideo");
+    const defaultMonthKey = getPreviousMonthKey(reportTimezone);
     const monthKey = /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonthKey)
       ? requestedMonthKey
       : defaultMonthKey;
+    const currentMonthKey = toMonthKey(new Date(), reportTimezone);
+
+    if (monthKey >= currentMonthKey) {
+      throw new Error(
+        `El mes ${monthKey} aún no está cerrado. Solo se permiten meses finalizados.`
+      );
+    }
 
     const [yearRaw = "0", monthRaw = "1"] = monthKey.split("-");
     const year = Number(yearRaw);
@@ -9471,19 +9493,21 @@ export class SalasService {
       })
       .sort((left, right) => left.assistantName.localeCompare(right.assistantName, "es"));
 
+    if (details.length === 0) {
+      throw new Error(
+        `No hay registros cerrados para el mes ${monthKey}. Elige otro mes finalizado con actividad.`
+      );
+    }
+
     const totalMinutes = minutesByModalidad.VIRTUAL + minutesByModalidad.HIBRIDA;
     const totalAmount = round2(amountByModalidad.VIRTUAL + amountByModalidad.HIBRIDA);
     const totalHours = round2(totalMinutes / 60);
     const virtualCurrency = ratesByModalidad.VIRTUAL.moneda;
     const hibridaCurrency = ratesByModalidad.HIBRIDA.moneda;
-    const hasMixedCurrencies = Boolean(
-      virtualCurrency &&
-      hibridaCurrency &&
-      virtualCurrency !== hibridaCurrency
-    );
-    const totalCurrency = hasMixedCurrencies
-      ? "MIXTA"
-      : (virtualCurrency || hibridaCurrency || "");
+    const totalCurrency =
+      virtualCurrency && hibridaCurrency && virtualCurrency !== hibridaCurrency
+        ? "MIXTA"
+        : (virtualCurrency || hibridaCurrency || "");
 
     const formatNumber = (value: number) => Number(value.toFixed(2));
     const formatHours = (minutes: number) => formatNumber(minutes / 60);
@@ -9504,76 +9528,38 @@ export class SalasService {
       const minutePart = parts.find((part) => part.type === "minute")?.value ?? "00";
       return `${yearPart}-${monthPart}-${dayPart} ${hourPart}:${minutePart}`;
     };
-    const overviewRows: Array<Array<string | number>> = [
-      ["INFORME MENSUAL CONTADURIA", ""],
-      ["Mes", monthKey],
-      ["Generado", formatDateTime(new Date(), "America/Montevideo")],
-      ["Tarifa virtual actual", formatNumber(ratesByModalidad.VIRTUAL.valorHora), virtualCurrency],
-      ["Tarifa hibrida actual", formatNumber(ratesByModalidad.HIBRIDA.valorHora), hibridaCurrency],
-      ["Moneda total", totalCurrency]
-    ];
-    if (hasMixedCurrencies) {
-      overviewRows.push(["Observacion", "Hay modalidades con monedas distintas."]);
-    }
-
-    const summaryRows = assistantSummaries.map((assistant) => ({
-      Asistente: assistant.assistantName,
-      Email: assistant.assistantEmail,
-      "Horas virtuales": formatNumber(assistant.horasVirtuales),
-      "Horas hibridas": formatNumber(assistant.horasHibridas),
-      "Horas totales": formatNumber(assistant.horasTotales),
-      "Monto virtual": formatNumber(assistant.montoVirtual),
-      "Monto hibrida": formatNumber(assistant.montoHibrida),
-      "Monto total": formatNumber(assistant.montoTotal),
-      Moneda: totalCurrency
-    }));
-
-    const detailRows = details.map((detail) => ({
-      Asistente: detail.assistantName,
-      Email: detail.assistantEmail,
-      Programa: detail.programaNombre || "Sin programa",
-      Encuentro: detail.titulo,
-      Inicio: formatDateTime(detail.inicio, detail.timeZone),
-      Fin: formatDateTime(detail.fin, detail.timeZone),
-      Modalidad: detail.modalidad,
-      "Duracion (min)": detail.minutos,
-      "Duracion (h)": formatNumber(detail.horas),
-      "Tarifa hora actual": formatNumber(detail.tarifaHora),
-      Moneda: detail.moneda,
-      "Importe calculado": formatNumber(detail.monto)
-    }));
-
-    const totalsRows = [
-      {
-        Modalidad: "VIRTUAL",
-        Horas: formatHours(minutesByModalidad.VIRTUAL),
-        Monto: formatNumber(amountByModalidad.VIRTUAL),
-        Moneda: virtualCurrency
-      },
-      {
-        Modalidad: "HIBRIDA",
-        Horas: formatHours(minutesByModalidad.HIBRIDA),
-        Monto: formatNumber(amountByModalidad.HIBRIDA),
-        Moneda: hibridaCurrency
-      },
-      {
-        Modalidad: "TOTAL",
-        Horas: formatNumber(totalHours),
-        Monto: formatNumber(totalAmount),
-        Moneda: totalCurrency
-      }
-    ];
+    const summaryByAssistantId = new Map(
+      assistantSummaries.map((assistant) => [assistant.assistantId, assistant] as const)
+    );
+    const reportRows = details.map((detail) => {
+      const assistantSummary = summaryByAssistantId.get(detail.assistantId);
+      return {
+        Mes: monthKey,
+        Asistente: detail.assistantName,
+        Email: detail.assistantEmail,
+        Programa: detail.programaNombre || "Sin programa",
+        Encuentro: detail.titulo,
+        Inicio: formatDateTime(detail.inicio, detail.timeZone),
+        Fin: formatDateTime(detail.fin, detail.timeZone),
+        Modalidad: detail.modalidad,
+        "Duracion (min)": detail.minutos,
+        "Duracion (h)": formatNumber(detail.horas),
+        "Tarifa hora": formatNumber(detail.tarifaHora),
+        Moneda: detail.moneda,
+        Importe: formatNumber(detail.monto),
+        "Horas virtuales asistente (mes)": formatNumber(assistantSummary?.horasVirtuales ?? 0),
+        "Horas hibridas asistente (mes)": formatNumber(assistantSummary?.horasHibridas ?? 0),
+        "Horas totales asistente (mes)": formatNumber(assistantSummary?.horasTotales ?? 0),
+        "Monto total asistente (mes)": formatNumber(assistantSummary?.montoTotal ?? 0),
+        "Horas totales mes": formatNumber(totalHours),
+        "Monto total mes": formatNumber(totalAmount),
+        "Moneda total mes": totalCurrency
+      };
+    });
 
     const workbook = XLSX.utils.book_new();
-    const overviewSheet = XLSX.utils.aoa_to_sheet(overviewRows);
-    const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
-    const detailSheet = XLSX.utils.json_to_sheet(detailRows);
-    const totalsSheet = XLSX.utils.json_to_sheet(totalsRows);
-
-    XLSX.utils.book_append_sheet(workbook, overviewSheet, "Resumen");
-    XLSX.utils.book_append_sheet(workbook, summarySheet, "Asistentes");
-    XLSX.utils.book_append_sheet(workbook, detailSheet, "Detalle");
-    XLSX.utils.book_append_sheet(workbook, totalsSheet, "Totales");
+    const unifiedSheet = XLSX.utils.json_to_sheet(reportRows);
+    XLSX.utils.book_append_sheet(workbook, unifiedSheet, "Informe");
 
     const content = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
@@ -9582,6 +9568,40 @@ export class SalasService {
       fileName: `informe-contaduria-${monthKey}.xlsx`,
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       content
+    };
+  }
+
+  async uploadMonthlyAccountingWorkbookToDrive(input: {
+    monthKey?: string | null;
+    driveFolderId?: string | null;
+  }) {
+    const report = await this.buildMonthlyAccountingWorkbook({ monthKey: input.monthKey });
+    const defaultFolderId = "1vlHPih1o6umZ5C5SVDZsx6b8uLi13Qs7";
+    const driveFolderId = (
+      input.driveFolderId ??
+      env.MONTHLY_ACCOUNTING_DRIVE_FOLDER_ID ??
+      defaultFolderId
+    ).trim();
+
+    if (!driveFolderId) {
+      throw new Error(
+        "No se encontró la carpeta de Drive para el informe mensual. Define MONTHLY_ACCOUNTING_DRIVE_FOLDER_ID."
+      );
+    }
+
+    const uploaded = await uploadFileToDriveFolder({
+      folderId: driveFolderId,
+      fileName: report.fileName,
+      contentType: report.contentType,
+      content: report.content
+    });
+
+    return {
+      monthKey: report.monthKey,
+      fileName: report.fileName,
+      driveFolderId,
+      driveFileId: uploaded.fileId,
+      driveWebViewLink: uploaded.webViewLink
     };
   }
 
@@ -10161,7 +10181,10 @@ export class SalasService {
       monthMapByUser.set(item.userId, userMonths);
     }
 
-    const availableMonthKeys = Array.from(monthKeysSet.values()).sort((a, b) => b.localeCompare(a));
+    const currentMonthKey = toMonthKey(new Date(), "America/Montevideo");
+    const availableMonthKeys = Array.from(monthKeysSet.values())
+      .filter((monthKey) => monthKey < currentMonthKey)
+      .sort((a, b) => b.localeCompare(a));
     const assistantSummaries = people
       .map((person) => {
         const months = Array.from((monthMapByUser.get(person.userId) ?? new Map()).values())

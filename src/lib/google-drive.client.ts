@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { google } from "googleapis";
 import { env } from "./env";
 import {
@@ -6,6 +7,7 @@ import {
 } from "./google-service-account";
 
 const DRIVE_READONLY_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"];
+const DRIVE_UPLOAD_SCOPES = ["https://www.googleapis.com/auth/drive"];
 
 export type StoredDriveRecording = {
   id: string;
@@ -17,15 +19,26 @@ export type StoredDriveRecording = {
   size: number | null;
 };
 
-function buildGoogleJwtAuth() {
+function buildGoogleJwtAuth(
+  scopes: string[] = DRIVE_READONLY_SCOPES,
+  options?: { useDelegatedSubject?: boolean }
+) {
   const credentials = resolveGoogleServiceAccountCredentials();
 
   return new google.auth.JWT({
     email: credentials.email,
     key: credentials.privateKey,
-    scopes: DRIVE_READONLY_SCOPES,
-    subject: credentials.subject
+    scopes,
+    subject: options?.useDelegatedSubject ? credentials.subject : undefined
   });
+}
+
+async function authorizeJwt(auth: InstanceType<typeof google.auth.JWT>) {
+  try {
+    await auth.authorize();
+  } catch (error) {
+    throw new Error(toReadableGoogleAuthError(error));
+  }
 }
 
 function toStoredDriveRecording(value: Record<string, unknown>): StoredDriveRecording {
@@ -61,11 +74,7 @@ export async function listStoredRecordings(params: {
   }
 
   const auth = buildGoogleJwtAuth();
-  try {
-    await auth.authorize();
-  } catch (error) {
-    throw new Error(toReadableGoogleAuthError(error));
-  }
+  await authorizeJwt(auth);
   const drive = google.drive({ version: "v3", auth });
 
   const response = await drive.files.list({
@@ -91,5 +100,51 @@ export async function listStoredRecordings(params: {
       typeof response.data.nextPageToken === "string" && response.data.nextPageToken
         ? response.data.nextPageToken
         : undefined
+  };
+}
+
+export async function uploadFileToDriveFolder(params: {
+  folderId: string;
+  fileName: string;
+  contentType: string;
+  content: Buffer;
+}): Promise<{ fileId: string; fileName: string; webViewLink: string | null }> {
+  const folderId = params.folderId.trim();
+  if (!folderId) {
+    throw new Error("No se indicó el folder de Google Drive para subir el archivo.");
+  }
+
+  const auth = buildGoogleJwtAuth(DRIVE_UPLOAD_SCOPES);
+  await authorizeJwt(auth);
+  const drive = google.drive({ version: "v3", auth });
+
+  const response = await drive.files.create({
+    requestBody: {
+      name: params.fileName,
+      parents: [folderId]
+    },
+    media: {
+      mimeType: params.contentType,
+      body: Readable.from(params.content)
+    },
+    fields: "id,name,webViewLink",
+    supportsAllDrives: true
+  });
+
+  const fileId = typeof response.data.id === "string" ? response.data.id : "";
+  if (!fileId) {
+    throw new Error("Google Drive no devolvió fileId al subir el informe mensual.");
+  }
+
+  return {
+    fileId,
+    fileName:
+      typeof response.data.name === "string" && response.data.name
+        ? response.data.name
+        : params.fileName,
+    webViewLink:
+      typeof response.data.webViewLink === "string" && response.data.webViewLink
+        ? response.data.webViewLink
+        : null
   };
 }

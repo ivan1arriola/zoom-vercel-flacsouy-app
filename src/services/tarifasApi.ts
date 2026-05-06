@@ -247,3 +247,51 @@ export async function downloadMonthlyAccountingReport(monthKey?: string): Promis
 
   return { success: true };
 }
+
+export async function uploadMonthlyAccountingReportToDrive(input?: {
+  monthKey?: string;
+  driveFolderId?: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+  monthKey?: string;
+  fileName?: string;
+  driveFileId?: string;
+  driveFolderId?: string;
+  driveWebViewLink?: string | null;
+}> {
+  const response = await fetch("/api/v1/tarifas-asistencia/reporte-mensual", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      month: input?.monthKey,
+      driveFolderId: input?.driveFolderId
+    })
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    ok?: boolean;
+    monthKey?: string;
+    fileName?: string;
+    driveFileId?: string;
+    driveFolderId?: string;
+    driveWebViewLink?: string | null;
+  };
+
+  if (!response.ok || payload.ok === false) {
+    return {
+      success: false,
+      error: payload.error ?? "No se pudo subir el informe mensual a Google Drive."
+    };
+  }
+
+  return {
+    success: true,
+    monthKey: payload.monthKey,
+    fileName: payload.fileName,
+    driveFileId: payload.driveFileId,
+    driveFolderId: payload.driveFolderId,
+    driveWebViewLink: payload.driveWebViewLink ?? null
+  };
+}

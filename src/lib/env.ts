@@ -25,6 +25,7 @@ const envSchema = z.object({
   GOOGLE_PRIVATE_KEY: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_SUBJECT: z.string().email().optional(),
   DRIVE_DESTINATION_ID: z.string().optional(),
+  MONTHLY_ACCOUNTING_DRIVE_FOLDER_ID: z.string().optional(),
   ZOOM_DRIVE_DEFAULT_ENABLED: z.string().default("false"),
   ZOOM_DRIVE_SYNC_API_BASE_URL: z.string().url().optional(),
   ZOOM_DRIVE_SYNC_API_KEY: z.string().optional(),
