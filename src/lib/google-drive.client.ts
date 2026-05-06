@@ -1,5 +1,9 @@
 import { google } from "googleapis";
 import { env } from "./env";
+import {
+  resolveGoogleServiceAccountCredentials,
+  toReadableGoogleAuthError
+} from "./google-service-account";
 
 const DRIVE_READONLY_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"];
 
@@ -13,24 +17,14 @@ export type StoredDriveRecording = {
   size: number | null;
 };
 
-function normalizePrivateKey(raw: string): string {
-  return raw.replace(/\\n/g, "\n");
-}
-
 function buildGoogleJwtAuth() {
-  const email = (env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "").trim();
-  const privateKey = (env.GOOGLE_PRIVATE_KEY || "").trim();
-  if (!email || !privateKey) {
-    throw new Error(
-      "Google Drive no esta configurado en Vercel. Define GOOGLE_SERVICE_ACCOUNT_EMAIL y GOOGLE_PRIVATE_KEY."
-    );
-  }
+  const credentials = resolveGoogleServiceAccountCredentials();
 
   return new google.auth.JWT({
-    email,
-    key: normalizePrivateKey(privateKey),
+    email: credentials.email,
+    key: credentials.privateKey,
     scopes: DRIVE_READONLY_SCOPES,
-    subject: (env.GOOGLE_SERVICE_ACCOUNT_SUBJECT || "").trim() || undefined
+    subject: credentials.subject
   });
 }
 
@@ -67,7 +61,11 @@ export async function listStoredRecordings(params: {
   }
 
   const auth = buildGoogleJwtAuth();
-  await auth.authorize();
+  try {
+    await auth.authorize();
+  } catch (error) {
+    throw new Error(toReadableGoogleAuthError(error));
+  }
   const drive = google.drive({ version: "v3", auth });
 
   const response = await drive.files.list({

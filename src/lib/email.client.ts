@@ -2,6 +2,10 @@ import nodemailer from "nodemailer";
 import { google, type gmail_v1 } from "googleapis";
 import { createHash } from "crypto";
 import { asBoolean, asNumber, env } from "./env";
+import {
+  resolveGoogleServiceAccountCredentials,
+  toReadableGoogleAuthError
+} from "./google-service-account";
 import { logger } from "./logger";
 
 type SendEmailParams = {
@@ -64,7 +68,7 @@ export class EmailClient {
   }
 
   private isGmailServiceAccountConfigured(): boolean {
-    return Boolean(env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_PRIVATE_KEY);
+    return Boolean(env.GOOGLE_PRIVATE_KEY);
   }
 
   private async getTransporter(): Promise<nodemailer.Transporter> {
@@ -109,17 +113,21 @@ export class EmailClient {
       throw new Error("Gmail API no configurado.");
     }
 
-    const privateKey = (env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
-    const senderAccount = env.GOOGLE_SERVICE_ACCOUNT_SUBJECT ?? env.SMTP_FROM ?? "noreply@flacso.edu.uy";
+    const credentials = resolveGoogleServiceAccountCredentials();
+    const senderAccount = credentials.subject ?? env.SMTP_FROM ?? "noreply@flacso.edu.uy";
 
     const auth = new google.auth.JWT({
-      email: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: privateKey,
+      email: credentials.email,
+      key: credentials.privateKey,
       scopes: ["https://www.googleapis.com/auth/gmail.send"],
       subject: senderAccount
     });
 
-    await auth.authorize();
+    try {
+      await auth.authorize();
+    } catch (error) {
+      throw new Error(toReadableGoogleAuthError(error));
+    }
 
     this.gmailClient = google.gmail({
       version: "v1",
@@ -183,20 +191,32 @@ export class EmailClient {
     }
 
     if (this.isGmailServiceAccountConfigured()) {
-      const gmailClient = await this.getGmailClient();
-      await gmailClient.users.messages.send({
-        userId: "me",
-        requestBody: {
-          raw: this.buildRawMessage(normalizedParams)
-        }
-      });
+      try {
+        const gmailClient = await this.getGmailClient();
+        await gmailClient.users.messages.send({
+          userId: "me",
+          requestBody: {
+            raw: this.buildRawMessage(normalizedParams)
+          }
+        });
 
-      logger.info("Email enviado.", {
-        to: normalizedParams.to,
-        subject: normalizedParams.subject,
-        channel: "gmail_api"
-      });
-      return;
+        logger.info("Email enviado.", {
+          to: normalizedParams.to,
+          subject: normalizedParams.subject,
+          channel: "gmail_api"
+        });
+        return;
+      } catch (error) {
+        const readableError = toReadableGoogleAuthError(error);
+        logger.error("Fallo envio por Gmail API.", {
+          to: normalizedParams.to,
+          subject: normalizedParams.subject,
+          error: readableError
+        });
+        if (!this.isSmtpConfigured()) {
+          throw new Error(readableError);
+        }
+      }
     }
 
     if (this.isSmtpConfigured()) {
