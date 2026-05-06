@@ -609,6 +609,7 @@ function useCountdown(targetDate: string | null) {
 
 export function SpaTabDashboard({
   summary,
+  isLoadingSummary = false,
   role,
   agendaLibre = [],
   onGoToCreateMeeting,

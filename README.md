@@ -72,6 +72,37 @@ npm run db:push
 npm run dev
 ```
 
+## Webhook Zoom (grabaciones)
+
+- Endpoint para Zoom Marketplace: `POST /api/v1/zoom/webhook`
+- URL completa en producción: `${APP_BASE_URL}/api/v1/zoom/webhook`
+- Variables requeridas para validar firma/challenge:
+  - `ZOOM_WEBHOOK_SECRET_TOKEN`
+- Variables opcionales para auto-sincronizar a Drive al llegar eventos de grabación:
+  - `ZOOM_DRIVE_AUTO_DOWNLOAD_FROM_WEBHOOK=true`
+  - `ZOOM_DRIVE_SYNC_API_BASE_URL`
+  - `ZOOM_DRIVE_SYNC_API_KEY` (si tu backend la exige)
+
+Eventos `recording.*` implementados:
+- `recording.archive_files_completed`
+- `recording.batch_deleted`
+- `recording.batch_recovered`
+- `recording.batch_trashed`
+- `recording.cloud_storage_usage_updated`
+- `recording.completed`
+- `recording.deleted`
+- `recording.paused`
+- `recording.recovered`
+- `recording.registration_approved`
+- `recording.registration_created`
+- `recording.registration_denied`
+- `recording.renamed`
+- `recording.resumed`
+- `recording.started`
+- `recording.stopped`
+- `recording.transcript_completed`
+- `recording.trashed`
+
 ## Documentación funcional y técnica
 
 - [docs/fase-6-estructura-repositorio.md](docs/fase-6-estructura-repositorio.md)

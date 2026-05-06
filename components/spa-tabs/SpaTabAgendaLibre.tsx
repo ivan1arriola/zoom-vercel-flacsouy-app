@@ -12,6 +12,7 @@ import {
   Tabs,
   Tab,
   Divider,
+  Skeleton,
   useTheme,
   alpha
 } from "@mui/material";
@@ -326,4 +327,3 @@ export function SpaTabAgendaLibre({
     </Box>
   );
 }
-
