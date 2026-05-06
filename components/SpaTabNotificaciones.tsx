@@ -31,11 +31,15 @@ import LaunchIcon from "@mui/icons-material/Launch";
 
 import { usePushNotifications } from "@/src/hooks/usePushNotifications";
 import { SolicitudDetailDialog } from "@/components/spa-tabs/SolicitudDetailDialog";
+import {
+  NOTIF_ACTIVITY_LOGIN,
+  NOTIF_ACTIVITY_ZOOM_RECORDING_WEBHOOK
+} from "@/src/lib/notification-activity";
 
 type NotificationScope = "mine" | "all";
 type NotificationReadFilter = "TODAS" | "LEIDAS" | "NO_LEIDAS";
 type NotificationOrder = "asc" | "desc";
-type NotificationActivityFilter = "TODAS" | "LOGIN";
+type NotificationActivityFilter = "TODAS" | "LOGIN" | "ZOOM_RECORDING";
 
 interface NotificacionUsuario {
   id: string;
@@ -114,12 +118,17 @@ type NotificationBodyField = {
 };
 
 function isLoginNotification(notif: Notificacion): boolean {
-  if (notif.entidadReferenciaTipo === "LOGIN") return true;
+  if (notif.entidadReferenciaTipo === NOTIF_ACTIVITY_LOGIN) return true;
   return /inicio de sesion/i.test(notif.asunto);
 }
 
 function isAssistantInterestNotification(notif: Notificacion): boolean {
   return /interes asistente actualizado/i.test(notif.asunto);
+}
+
+function isZoomRecordingWebhookNotification(notif: Notificacion): boolean {
+  if (notif.entidadReferenciaTipo === NOTIF_ACTIVITY_ZOOM_RECORDING_WEBHOOK) return true;
+  return /^Zoom Recording:/i.test(notif.asunto);
 }
 
 function splitNotificationBody(body: string): {
@@ -692,6 +701,7 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
               >
                 <ToggleButton value="TODAS">Todas</ToggleButton>
                 <ToggleButton value="LOGIN">Inicio sesión</ToggleButton>
+                <ToggleButton value="ZOOM_RECORDING">Grabaciones Zoom</ToggleButton>
               </ToggleButtonGroup>
             </Box>
 
@@ -814,6 +824,7 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
                     {groupNotifs.map((notif) => {
                       const loginNotification = isLoginNotification(notif);
                       const assistantInterestNotification = isAssistantInterestNotification(notif);
+                      const zoomRecordingNotification = isZoomRecordingWebhookNotification(notif);
                       const parsedBody = splitNotificationBody(notif.cuerpo);
                       const usuarioValue = getFieldValue(parsedBody.fields, "Usuario");
                       const dispositivoValue = getFieldValue(parsedBody.fields, "Dispositivo");
@@ -1008,6 +1019,19 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
                                     size="small"
                                     label="Interes asistente"
                                     color="warning"
+                                    variant="outlined"
+                                    sx={{
+                                      height: 20,
+                                      fontSize: "0.65rem",
+                                      fontWeight: 800
+                                    }}
+                                  />
+                                ) : null}
+                                {zoomRecordingNotification ? (
+                                  <Chip
+                                    size="small"
+                                    label="Grabaciones Zoom"
+                                    color="secondary"
                                     variant="outlined"
                                     sx={{
                                       height: 20,

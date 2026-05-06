@@ -8,6 +8,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionUser } from "@/src/lib/api-auth";
 import { db } from "@/src/lib/db";
+import {
+  NOTIF_ACTIVITY_LOGIN,
+  NOTIF_ACTIVITY_ZOOM_RECORDING_WEBHOOK
+} from "@/src/lib/notification-activity";
 
 export const runtime = "nodejs";
 
@@ -76,8 +80,9 @@ function parseOrden(rawValue: string | null): Prisma.SortOrder {
   return "desc";
 }
 
-function parseActividad(rawValue: string | null): "TODAS" | "LOGIN" {
+function parseActividad(rawValue: string | null): "TODAS" | "LOGIN" | "ZOOM_RECORDING" {
   if (rawValue === "LOGIN") return "LOGIN";
+  if (rawValue === "ZOOM_RECORDING") return "ZOOM_RECORDING";
   return "TODAS";
 }
 
@@ -104,8 +109,14 @@ export async function GET(request: Request) {
     if (tipo) where.tipoNotificacion = tipo;
     if (actividad === "LOGIN") {
       where.OR = [
-        { entidadReferenciaTipo: "LOGIN" },
+        { entidadReferenciaTipo: NOTIF_ACTIVITY_LOGIN },
         { asunto: { contains: "Inicio de sesion", mode: "insensitive" } }
+      ];
+    }
+    if (actividad === "ZOOM_RECORDING") {
+      where.OR = [
+        { entidadReferenciaTipo: NOTIF_ACTIVITY_ZOOM_RECORDING_WEBHOOK },
+        { asunto: { contains: "Zoom Recording:", mode: "insensitive" } }
       ];
     }
     if (lectura === "LEIDAS") where.leidaAt = { not: null };

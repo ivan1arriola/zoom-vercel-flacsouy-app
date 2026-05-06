@@ -1,5 +1,9 @@
 import { EstadoEnvioNotificacion, TipoNotificacion, UserRole } from "@prisma/client";
 import { db } from "@/src/lib/db";
+import {
+  NOTIF_ACTIVITY_LOGIN,
+  NOTIF_ACTIVITY_ZOOM_RECORDING_WEBHOOK
+} from "@/src/lib/notification-activity";
 
 type LoginNotificationInput = {
   userId: string;
@@ -9,6 +13,16 @@ type LoginNotificationInput = {
   connectedAt?: Date;
   userAgent?: string | null;
   ip?: string | null;
+};
+
+type ZoomRecordingNotificationInput = {
+  eventName: string;
+  eventTs?: number | null;
+  accountId?: string | null;
+  meetingId?: string | null;
+  meetingUuid?: string | null;
+  topic?: string | null;
+  autoSyncEnabled?: boolean;
 };
 
 type DeviceContext = {
@@ -69,6 +83,23 @@ function resolveDisplayName(email: string, name?: string | null): string {
   return candidate ?? email;
 }
 
+function formatEventTime(value?: number | null): string | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value)) return null;
+
+  const asNumber = Number(value);
+  const asMs = asNumber > 1_000_000_000_000 ? asNumber : asNumber * 1000;
+  const date = new Date(asMs);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const local = new Intl.DateTimeFormat("es-UY", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+    timeZone: "America/Montevideo"
+  }).format(date);
+  return `${local} (${date.toISOString()})`;
+}
+
 function buildLoginBody({
   userEmail,
   userName,
@@ -106,6 +137,27 @@ function buildLoginBody({
   ].join("\n");
 }
 
+function buildZoomRecordingBody(input: ZoomRecordingNotificationInput): string {
+  const lines: string[] = ["Se recibio un evento de grabacion desde Zoom."];
+
+  const eventName = normalizeOptional(input.eventName);
+  const accountId = normalizeOptional(input.accountId ?? undefined);
+  const meetingId = normalizeOptional(input.meetingId ?? undefined);
+  const meetingUuid = normalizeOptional(input.meetingUuid ?? undefined);
+  const topic = normalizeOptional(input.topic ?? undefined);
+  const occurredAt = formatEventTime(input.eventTs);
+
+  if (eventName) lines.push(`Evento: ${eventName}`);
+  if (topic) lines.push(`Reunion: ${topic}`);
+  if (meetingId) lines.push(`Meeting ID: ${meetingId}`);
+  if (meetingUuid) lines.push(`Meeting UUID: ${meetingUuid}`);
+  if (accountId) lines.push(`Cuenta Zoom: ${accountId}`);
+  if (occurredAt) lines.push(`Fecha del evento: ${occurredAt}`);
+  lines.push(`Auto-sync Drive: ${input.autoSyncEnabled ? "Activo" : "Inactivo"}`);
+
+  return lines.join("\n");
+}
+
 export async function createAdminLoginNotifications(input: LoginNotificationInput): Promise<number> {
   const userEmail = normalizeOptional(input.userEmail)?.toLowerCase();
   if (!userEmail) return 0;
@@ -139,8 +191,48 @@ export async function createAdminLoginNotifications(input: LoginNotificationInpu
       estadoEnvio: EstadoEnvioNotificacion.ENVIADA,
       intentoCount: 1,
       ultimoIntentoAt: connectedAt,
-      entidadReferenciaTipo: "LOGIN",
+      entidadReferenciaTipo: NOTIF_ACTIVITY_LOGIN,
       entidadReferenciaId: input.userId
+    }))
+  });
+
+  return result.count;
+}
+
+export async function createAdminZoomRecordingNotifications(
+  input: ZoomRecordingNotificationInput
+): Promise<number> {
+  const eventName = normalizeOptional(input.eventName);
+  if (!eventName) return 0;
+
+  const admins = await db.user.findMany({
+    where: { role: UserRole.ADMINISTRADOR },
+    select: {
+      id: true
+    }
+  });
+  if (admins.length === 0) return 0;
+
+  const now = new Date();
+  const subject = `Zoom Recording: ${eventName}`;
+  const body = buildZoomRecordingBody(input);
+  const entityReferenceId =
+    normalizeOptional(input.meetingId ?? undefined) ||
+    normalizeOptional(input.meetingUuid ?? undefined) ||
+    normalizeOptional(input.accountId ?? undefined);
+
+  const result = await db.notificacion.createMany({
+    data: admins.map((admin) => ({
+      usuarioId: admin.id,
+      tipoNotificacion: TipoNotificacion.ALERTA_OPERATIVA,
+      canalDestino: "IN_APP",
+      asunto: subject,
+      cuerpo: body,
+      estadoEnvio: EstadoEnvioNotificacion.ENVIADA,
+      intentoCount: 1,
+      ultimoIntentoAt: now,
+      entidadReferenciaTipo: NOTIF_ACTIVITY_ZOOM_RECORDING_WEBHOOK,
+      entidadReferenciaId: entityReferenceId
     }))
   });
 

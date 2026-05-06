@@ -7,6 +7,7 @@ import {
 } from "../../zoom-drive-sync/_utils";
 import { asBoolean, env } from "@/src/lib/env";
 import { logger } from "@/src/lib/logger";
+import { createAdminZoomRecordingNotifications } from "@/src/modules/notificaciones/service";
 
 export const runtime = "nodejs";
 
@@ -153,6 +154,15 @@ function extractRecordingContext(body: ZoomWebhookPayload): {
   };
 }
 
+function parseEventTimestamp(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const parsed = Number(raw.trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 async function triggerZoomDriveAutoSyncFromWebhook(eventName: string, context: {
   meetingId?: string;
   meetingUuid?: string;
@@ -260,21 +270,37 @@ export async function POST(request: Request) {
 
   if (RECORDING_EVENTS.has(eventName)) {
     const context = extractRecordingContext(body);
+    const eventTs = parseEventTimestamp(body.event_ts);
     const shouldAutoSync =
       asBoolean(env.ZOOM_DRIVE_AUTO_DOWNLOAD_FROM_WEBHOOK, false) &&
       AUTO_SYNC_EVENTS.has(eventName);
 
     logger.info("Webhook Zoom: evento de grabacion recibido.", {
       event: eventName,
+      eventTs,
       ...context,
       autoSyncEnabled: shouldAutoSync
     });
 
-    if (shouldAutoSync) {
-      after(async () => {
-        await triggerZoomDriveAutoSyncFromWebhook(eventName, context);
-      });
-    }
+    after(async () => {
+      const tasks: Array<Promise<unknown>> = [
+        createAdminZoomRecordingNotifications({
+          eventName,
+          eventTs,
+          accountId: context.accountId,
+          meetingId: context.meetingId,
+          meetingUuid: context.meetingUuid,
+          topic: context.topic,
+          autoSyncEnabled: shouldAutoSync
+        })
+      ];
+
+      if (shouldAutoSync) {
+        tasks.push(triggerZoomDriveAutoSyncFromWebhook(eventName, context));
+      }
+
+      await Promise.allSettled(tasks);
+    });
   } else if (eventName.startsWith("recording.")) {
     logger.warn("Webhook Zoom: evento recording.* no reconocido en whitelist.", {
       event: eventName
@@ -287,5 +313,14 @@ export async function POST(request: Request) {
     ok: true,
     received: true,
     event: eventName
+  });
+}
+
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    service: "zoom-webhook",
+    endpoint: "/api/v1/zoom/webhook",
+    time: new Date().toISOString()
   });
 }
