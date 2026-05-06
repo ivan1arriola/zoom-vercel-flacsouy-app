@@ -103,6 +103,8 @@ const SEMANTIC_METRIC_COLORS = {
   warning: "#ED6C02",
   error: "#D32F2F"
 } as const;
+const MONTHLY_ACCOUNTING_DRIVE_FOLDER_URL =
+  "https://drive.google.com/drive/folders/1vlHPih1o6umZ5C5SVDZsx6b8uLi13Qs7?usp=sharing";
 
 function resolveMetricSemanticColor(metric: MetricCardItem, value: number): keyof typeof SEMANTIC_METRIC_COLORS {
   if (value === 0 && (metric.semanticColor === "warning" || metric.semanticColor === "error")) {
@@ -1037,6 +1039,16 @@ export function SpaTabDashboard({
                   }}
                 >
                   {isUploadingReport ? "Subiendo..." : "Subir informe a Drive"}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="info"
+                  startIcon={<LinkIcon />}
+                  href={MONTHLY_ACCOUNTING_DRIVE_FOLDER_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Abrir carpeta de Drive
                 </Button>
               </Stack>
             </Stack>

@@ -2,6 +2,8 @@ import { UserRole } from "@prisma/client";
 import { getSessionUser } from "@/src/lib/api-auth";
 import { env } from "@/src/lib/env";
 
+const SYNC_BACKEND_PROD_URL = "https://zoom-drive-sync-cbty.onrender.com";
+
 export type ZoomDriveSyncProxyConnection = {
   apiBaseUrl: string;
   apiKey?: string;
@@ -16,6 +18,45 @@ type ProxyRequestBody = {
   connection?: Partial<ZoomDriveSyncProxyConnection>;
   config?: ZoomDriveSyncProxyConfigInput;
 };
+
+function normalizeUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function isLocalhostUrl(value: string): boolean {
+  const normalized = normalizeUrl(value);
+  try {
+    const url = new URL(normalized);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch {
+    return normalized.includes("localhost") || normalized.includes("127.0.0.1");
+  }
+}
+
+export function resolveZoomDriveSyncApiBaseUrl(preferred?: string): string {
+  const requested = normalizeUrl(preferred ?? "");
+  const envDefault = normalizeUrl(env.ZOOM_DRIVE_SYNC_API_BASE_URL ?? "");
+  const fallback = requested || envDefault;
+
+  if (env.NODE_ENV === "production") {
+    const forcedProdUrl = normalizeUrl(SYNC_BACKEND_PROD_URL);
+    if (requested && requested !== forcedProdUrl) {
+      throw new Error(
+        `En produccion solo se permite ${forcedProdUrl} como backend de sincronizacion.`
+      );
+    }
+    if (isLocalhostUrl(fallback)) {
+      throw new Error("No se permite localhost como backend de sincronizacion en produccion.");
+    }
+    return forcedProdUrl;
+  }
+
+  if (!fallback) {
+    throw new Error("Debes indicar la URL del backend de sincronizacion.");
+  }
+
+  return fallback;
+}
 
 export async function requireAdminForZoomDriveSync() {
   const user = await getSessionUser();
@@ -39,14 +80,7 @@ export async function parseProxyRequestBody(request: Request): Promise<{
     body = {};
   }
 
-  const apiBaseUrl = (
-    body.connection?.apiBaseUrl?.trim() ||
-    env.ZOOM_DRIVE_SYNC_API_BASE_URL?.trim() ||
-    ""
-  );
-  if (!apiBaseUrl) {
-    throw new Error("Debes indicar la URL del backend de sincronizacion.");
-  }
+  const apiBaseUrl = resolveZoomDriveSyncApiBaseUrl(body.connection?.apiBaseUrl);
   const apiKey = body.connection?.apiKey?.trim() || env.ZOOM_DRIVE_SYNC_API_KEY?.trim() || "";
   return {
     connection: {

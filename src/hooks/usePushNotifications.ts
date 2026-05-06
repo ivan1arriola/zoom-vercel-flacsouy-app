@@ -4,6 +4,7 @@ export function usePushNotifications() {
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastError, setLastError] = useState("");
 
   const checkStatus = useCallback(async () => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -44,6 +45,7 @@ export function usePushNotifications() {
     if (permission === "unsupported") return false;
 
     setIsLoading(true);
+    setLastError("");
     try {
       // 1. Pedir permiso si no tenemos
       if (Notification.permission !== "granted") {
@@ -57,7 +59,20 @@ export function usePushNotifications() {
 
       // 2. Obtener la clave publica del servidor
       const keyRes = await fetch("/api/v1/notificaciones/push/keys");
-      const { publicKey } = await keyRes.json();
+      const keyPayload = (await keyRes.json().catch(() => ({}))) as {
+        publicKey?: string;
+        error?: string;
+        missingEnv?: string[];
+      };
+      if (!keyRes.ok) {
+        const missing = Array.isArray(keyPayload.missingEnv) && keyPayload.missingEnv.length > 0
+          ? ` (${keyPayload.missingEnv.join(", ")})`
+          : "";
+        throw new Error(
+          `${keyPayload.error ?? "No se pudo obtener la clave VAPID del servidor."}${missing}`
+        );
+      }
+      const publicKey = keyPayload.publicKey;
       if (!publicKey) throw new Error("No se pudo obtener la clave VAPID");
 
       // 3. Suscribir en el navegador
@@ -81,9 +96,11 @@ export function usePushNotifications() {
         setIsSubscribed(true);
         return true;
       }
-      return false;
+      const subscribePayload = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(subscribePayload.error ?? "No se pudo registrar la suscripcion push.");
     } catch (error) {
       console.error("Error al suscribir:", error);
+      setLastError(error instanceof Error ? error.message : "No se pudo activar notificaciones push.");
       return false;
     } finally {
       setIsLoading(false);
@@ -92,6 +109,7 @@ export function usePushNotifications() {
 
   const unsubscribe = async () => {
     setIsLoading(true);
+    setLastError("");
     try {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
@@ -112,6 +130,7 @@ export function usePushNotifications() {
       return false;
     } catch (error) {
       console.error("Error al desuscribir:", error);
+      setLastError(error instanceof Error ? error.message : "No se pudo desactivar notificaciones push.");
       return false;
     } finally {
       setIsLoading(false);
@@ -122,6 +141,7 @@ export function usePushNotifications() {
     permission,
     isSubscribed,
     isLoading,
+    lastError,
     subscribe,
     unsubscribe,
     refresh: checkStatus

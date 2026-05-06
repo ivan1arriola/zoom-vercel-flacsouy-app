@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { env } from "@/src/lib/env";
-import { requireAdminForZoomDriveSync } from "../_utils";
+import { requireAdminForZoomDriveSync, resolveZoomDriveSyncApiBaseUrl } from "../_utils";
 
 export const runtime = "nodejs";
 
@@ -12,7 +12,7 @@ export async function GET() {
 
   return NextResponse.json({
     defaults: {
-      apiBaseUrl: env.ZOOM_DRIVE_SYNC_API_BASE_URL ?? "",
+      apiBaseUrl: resolveZoomDriveSyncApiBaseUrl(),
       timezone: env.TIMEZONE,
       zoomGroupId: env.ZOOM_GROUP_ID ?? "",
       driveDestinationId: env.DRIVE_DESTINATION_ID ?? ""

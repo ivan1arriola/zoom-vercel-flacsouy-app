@@ -239,6 +239,7 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
     permission: pushPermission, 
     isSubscribed, 
     isLoading: isPushLoading, 
+    lastError: pushSubscribeError,
     subscribe: subscribePush, 
     unsubscribe: unsubscribePush 
   } = usePushNotifications();
@@ -358,7 +359,9 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
       if (!isSubscribed) {
         const subscribed = await subscribePush();
         if (!subscribed) {
-          setPushTestError("No se pudo activar la suscripcion push en este navegador.");
+          setPushTestError(
+            pushSubscribeError || "No se pudo activar la suscripcion push en este navegador."
+          );
           return;
         }
       }

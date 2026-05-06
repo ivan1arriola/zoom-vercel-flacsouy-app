@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { LayoutNavbar } from "@/components/layout-navbar";
 import { MuiProvider } from "@/components/mui-provider";
 import { PwaRegister } from "@/components/pwa-register";
+import { SupportErrorListener } from "@/components/support-error-listener";
 import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
@@ -55,6 +56,7 @@ export default async function RootLayout({
       <body>
         <MuiProvider>
           <PwaRegister />
+          <SupportErrorListener />
           <Box sx={{ display: "flex", minHeight: "100vh", backgroundColor: "background.default" }}>
             {session?.user ? <LayoutNavbar user={session.user} /> : null}
 

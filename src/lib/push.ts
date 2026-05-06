@@ -59,6 +59,18 @@ export function getVapidPublicKey() {
   return vapidPublicKey;
 }
 
+export function getVapidConfigStatus() {
+  const missingEnv: string[] = [];
+  if (!vapidPublicKey) missingEnv.push("VAPID_PUBLIC_KEY");
+  if (!vapidPrivateKey) missingEnv.push("VAPID_PRIVATE_KEY");
+
+  return {
+    isConfigured: missingEnv.length === 0,
+    missingEnv,
+    subject: vapidSubject
+  };
+}
+
 
 export async function sendPushToUser(userId: string, payload: PushPayload) {
   const subscriptions = await db.pushSubscription.findMany({
