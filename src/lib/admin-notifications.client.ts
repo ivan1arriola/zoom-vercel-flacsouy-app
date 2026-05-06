@@ -16,6 +16,15 @@ type AdminNotificationInput = {
   occurredAt?: Date;
 };
 
+type AssistantInterestDetails = {
+  asistenteNombre?: string;
+  estadoInteres?: string;
+  tituloReunion?: string;
+  fechaReunion?: string;
+  programaNombre?: string;
+  solicitudId?: string;
+};
+
 const DETAIL_PRIORITY: string[] = [
   "titulo",
   "solicitudId",
@@ -107,7 +116,46 @@ function formatDetails(details?: Record<string, unknown>): string[] {
   });
 }
 
+function detailToString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function buildAssistantInterestBody(input: AdminNotificationInput): string {
+  const details = (input.details ?? {}) as AssistantInterestDetails;
+  const asistenteNombre =
+    detailToString(details.asistenteNombre) ||
+    [input.actorFirstName, input.actorLastName].filter(Boolean).join(" ").trim() ||
+    detailToString(input.actorEmail) ||
+    "Asistente sin nombre";
+  const estadoInteres = detailToString(details.estadoInteres) ?? "Sin estado";
+  const tituloReunion = detailToString(details.tituloReunion) ?? "Sin titulo";
+  const fechaReunion = detailToString(details.fechaReunion) ?? "Sin fecha";
+  const programaNombre = detailToString(details.programaNombre);
+  const solicitudId = detailToString(details.solicitudId);
+
+  const lines = [
+    `${asistenteNombre} marco "${estadoInteres}".`,
+    `Reunion: ${tituloReunion}.`,
+    `Dia y hora: ${fechaReunion}.`
+  ];
+
+  if (programaNombre) {
+    lines.push(`Programa: ${programaNombre}.`);
+  }
+  if (solicitudId) {
+    lines.push(`Solicitud: ${solicitudId}.`);
+  }
+
+  return lines.join("\n");
+}
+
 function buildNotificationBody(input: AdminNotificationInput): string {
+  if (input.action === "INTERES_ASISTENTE_ACTUALIZADO") {
+    return buildAssistantInterestBody(input);
+  }
+
   const occurredAt = input.occurredAt ?? new Date();
   const lines: string[] = [];
 

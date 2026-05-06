@@ -941,6 +941,22 @@ function shouldNotifyAdminsForAssistantPreference(estadoInteres: EstadoInteresAs
   return estadoInteres === EstadoInteresAsistente.ME_INTERESA;
 }
 
+function formatAssistantInterestLabel(estadoInteres: EstadoInteresAsistente): string {
+  if (estadoInteres === EstadoInteresAsistente.ME_INTERESA) return "Me interesa";
+  if (estadoInteres === EstadoInteresAsistente.NO_ME_INTERESA) return "No me interesa";
+  if (estadoInteres === EstadoInteresAsistente.RETIRADO) return "Retirado";
+  return estadoInteres;
+}
+
+function formatEventDateForNotification(date: Date, timezone: string): string {
+  const safeTimezone = timezone || "America/Montevideo";
+  return new Intl.DateTimeFormat("es-UY", {
+    timeZone: safeTimezone,
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
 async function listAdminNotificationEmails(): Promise<string[]> {
   const users = await db.user.findMany({
     where: {
@@ -8219,16 +8235,31 @@ export class SalasService {
       }
     });
 
+    const asistenteNombre = getUserDisplayName(user);
+    const estadoInteresLabel = formatAssistantInterestLabel(input.estadoInteres);
+    const fechaReunionLabel = formatEventDateForNotification(
+      event.inicioProgramadoAt,
+      event.timezone || "America/Montevideo"
+    );
+    const tituloReunion = event.solicitud.titulo || "Reunion sin titulo";
+
     await notifyAdminInAppMovement({
       action: "INTERES_ASISTENTE_ACTUALIZADO",
       actorEmail: user.email,
-        actorFirstName: user.firstName,
-        actorLastName: user.lastName,
+      actorFirstName: user.firstName,
+      actorLastName: user.lastName,
       actorRole: user.role,
       entityType: "EventoZoom",
       entityId: eventoId,
+      summary: `${asistenteNombre} marco "${estadoInteresLabel}" en "${tituloReunion}" (${fechaReunionLabel})`,
       details: {
-        estadoInteres: input.estadoInteres,
+        asistenteNombre,
+        estadoInteres: estadoInteresLabel,
+        tituloReunion,
+        fechaReunion: fechaReunionLabel,
+        programaNombre: event.solicitud.programaNombre ?? undefined,
+        solicitudId: event.solicitud.id,
+        eventoId: event.id,
         asistenteZoomId: assistant.id
       }
     });

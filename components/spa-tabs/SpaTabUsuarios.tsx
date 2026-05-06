@@ -330,11 +330,23 @@ export function SpaTabUsuarios({
                         />
                       </Stack>
                     </Box>
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label={`Alta: ${formatManagedUserDate(managedUser.createdAt)}`}
-                    />
+                    <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`Alta: ${formatManagedUserDate(managedUser.createdAt)}`}
+                      />
+                      <Chip
+                        size="small"
+                        color={managedUser.lastLoginAt ? "info" : "default"}
+                        variant={managedUser.lastLoginAt ? "filled" : "outlined"}
+                        label={
+                          managedUser.lastLoginAt
+                            ? `Ultimo login: ${formatManagedUserDate(managedUser.lastLoginAt)}`
+                            : "Ultimo login: Nunca"
+                        }
+                      />
+                    </Stack>
                   </Stack>
 
                   <Box sx={{ mt: 1 }}>

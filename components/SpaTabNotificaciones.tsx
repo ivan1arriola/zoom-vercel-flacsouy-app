@@ -33,9 +33,9 @@ import { usePushNotifications } from "@/src/hooks/usePushNotifications";
 import { SolicitudDetailDialog } from "@/components/spa-tabs/SolicitudDetailDialog";
 
 type NotificationScope = "mine" | "all";
-// ... (omitting types for brevity in instructions, will keep them in replacement)
 type NotificationReadFilter = "TODAS" | "LEIDAS" | "NO_LEIDAS";
 type NotificationOrder = "asc" | "desc";
+type NotificationActivityFilter = "TODAS" | "LOGIN";
 
 interface NotificacionUsuario {
   id: string;
@@ -73,6 +73,7 @@ interface PaginationInfo {
 interface NotificacionesResponse {
   scope: NotificationScope;
   orden: NotificationOrder;
+  actividad?: NotificationActivityFilter;
   notificaciones: Notificacion[];
   unreadCount: number;
   pagination: PaginationInfo;
@@ -93,6 +94,77 @@ function getTipoIcon(tipo: Notificacion["tipoNotificacion"]) {
     default:
       return <NotificationsActiveOutlinedIcon fontSize="small" />;
   }
+}
+
+function getTipoLabel(tipo: Notificacion["tipoNotificacion"]): string {
+  switch (tipo) {
+    case "EMAIL":
+      return "Email";
+    case "ALERTA_OPERATIVA":
+      return "Alerta";
+    case "IN_APP":
+    default:
+      return "In-App";
+  }
+}
+
+type NotificationBodyField = {
+  label: string;
+  value: string;
+};
+
+function isLoginNotification(notif: Notificacion): boolean {
+  if (notif.entidadReferenciaTipo === "LOGIN") return true;
+  return /inicio de sesion/i.test(notif.asunto);
+}
+
+function isAssistantInterestNotification(notif: Notificacion): boolean {
+  return /interes asistente actualizado/i.test(notif.asunto);
+}
+
+function splitNotificationBody(body: string): {
+  intro: string;
+  fields: NotificationBodyField[];
+} {
+  const lines = body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return { intro: "", fields: [] };
+  }
+
+  const [intro, ...details] = lines;
+  const fields = details.reduce<NotificationBodyField[]>((acc, line) => {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) return acc;
+    const label = line.slice(0, separatorIndex).replace(/^-+\s*/, "").trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!label || !value) return acc;
+    acc.push({ label, value });
+    return acc;
+  }, []);
+
+  return { intro, fields };
+}
+
+function getFieldValue(fields: NotificationBodyField[], label: string): string | null {
+  const normalizedLabel = label.trim().toLowerCase();
+  const match = fields.find((field) => field.label.trim().toLowerCase() === normalizedLabel);
+  return match?.value ?? null;
+}
+
+function getFieldValueAny(fields: NotificationBodyField[], labels: string[]): string | null {
+  for (const label of labels) {
+    const value = getFieldValue(fields, label);
+    if (value) return value;
+  }
+  return null;
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1)}…`;
 }
 
 function getUserDisplay(usuario: NotificacionUsuario): string {
@@ -148,8 +220,12 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
   const [lecturaFiltro, setLecturaFiltro] = useState<NotificationReadFilter>("TODAS");
   const [ordenFiltro, setOrdenFiltro] = useState<NotificationOrder>("desc");
   const [tipoFiltro, setTipoFiltro] = useState<"" | "EMAIL" | "IN_APP" | "ALERTA_OPERATIVA">("");
+  const [actividadFiltro, setActividadFiltro] = useState<NotificationActivityFilter>("TODAS");
   const [estadoFiltro, setEstadoFiltro] = useState<"" | "PENDIENTE" | "ENVIADA" | "FALLIDA">("");
   const [error, setError] = useState("");
+  const [isTestingPush, setIsTestingPush] = useState(false);
+  const [pushTestMessage, setPushTestMessage] = useState("");
+  const [pushTestError, setPushTestError] = useState("");
   const { 
     permission: pushPermission, 
     isSubscribed, 
@@ -176,6 +252,7 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
       params.set("lectura", lecturaFiltro);
       params.set("orden", ordenFiltro);
       if (tipoFiltro) params.set("tipo", tipoFiltro);
+      if (actividadFiltro !== "TODAS") params.set("actividad", actividadFiltro);
       if (estadoFiltro) params.set("estado", estadoFiltro);
       if (isAdmin) params.set("scope", scope);
 
@@ -258,9 +335,49 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
     }
   }
 
+  async function testBrowserNotification() {
+    setPushTestError("");
+    setPushTestMessage("");
+    setIsTestingPush(true);
+
+    try {
+      if (pushPermission === "unsupported") {
+        setPushTestError("Este navegador no soporta notificaciones push.");
+        return;
+      }
+
+      if (!isSubscribed) {
+        const subscribed = await subscribePush();
+        if (!subscribed) {
+          setPushTestError("No se pudo activar la suscripcion push en este navegador.");
+          return;
+        }
+      }
+
+      const response = await fetch("/api/v1/notificaciones/push/test", {
+        method: "POST"
+      });
+      const data = (await response.json()) as { error?: string; message?: string };
+
+      if (!response.ok) {
+        setPushTestError(data.error ?? "No se pudo enviar la notificacion de prueba.");
+        return;
+      }
+
+      setPushTestMessage(
+        data.message ??
+          "Notificacion de prueba enviada. Si no aparece de inmediato, revisa permisos del navegador."
+      );
+    } catch {
+      setPushTestError("Ocurrio un error al probar la notificacion del navegador.");
+    } finally {
+      setIsTestingPush(false);
+    }
+  }
+
   useEffect(() => {
     void fetchNotificaciones(1);
-  }, [scope, lecturaFiltro, ordenFiltro, tipoFiltro, estadoFiltro]);
+  }, [scope, lecturaFiltro, ordenFiltro, tipoFiltro, actividadFiltro, estadoFiltro]);
 
   const currentPageUnreadIds = useMemo(
     () => notificaciones.filter((item) => !item.leidaAt).map((item) => item.id),
@@ -413,16 +530,49 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
             <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.9 }}>
               Notificaciones Push
             </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              {isPushLoading 
-                ? "Cargando..." 
-                : pushPermission === "unsupported"
-                  ? "No soportado"
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                {isPushLoading 
+                  ? "Cargando..." 
+                  : pushPermission === "unsupported"
+                    ? "No soportado"
                   : isSubscribed 
                     ? "Activadas (PWA/Push)" 
                     : "Activar en este dispositivo"}
-            </Typography>
-          </Paper>
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void testBrowserNotification();
+                }}
+                disabled={isPushLoading || isTestingPush || pushPermission === "unsupported"}
+                sx={{
+                  mt: 1,
+                  alignSelf: "flex-start",
+                  textTransform: "none",
+                  fontWeight: 700,
+                  borderColor: "rgba(255,255,255,0.7)",
+                  color: "white",
+                  "&:hover": {
+                    borderColor: "white",
+                    backgroundColor: "rgba(255,255,255,0.12)"
+                  }
+                }}
+              >
+                {isTestingPush ? "Probando..." : "Probar notificacion"}
+              </Button>
+              {pushTestMessage ? (
+                <Typography variant="caption" sx={{ mt: 0.8, display: "block", opacity: 0.9 }}>
+                  {pushTestMessage}
+                </Typography>
+              ) : null}
+              {pushTestError ? (
+                <Typography variant="caption" sx={{ mt: 0.8, display: "block", color: "#ffebee" }}>
+                  {pushTestError}
+                </Typography>
+              ) : null}
+            </Paper>
         </Stack>
 
         <Paper 
@@ -507,6 +657,41 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
                 <ToggleButton value="IN_APP">App</ToggleButton>
                 <ToggleButton value="ALERTA_OPERATIVA">Alertas</ToggleButton>
                 <ToggleButton value="EMAIL">Email</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+
+            <Box sx={{ flex: 1, minWidth: 190 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, ml: 1, fontWeight: 700 }}>
+                ACTIVIDAD
+              </Typography>
+              <ToggleButtonGroup
+                size="small"
+                fullWidth
+                value={actividadFiltro}
+                exclusive
+                onChange={(_event, value: NotificationActivityFilter | null) => {
+                  if (!value) return;
+                  setActividadFiltro(value);
+                }}
+                sx={{
+                  backgroundColor: "background.paper",
+                  "& .MuiToggleButton-root": {
+                    border: "none",
+                    borderRadius: "8px !important",
+                    mx: 0.2,
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    textTransform: "none",
+                    "&.Mui-selected": {
+                      backgroundColor: "primary.main",
+                      color: "primary.contrastText",
+                      "&:hover": { backgroundColor: "primary.dark" }
+                    }
+                  }
+                }}
+              >
+                <ToggleButton value="TODAS">Todas</ToggleButton>
+                <ToggleButton value="LOGIN">Inicio sesión</ToggleButton>
               </ToggleButtonGroup>
             </Box>
 
@@ -626,177 +811,280 @@ export function SpaTabNotificaciones({ isAdmin }: SpaTabNotificacionesProps) {
                     {group}
                   </Typography>
                   <Stack spacing={1}>
-                    {groupNotifs.map((notif) => (
-                      <Paper
-                        key={notif.id}
-                        variant="outlined"
-                        sx={{
-                          p: 2,
-                          borderRadius: 3,
-                          position: "relative",
-                          backgroundColor: "background.paper",
-                          borderColor: notif.leidaAt ? "divider" : "rgba(31, 75, 143, 0.2)",
-                          borderWidth: notif.leidaAt ? "1px" : "1.5px",
-                          boxShadow: notif.leidaAt ? "none" : "0 4px 12px rgba(31, 75, 143, 0.05)",
-                          transition: "all 0.2s ease",
-                          "&:hover": {
-                            borderColor: "primary.main",
-                            transform: "translateY(-2px)",
-                            boxShadow: "0 6px 20px rgba(0,0,0,0.06)",
-                            "& .action-buttons": { opacity: 1 }
-                          }
-                        }}
-                      >
-                        {!notif.leidaAt && (
-                          <Box 
-                            sx={{ 
-                              position: "absolute", 
-                              top: 22, 
-                              left: 10, 
-                              width: 8, 
-                              height: 8, 
-                              borderRadius: "50%", 
-                              backgroundColor: "#3b82f6",
-                              boxShadow: "0 0 0 4px rgba(59, 130, 246, 0.1)"
-                            }} 
-                          />
-                        )}
-                        
-                        <Stack direction="row" spacing={2} alignItems="flex-start">
-                          <Box 
-                            sx={{ 
-                              width: 40, 
-                              height: 40, 
-                              borderRadius: "10px", 
-                              backgroundColor: notif.leidaAt ? "grey.50" : "rgba(31, 75, 143, 0.05)", 
-                              display: "flex", 
-                              alignItems: "center", 
-                              justifyContent: "center",
-                              flexShrink: 0,
-                              mt: 0.5
-                            }}
-                          >
-                            {getTipoIcon(notif.tipoNotificacion)}
-                          </Box>
+                    {groupNotifs.map((notif) => {
+                      const loginNotification = isLoginNotification(notif);
+                      const assistantInterestNotification = isAssistantInterestNotification(notif);
+                      const parsedBody = splitNotificationBody(notif.cuerpo);
+                      const usuarioValue = getFieldValue(parsedBody.fields, "Usuario");
+                      const dispositivoValue = getFieldValue(parsedBody.fields, "Dispositivo");
+                      const proveedorValue = getFieldValue(parsedBody.fields, "Proveedor");
+                      const ipValue = getFieldValue(parsedBody.fields, "IP");
+                      const userAgentValue = getFieldValue(parsedBody.fields, "User-Agent");
+                      const assistantName =
+                        getFieldValueAny(parsedBody.fields, ["Asistente", "Asistente nombre", "Actor"]) ??
+                        parsedBody.intro;
+                      const interestValue = getFieldValueAny(parsedBody.fields, [
+                        "Interes marcado",
+                        "Estado interes",
+                        "EstadoInteres",
+                        "Interes"
+                      ]);
+                      const meetingTitle = getFieldValueAny(parsedBody.fields, [
+                        "Reunion",
+                        "Titulo reunion",
+                        "Titulo",
+                        "Entidad"
+                      ]);
+                      const meetingDate = getFieldValueAny(parsedBody.fields, [
+                        "Dia y hora",
+                        "Fecha reunion",
+                        "Fecha y hora",
+                        "Fecha"
+                      ]);
 
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
-                              <Typography 
-                                variant="body1" 
-                                sx={{ 
-                                  fontWeight: notif.leidaAt ? 600 : 800, 
-                                  color: notif.leidaAt ? "text.primary" : "primary.main",
-                                  lineHeight: 1.3
-                                }}
-                              >
-                                {notif.asunto}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, whiteSpace: "nowrap", ml: 2 }}>
-                                {formatTime(notif.createdAt)}
-                              </Typography>
-                            </Stack>
-                            
-                            <Typography 
-                              variant="body2" 
-                              color="text.secondary" 
-                              sx={{ 
-                                whiteSpace: "pre-wrap", 
-                                mb: 1,
-                                fontSize: "0.875rem",
-                                lineHeight: 1.5,
-                                opacity: notif.leidaAt ? 0.7 : 0.9
+                      return (
+                        <Paper
+                          key={notif.id}
+                          variant="outlined"
+                          sx={{
+                            p: 2,
+                            borderRadius: 3,
+                            position: "relative",
+                            backgroundColor: "background.paper",
+                            borderColor: notif.leidaAt ? "divider" : "rgba(31, 75, 143, 0.2)",
+                            borderWidth: notif.leidaAt ? "1px" : "1.5px",
+                            boxShadow: notif.leidaAt ? "none" : "0 4px 12px rgba(31, 75, 143, 0.05)",
+                            transition: "all 0.2s ease",
+                            "&:hover": {
+                              borderColor: "primary.main",
+                              transform: "translateY(-2px)",
+                              boxShadow: "0 6px 20px rgba(0,0,0,0.06)",
+                              "& .action-buttons": { opacity: 1 }
+                            }
+                          }}
+                        >
+                          {!notif.leidaAt && (
+                            <Box
+                              sx={{
+                                position: "absolute",
+                                top: 22,
+                                left: 10,
+                                width: 8,
+                                height: 8,
+                                borderRadius: "50%",
+                                backgroundColor: "#3b82f6",
+                                boxShadow: "0 0 0 4px rgba(59, 130, 246, 0.1)"
+                              }}
+                            />
+                          )}
+
+                          <Stack direction="row" spacing={2} alignItems="flex-start">
+                            <Box
+                              sx={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: "10px",
+                                backgroundColor: notif.leidaAt ? "grey.50" : "rgba(31, 75, 143, 0.05)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                                mt: 0.5
                               }}
                             >
-                              {notif.cuerpo}
-                            </Typography>
+                              {getTipoIcon(notif.tipoNotificacion)}
+                            </Box>
 
-                            <Stack direction="row" spacing={2} alignItems="center">
-                              {scope === "all" && (
-                                <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>
-                                  Para: {getUserDisplay(notif.usuario)}
-                                </Typography>
-                              )}
-                              <Chip 
-                                size="small" 
-                                label={notif.tipoNotificacion} 
-                                variant="outlined"
-                                sx={{ 
-                                  height: 20, 
-                                  fontSize: "0.65rem", 
-                                  fontWeight: 800, 
-                                  textTransform: "uppercase",
-                               borderColor: "divider",
-                                  color: "text.secondary"
-                                }}
-                              />
-                              {notif.entidadReferenciaTipo === "SolicitudSala" && notif.entidadReferenciaId && (
-                                <Button
-                                  size="small"
-                                  variant="text"
-                                  startIcon={<LaunchIcon fontSize="inherit" />}
-                                  onClick={() => openDetail(notif.entidadReferenciaId!)}
-                                  sx={{ 
-                                    height: 20, 
-                                    fontSize: "0.65rem", 
-                                    fontWeight: 800, 
-                                    textTransform: "none",
-                                    color: "primary.main",
-                                    p: 0,
-                                    minWidth: 0,
-                                    "&:hover": { backgroundColor: "transparent", textDecoration: "underline" }
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+                                <Typography
+                                  variant="body1"
+                                  sx={{
+                                    fontWeight: notif.leidaAt ? 600 : 800,
+                                    color: notif.leidaAt ? "text.primary" : "primary.main",
+                                    lineHeight: 1.3
                                   }}
                                 >
-                                  Ver Solicitud
-                                </Button>
+                                  {notif.asunto}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, whiteSpace: "nowrap", ml: 2 }}>
+                                  {formatTime(notif.createdAt)}
+                                </Typography>
+                              </Stack>
+
+                              {loginNotification ? (
+                                <Box sx={{ mb: 1 }}>
+                                  {parsedBody.intro ? (
+                                    <Typography
+                                      variant="body2"
+                                      color="text.secondary"
+                                      sx={{ mb: 1, fontSize: "0.875rem", opacity: notif.leidaAt ? 0.75 : 0.9 }}
+                                    >
+                                      {parsedBody.intro}
+                                    </Typography>
+                                  ) : null}
+                                  <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mb: userAgentValue ? 0.5 : 0 }}>
+                                    {usuarioValue ? <Chip size="small" label={`Usuario: ${usuarioValue}`} variant="outlined" /> : null}
+                                    {dispositivoValue ? <Chip size="small" label={`Dispositivo: ${dispositivoValue}`} variant="outlined" /> : null}
+                                    {proveedorValue ? <Chip size="small" label={`Proveedor: ${proveedorValue}`} variant="outlined" /> : null}
+                                    {ipValue ? <Chip size="small" label={`IP: ${ipValue}`} variant="outlined" /> : null}
+                                  </Stack>
+                                  {userAgentValue ? (
+                                    <Tooltip title={userAgentValue}>
+                                      <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        sx={{ display: "block", fontFamily: "monospace", opacity: 0.75 }}
+                                      >
+                                        User-Agent: {truncateText(userAgentValue, 110)}
+                                      </Typography>
+                                    </Tooltip>
+                                  ) : null}
+                                </Box>
+                              ) : assistantInterestNotification ? (
+                                <Box sx={{ mb: 1 }}>
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    sx={{ mb: 0.6, fontSize: "0.9rem", fontWeight: 700 }}
+                                  >
+                                    {assistantName || "Asistente"}{interestValue ? ` marco "${interestValue}".` : " actualizo su interes."}
+                                  </Typography>
+                                  <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                                    {meetingTitle ? <Chip size="small" label={`Reunion: ${meetingTitle}`} variant="outlined" /> : null}
+                                    {meetingDate ? <Chip size="small" label={`Dia: ${meetingDate}`} variant="outlined" /> : null}
+                                  </Stack>
+                                </Box>
+                              ) : (
+                                <Typography
+                                  variant="body2"
+                                  color="text.secondary"
+                                  sx={{
+                                    whiteSpace: "pre-wrap",
+                                    mb: 1,
+                                    fontSize: "0.875rem",
+                                    lineHeight: 1.5,
+                                    opacity: notif.leidaAt ? 0.7 : 0.9
+                                  }}
+                                >
+                                  {notif.cuerpo}
+                                </Typography>
                               )}
-                            </Stack>
-                          </Box>
 
-                          <Stack 
-                            className="action-buttons"
-                            direction="row" 
-                            spacing={0.5} 
-                            sx={{ 
-                              opacity: { xs: 1, md: 0 }, 
-                              transition: "opacity 0.2s ease",
-                              alignItems: "center"
-                            }}
-                          >
-                            <Tooltip title={notif.leidaAt ? "Marcar como sin leer" : "Marcar como leída"}>
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  void markAsRead([notif.id], !notif.leidaAt);
-                                }}
-                                disabled={isMutating}
-                                sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-                              >
-                                {notif.leidaAt ? (
-                                  <MarkEmailUnreadOutlinedIcon fontSize="small" />
-                                ) : (
-                                  <MarkEmailReadOutlinedIcon fontSize="small" />
+                              <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                                {scope === "all" && (
+                                  <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>
+                                    Para: {getUserDisplay(notif.usuario)}
+                                  </Typography>
                                 )}
-                              </IconButton>
-                            </Tooltip>
+                                <Chip
+                                  size="small"
+                                  label={getTipoLabel(notif.tipoNotificacion)}
+                                  variant="outlined"
+                                  sx={{
+                                    height: 20,
+                                    fontSize: "0.65rem",
+                                    fontWeight: 800,
+                                    textTransform: "uppercase",
+                                    borderColor: "divider",
+                                    color: "text.secondary"
+                                  }}
+                                />
+                                {loginNotification ? (
+                                  <Chip
+                                    size="small"
+                                    label="Inicio sesión"
+                                    color="info"
+                                    variant="outlined"
+                                    sx={{
+                                      height: 20,
+                                      fontSize: "0.65rem",
+                                      fontWeight: 800
+                                    }}
+                                  />
+                                ) : null}
+                                {assistantInterestNotification ? (
+                                  <Chip
+                                    size="small"
+                                    label="Interes asistente"
+                                    color="warning"
+                                    variant="outlined"
+                                    sx={{
+                                      height: 20,
+                                      fontSize: "0.65rem",
+                                      fontWeight: 800
+                                    }}
+                                  />
+                                ) : null}
+                                {notif.entidadReferenciaTipo === "SolicitudSala" && notif.entidadReferenciaId && (
+                                  <Button
+                                    size="small"
+                                    variant="text"
+                                    startIcon={<LaunchIcon fontSize="inherit" />}
+                                    onClick={() => openDetail(notif.entidadReferenciaId!)}
+                                    sx={{
+                                      height: 20,
+                                      fontSize: "0.65rem",
+                                      fontWeight: 800,
+                                      textTransform: "none",
+                                      color: "primary.main",
+                                      p: 0,
+                                      minWidth: 0,
+                                      "&:hover": { backgroundColor: "transparent", textDecoration: "underline" }
+                                    }}
+                                  >
+                                    Ver Solicitud
+                                  </Button>
+                                )}
+                              </Stack>
+                            </Box>
 
-                            <Tooltip title="Borrar">
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  void deleteNotificaciones([notif.id]);
-                                }}
-                                disabled={isMutating}
-                                sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
-                              >
-                                <DeleteOutlineIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            
-                            <ChevronRightIcon sx={{ color: "grey.300", ml: 0.5, display: { xs: "none", sm: "block" } }} />
+                            <Stack
+                              className="action-buttons"
+                              direction="row"
+                              spacing={0.5}
+                              sx={{
+                                opacity: { xs: 1, md: 0 },
+                                transition: "opacity 0.2s ease",
+                                alignItems: "center"
+                              }}
+                            >
+                              <Tooltip title={notif.leidaAt ? "Marcar como sin leer" : "Marcar como leída"}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => {
+                                    void markAsRead([notif.id], !notif.leidaAt);
+                                  }}
+                                  disabled={isMutating}
+                                  sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
+                                >
+                                  {notif.leidaAt ? (
+                                    <MarkEmailUnreadOutlinedIcon fontSize="small" />
+                                  ) : (
+                                    <MarkEmailReadOutlinedIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </Tooltip>
+
+                              <Tooltip title="Borrar">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => {
+                                    void deleteNotificaciones([notif.id]);
+                                  }}
+                                  disabled={isMutating}
+                                  sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
+                                >
+                                  <DeleteOutlineIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+
+                              <ChevronRightIcon sx={{ color: "grey.300", ml: 0.5, display: { xs: "none", sm: "block" } }} />
+                            </Stack>
                           </Stack>
-                        </Stack>
-                      </Paper>
-                    ))}
+                        </Paper>
+                      );
+                    })}
                   </Stack>
                 </Box>
               );

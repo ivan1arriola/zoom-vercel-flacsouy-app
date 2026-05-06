@@ -76,6 +76,11 @@ function parseOrden(rawValue: string | null): Prisma.SortOrder {
   return "desc";
 }
 
+function parseActividad(rawValue: string | null): "TODAS" | "LOGIN" {
+  if (rawValue === "LOGIN") return "LOGIN";
+  return "TODAS";
+}
+
 export async function GET(request: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -90,12 +95,19 @@ export async function GET(request: Request) {
     const tipo = parseTipo(searchParams.get("tipo"));
     const lectura = parseLectura(searchParams.get("lectura"));
     const orden = parseOrden(searchParams.get("orden"));
+    const actividad = parseActividad(searchParams.get("actividad"));
     const scope = parseScope(searchParams.get("scope"), isAdmin);
 
     const where: Prisma.NotificacionWhereInput = {};
     if (scope === "mine") where.usuarioId = user.id;
     if (estado) where.estadoEnvio = estado;
     if (tipo) where.tipoNotificacion = tipo;
+    if (actividad === "LOGIN") {
+      where.OR = [
+        { entidadReferenciaTipo: "LOGIN" },
+        { asunto: { contains: "Inicio de sesion", mode: "insensitive" } }
+      ];
+    }
     if (lectura === "LEIDAS") where.leidaAt = { not: null };
     if (lectura === "NO_LEIDAS") where.leidaAt = null;
 
@@ -131,6 +143,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       scope,
       orden,
+      actividad,
       notificaciones,
       unreadCount,
       pagination: {

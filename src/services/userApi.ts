@@ -17,6 +17,7 @@ export type ManagedUser = {
   lastName?: string | null;
   emailVerified?: string | null;
   createdAt: string;
+  lastLoginAt?: string | null;
 };
 
 export async function loadUsers(): Promise<ManagedUser[] | null> {

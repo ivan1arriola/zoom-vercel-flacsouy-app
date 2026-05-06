@@ -74,31 +74,52 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const users = await db.user.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      firstName: true,
-      lastName: true,
-      emailVerified: true,
-      createdAt: true,
-      emailAliases: {
-        select: {
-          email: true
-        },
-        orderBy: {
-          email: "asc"
+  const [users, latestLoginRows] = await Promise.all([
+    db.user.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        emailVerified: true,
+        createdAt: true,
+        emailAliases: {
+          select: {
+            email: true
+          },
+          orderBy: {
+            email: "asc"
+          }
         }
       }
-    }
-  });
+    }),
+    db.notificacion.groupBy({
+      by: ["entidadReferenciaId"],
+      where: {
+        entidadReferenciaTipo: "LOGIN",
+        entidadReferenciaId: { not: null }
+      },
+      _max: {
+        createdAt: true
+      }
+    })
+  ]);
+
+  const lastLoginByUserId = new Map<string, string>();
+  for (const row of latestLoginRows) {
+    const userId = row.entidadReferenciaId;
+    const latestAt = row._max.createdAt;
+    if (!userId || !latestAt) continue;
+    lastLoginByUserId.set(userId, latestAt.toISOString());
+  }
 
   return NextResponse.json({
     users: users.map((user) => ({
       ...user,
-      emails: buildUserAccessEmails(user)
+      emails: buildUserAccessEmails(user),
+      lastLoginAt: lastLoginByUserId.get(user.id) ?? null
     }))
   });
 }
