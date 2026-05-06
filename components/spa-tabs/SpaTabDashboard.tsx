@@ -1558,7 +1558,11 @@ export function SpaTabDashboard({
           )}
 
           {/* Next Meeting Card for Docente - REDESIGNED */}
-          {summary?.nextMeeting && (
+          {isLoadingSummary && !summary?.nextMeeting ? (
+            <Card variant="outlined" sx={{ borderRadius: 4, mb: 4 }}>
+              <Skeleton variant="rectangular" height={240} sx={{ borderRadius: 4 }} />
+            </Card>
+          ) : summary?.nextMeeting && (
             <Card
               variant="outlined"
               sx={{
@@ -1781,6 +1785,26 @@ export function SpaTabDashboard({
           }}
         >
           {config.metrics.map((metric) => {
+            if (isLoadingSummary && !summary) {
+              return (
+                <Card
+                  key={metric.key}
+                  variant="outlined"
+                  sx={{
+                    borderRadius: 3,
+                    p: 1.5,
+                    background: theme.palette.background.paper
+                  }}
+                >
+                  <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 1.5 }}>
+                    <Skeleton variant="text" width="50%" height={24} />
+                    <Skeleton variant="circular" width={34} height={34} />
+                  </Stack>
+                  <Skeleton variant="text" width="30%" height={48} />
+                  <Skeleton variant="text" width="80%" height={20} />
+                </Card>
+              );
+            }
             const value = summary ? metricValue(summary, metric.key) : 0;
             const formattedValue = metric.formatValue ? metric.formatValue(value) : String(value);
             const resolvedSemanticColor = resolveMetricSemanticColor(metric, value);
@@ -1963,7 +1987,12 @@ export function SpaTabDashboard({
                 </Alert>
               ) : null}
 
-              {nextMeeting ? (
+              {isLoadingAssistantPanel ? (
+                <Stack spacing={2} sx={{ p: 1 }}>
+                  <Skeleton variant="text" width="60%" height={40} />
+                  <Skeleton variant="rectangular" height={160} sx={{ borderRadius: 2 }} />
+                </Stack>
+              ) : nextMeeting ? (
                 <Box>
                   <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ xs: "flex-start", md: "center" }} justifyContent="space-between" sx={{ mb: 2 }}>
                     <Box>

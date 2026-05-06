@@ -23,6 +23,7 @@ const tabs = [
   "estadisticas",
   "tarifas",
   "usuarios",
+  "logins",
   "perfil"
 ] as const;
 type Tab = (typeof tabs)[number];

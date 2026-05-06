@@ -36,6 +36,7 @@ import { markAgendaViewed, type AgendaEvent } from "@/src/services/agendaApi";
 
 interface SpaTabAgendaLibreProps {
   agendaLibre: AgendaEvent[];
+  isLoading?: boolean;
   updatingInterestId: string | null;
   onSetInterest: (eventoId: string, estadoInteres: "ME_INTERESA" | "NO_ME_INTERESA" | "RETIRADO") => void;
 }
@@ -69,6 +70,7 @@ function getMonthYear(dateIso: string): string {
 
 export function SpaTabAgendaLibre({
   agendaLibre,
+  isLoading,
   updatingInterestId,
   onSetInterest
 }: SpaTabAgendaLibreProps) {
@@ -133,7 +135,17 @@ export function SpaTabAgendaLibre({
         <Tab label={`Respondidas (${agendaLibre.filter(i => resolveInterestState(i.intereses[0]?.estadoInteres) !== "SIN_RESPUESTA").length})`} />
       </Tabs>
 
-      {filteredEvents.length === 0 ? (
+      {isLoading && agendaLibre.length === 0 ? (
+        <Stack spacing={2}>
+          {[1, 2, 3].map((i) => (
+            <Paper key={i} variant="outlined" sx={{ p: 3, borderRadius: 4 }}>
+              <Skeleton variant="text" width="40%" height={32} sx={{ mb: 1 }} />
+              <Skeleton variant="text" width="60%" height={24} sx={{ mb: 2 }} />
+              <Skeleton variant="rectangular" height={100} sx={{ borderRadius: 2 }} />
+            </Paper>
+          ))}
+        </Stack>
+      ) : filteredEvents.length === 0 ? (
         <Paper sx={{ p: 8, textAlign: "center", borderRadius: 4, bgcolor: alpha(theme.palette.primary.main, 0.03), border: "2px dashed", borderColor: alpha(theme.palette.primary.main, 0.1) }}>
           <HelpOutlineIcon sx={{ fontSize: 64, color: "text.disabled", mb: 2 }} />
           <Typography variant="h6" color="text.secondary" fontWeight={700}>

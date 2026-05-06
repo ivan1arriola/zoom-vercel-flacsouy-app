@@ -20,6 +20,7 @@ import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
 import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import NotificationsNoneOutlinedIcon from "@mui/icons-material/NotificationsNoneOutlined";
+import LoginRoundedIcon from "@mui/icons-material/LoginRounded";
 
 export const tabs = [
   "dashboard",
@@ -43,6 +44,7 @@ export const tabs = [
   "estadisticas",
   "tarifas",
   "usuarios",
+  "logins",
   "perfil"
 ] as const;
 export type Tab = (typeof tabs)[number];
@@ -197,6 +199,12 @@ export const TAB_CONFIG: Record<Tab, TabConfig> = {
     roles: ["ADMINISTRADOR"],
     group: "ADMIN"
   },
+  logins: {
+    label: "Inicios de sesión",
+    visibleInNavigation: true,
+    roles: ["ADMINISTRADOR"],
+    group: "ADMIN"
+  },
   perfil: {
     label: "Perfil",
     visibleInNavigation: false,
@@ -224,6 +232,7 @@ export const ROLE_PRESENTATION_TABS: Record<ViewRole, readonly Tab[]> = {
     "estadisticas",
     "tarifas",
     "usuarios",
+    "logins",
     "perfil"
   ],
   ASISTENTE_ZOOM: [
@@ -355,6 +364,8 @@ export function getTabIcon(tab: Tab): ReactNode {
       return <PaidOutlinedIcon fontSize="small" />;
     case "usuarios":
       return <GroupOutlinedIcon fontSize="small" />;
+    case "logins":
+      return <LoginRoundedIcon fontSize="small" />;
     case "perfil":
       return <GroupOutlinedIcon fontSize="small" />;
     default:

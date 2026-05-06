@@ -439,6 +439,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const { userAgent, ip } = await resolveRequestMetadata();
 
+        await db.user.update({
+          where: { id: userId },
+          data: {
+            lastLoginAt: new Date(),
+            lastLoginIp: ip,
+            lastLoginUserAgent: userAgent,
+            lastLoginProvider: account?.provider ?? null
+          }
+        });
+
         await createAdminLoginNotifications({
           userId,
           userEmail: email,

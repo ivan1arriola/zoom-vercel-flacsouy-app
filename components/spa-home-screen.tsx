@@ -117,6 +117,7 @@ import { SpaTabProximasReuniones } from "@/components/spa-tabs/SpaTabProximasReu
 import { SpaTabPasadasReunionesZoom } from "@/components/spa-tabs/SpaTabPasadasReunionesZoom";
 import { SpaTabZoomDriveSync } from "@/components/spa-tabs/SpaTabZoomDriveSync";
 import { SpaTabUsuarios } from "@/components/spa-tabs/SpaTabUsuarios";
+import { SpaTabLogins } from "@/components/spa-tabs/SpaTabLogins";
 import { SpaTabPerfil } from "@/components/spa-tabs/SpaTabPerfil";
 import { SpaTabEstadisticas } from "@/components/spa-tabs/SpaTabEstadisticas";
 import { SpaTabNotificaciones } from "@/components/SpaTabNotificaciones";
@@ -329,7 +330,7 @@ export function SpaHomeScreen() {
   const [resolvingManualSolicitudId, setResolvingManualSolicitudId] = useState<string | null>(null);
   
   // Agenda Libre
-  const { agendaLibre, setAgendaLibre, updatingInterestId, setUpdatingInterestId } = useAgendaLibre();
+  const { agendaLibre, setAgendaLibre, updatingInterestId, setUpdatingInterestId, isLoadingAgendaLibre, setIsLoadingAgendaLibre } = useAgendaLibre();
   
   // Assignment Board
   const {
@@ -434,6 +435,7 @@ export function SpaHomeScreen() {
   const canSeeZoomAccounts = canAccessTabForRole("cuentas", effectiveRole);
   const canSeeZoomDriveSync = canAccessTabForRole("zoom_drive_sync", effectiveRole);
   const canSeeUsers = canAccessTabForRole("usuarios", effectiveRole);
+  const canSeeLogins = canAccessTabForRole("logins", effectiveRole);
   const canSeeAgendaLibre = canAccessTabForRole("agenda_libre", effectiveRole);
   const canSeeMisReunionesAsignadas = canAccessTabForRole("mis_reuniones_asignadas", effectiveRole);
   const canSeeMisAsistencias = canAccessTabForRole("mis_asistencias", effectiveRole);
@@ -942,8 +944,13 @@ export function SpaHomeScreen() {
   useEffect(() => {
     if (tab !== "agenda_libre" || !canSeeAgendaLibre) return;
     (async () => {
-      const agenda = await loadAgendaLibre();
-      if (agenda) setAgendaLibre(agenda);
+      setIsLoadingAgendaLibre(true);
+      try {
+        const agenda = await loadAgendaLibre();
+        if (agenda) setAgendaLibre(agenda);
+      } finally {
+        setIsLoadingAgendaLibre(false);
+      }
     })();
   }, [tab, canSeeAgendaLibre]);
 
@@ -2367,6 +2374,7 @@ export function SpaHomeScreen() {
       {tab === "agenda_libre" && canSeeAgendaLibre && (
         <SpaTabAgendaLibre
           agendaLibre={agendaLibre}
+          isLoading={isLoadingAgendaLibre}
           updatingInterestId={updatingInterestId}
           onSetInterest={setInterest}
         />
@@ -2550,6 +2558,24 @@ export function SpaHomeScreen() {
           onUpdateUserRole={updateUserRole}
           onResendActivationLink={resendUserActivationLink}
           onSendSelfActivationLinkTest={sendSelfActivationLinkTest}
+          onRefresh={() => {
+            setIsLoadingUsers(true);
+            (async () => {
+              try {
+                const users = await loadUsers();
+                if (users) setUsers(users);
+              } finally {
+                setIsLoadingUsers(false);
+              }
+            })();
+          }}
+        />
+      )}
+
+      {tab === "logins" && canSeeLogins && (
+        <SpaTabLogins
+          users={users}
+          isLoadingUsers={isLoadingUsers}
           onRefresh={() => {
             setIsLoadingUsers(true);
             (async () => {

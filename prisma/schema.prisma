@@ -50,6 +50,10 @@ model User {
   liquidacionesRevisadas Liquidacion[] @relation("LiquidacionRevisadaPor")
   liquidacionesPagadas Liquidacion[] @relation("LiquidacionPagadaPor")
   pushSubscriptions     PushSubscription[]
+  lastLoginAt          DateTime?
+  lastLoginIp          String?
+  lastLoginUserAgent   String?
+  lastLoginProvider    String?
 }
 
 model UserEmailAlias {
