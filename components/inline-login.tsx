@@ -30,6 +30,7 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import GoogleIcon from "@mui/icons-material/Google";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { FlacsoBrandLogo } from "@/components/flacso-brand-logo";
+import { ThemeToggleButton } from "@/components/theme-toggle-button";
 
 type InlineLoginProps = {
   initialError?: string;
@@ -448,6 +449,9 @@ export function InlineLogin({
           : "radial-gradient(circle at 50% 50%, rgba(31, 75, 143, 0.04) 0%, rgba(246, 248, 252, 1) 100%)",
       }}
     >
+      <Box sx={{ position: 'absolute', top: 16, right: 16 }}>
+        <ThemeToggleButton />
+      </Box>
       <Box sx={{ width: "100%", maxWidth: 460, position: "relative", zIndex: 1 }}>
         <Box sx={{ textAlign: "center", mb: 5 }}>
           <Stack direction="row" justifyContent="center" alignItems="center" spacing={2} sx={{ mb: 3 }}>
