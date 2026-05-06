@@ -277,6 +277,9 @@ export async function POST(request: Request) {
     });
   }
 
+  console.log(`[CalendarSync] Starting sync for user ${user.id} with ClientID: ${env.AUTH_GOOGLE_ID?.slice(0, 10)}...`);
+  console.log(`[CalendarSync] Account scopes in DB: ${account.scope}`);
+
   const oauth2Client = new google.auth.OAuth2(env.AUTH_GOOGLE_ID, env.AUTH_GOOGLE_SECRET);
   oauth2Client.setCredentials({
     access_token: account.access_token ?? undefined,
@@ -286,15 +289,26 @@ export async function POST(request: Request) {
     scope: account.scope ?? undefined
   });
 
+  let accessToken;
   try {
-    await oauth2Client.getAccessToken();
-  } catch {
+    const tokenRes = await oauth2Client.getAccessToken();
+    accessToken = tokenRes.token;
+  } catch (error) {
+    console.error("[CalendarSync] Failed to refresh access token:", error);
     return NextResponse.json(
       {
         error:
           "No se pudo autenticar con Google Calendar. Desvincula y vuelve a vincular Google para renovar permisos."
       },
       { status: 400 }
+    );
+  }
+
+  if (!accessToken) {
+    console.error("[CalendarSync] No access token returned from getAccessToken()");
+    return NextResponse.json(
+      { error: "Error de autenticacion con Google (token vacio)." },
+      { status: 401 }
     );
   }
 
@@ -309,36 +323,43 @@ export async function POST(request: Request) {
   let skipped = 0;
 
   for (const meeting of meetings) {
-    const existing = await calendar.events.list({
-      calendarId: "primary",
-      maxResults: 1,
-      singleEvents: true,
-      showDeleted: false,
-      privateExtendedProperty: [
-        "flacsoApp=flacso-zoom-web",
-        `flacsoEventId=${meeting.eventId}`
-      ]
-    });
-
-    const existingEvent = existing.data.items?.[0];
-    const body = buildCalendarEventBody(meeting, baseUrl);
-
     try {
+      const existing = await calendar.events.list({
+        calendarId: "primary",
+        maxResults: 1,
+        singleEvents: true,
+        showDeleted: false,
+        privateExtendedProperty: [
+          "flacsoApp=flacso-zoom-web",
+          `flacsoEventId=${meeting.eventId}`
+        ],
+        auth: oauth2Client
+      });
+
+      const existingEvent = existing.data.items?.[0];
+      const body = buildCalendarEventBody(meeting, baseUrl);
+
       if (existingEvent?.id) {
         await calendar.events.patch({
           calendarId: "primary",
           eventId: existingEvent.id,
-          requestBody: body
+          requestBody: body,
+          auth: oauth2Client
         });
         updated += 1;
       } else {
         await calendar.events.insert({
           calendarId: "primary",
-          requestBody: body
+          requestBody: body,
+          auth: oauth2Client
         });
         created += 1;
       }
-    } catch {
+    } catch (error: any) {
+      console.error(`Error syncing meeting ${meeting.eventId}:`, error.message || error);
+      if (error.response?.data) {
+        console.error("Google API Response Data:", JSON.stringify(error.response.data));
+      }
       skipped += 1;
     }
   }

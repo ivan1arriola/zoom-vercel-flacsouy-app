@@ -213,15 +213,21 @@ export async function syncUpcomingMeetingsToGoogleCalendar(): Promise<{
   const response = await fetch("/api/v1/google-calendar/upcoming/sync", {
     method: "POST"
   });
-  const data = (await response.json()) as {
-    ok?: boolean;
-    total?: number;
-    created?: number;
-    updated?: number;
-    skipped?: number;
-    message?: string;
-    error?: string;
-  };
+
+  if (response.status === 204) {
+    return { success: true, total: 0, message: "Sin cambios." };
+  }
+
+  let data: any = {};
+  try {
+    data = await response.json();
+  } catch (e) {
+    console.error("Error parsing sync response:", e);
+    return {
+      success: false,
+      error: `Error en el servidor (${response.status}). Inténtalo de nuevo más tarde.`
+    };
+  }
   if (!response.ok) {
     return {
       success: false,
