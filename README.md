@@ -75,6 +75,7 @@ npm run dev
 ## Webhook Zoom (grabaciones)
 
 - Endpoint para Zoom Marketplace: `POST /api/v1/zoom/webhook`
+- Alias compatible con sample oficial Zoom: `POST /webhook`
 - URL completa en producción: `${APP_BASE_URL}/api/v1/zoom/webhook`
 - Variables requeridas para validar firma/challenge:
   - `ZOOM_WEBHOOK_SECRET_TOKEN`
