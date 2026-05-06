@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Politica de Privacidad | FLACSO Zoom Uruguay"
+  title: "Politica de Privacidad | FLACSO Uruguay Zoom APP"
 };
 
 export default function PrivacyPage() {

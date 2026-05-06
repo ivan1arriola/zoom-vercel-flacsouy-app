@@ -15,14 +15,14 @@ export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
 export const metadata: Metadata = {
-  applicationName: "Plataforma Zoom de FLACSO Uruguay",
-  title: "Plataforma Zoom de FLACSO Uruguay",
+  applicationName: "FLACSO Uruguay Zoom APP",
+  title: "FLACSO Uruguay Zoom APP",
   description: "Aplicacion modular con UI, base de datos e integraciones para FLACSO Uruguay",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Plataforma Zoom de FLACSO Uruguay"
+    title: "FLACSO Uruguay Zoom APP"
   },
   icons: {
     icon: [

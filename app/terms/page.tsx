@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Terminos del Servicio | FLACSO Zoom Uruguay"
+  title: "Terminos del Servicio | FLACSO Uruguay Zoom APP"
 };
 
 export default function TermsPage() {

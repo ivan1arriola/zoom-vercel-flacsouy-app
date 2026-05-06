@@ -57,6 +57,7 @@ export function InlineLogin({
 }: InlineLoginProps) {
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === "dark";
+  const appPublicName = "FLACSO Uruguay Zoom APP";
   const googleDomainNotice = "Puedes ingresar con cualquier cuenta de Google o con correo y contrasena.";
   const [activePanel, setActivePanel] = useState<AuthPanel>("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -445,7 +446,7 @@ export function InlineLogin({
             <FlacsoBrandLogo height={140} />
           </Stack>
           <Typography variant="h5" sx={{ fontWeight: 800, mb: 1, color: "primary.main", letterSpacing: "-0.5px" }}>
-            Plataforma Zoom
+            {appPublicName}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
             {activePanel === "login" && "Bienvenido de nuevo. Inicia sesión para continuar."}
@@ -454,6 +455,61 @@ export function InlineLogin({
             {activePanel === "activation" && "Estás a un paso de activar tu cuenta."}
           </Typography>
         </Box>
+
+        <Card
+          variant="outlined"
+          sx={{
+            borderRadius: "20px",
+            mb: 2,
+            borderColor: isDarkMode ? alpha(theme.palette.primary.main, 0.2) : alpha(theme.palette.primary.main, 0.24),
+            background: isDarkMode
+              ? `linear-gradient(160deg, ${alpha(theme.palette.primary.main, 0.14)} 0%, ${alpha(theme.palette.background.paper, 0.9)} 100%)`
+              : `linear-gradient(160deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.06)} 100%)`
+          }}
+        >
+          <CardContent sx={{ p: 2.2 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 0.8 }}>
+              ¿Qué es esta app?
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
+              {appPublicName} es la plataforma de FLACSO Uruguay para gestionar reuniones académicas en Zoom,
+              asistentes de soporte, notificaciones operativas y sincronización con Google Calendar.
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
+              Solicitamos datos de Google (perfil básico y correo) solo para autenticar usuarios y operar las
+              funciones autorizadas de la aplicación.
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
+              Contacto de soporte y privacidad: <strong>web@flacso.edu.uy</strong>.
+            </Typography>
+            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              <Button
+                size="small"
+                variant="text"
+                href="/privacy"
+                sx={{ textTransform: "none", fontWeight: 700, px: 0.6 }}
+              >
+                Política de Privacidad
+              </Button>
+              <Button
+                size="small"
+                variant="text"
+                href="/terms"
+                sx={{ textTransform: "none", fontWeight: 700, px: 0.6 }}
+              >
+                Términos del Servicio
+              </Button>
+              <Button
+                size="small"
+                variant="text"
+                href="/oauth-home"
+                sx={{ textTransform: "none", fontWeight: 700, px: 0.6 }}
+              >
+                Pagina Publica OAuth
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
 
         <Card 
           variant="outlined" 
